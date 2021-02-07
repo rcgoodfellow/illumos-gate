@@ -2100,6 +2100,9 @@ VIOBLK_OBJS = vioblk.o
 # Virtio network driver
 VIOIF_OBJS = vioif.o
 
+# Virtio 9p
+VIO9P_OBJS = vio9p.o
+
 #
 #	kiconv modules
 #
