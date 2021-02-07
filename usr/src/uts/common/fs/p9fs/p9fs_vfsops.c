@@ -14,7 +14,7 @@
  */
 
 /*
- * XXX virtfs
+ * XXX p9fs
  */
 
 #include <sys/vfs.h>
@@ -22,10 +22,10 @@
 #include <sys/modctl.h>
 #include <sys/policy.h>
 #include <sys/sysmacros.h>
-#include <sys/fs/virtfs_impl.h>
+#include <sys/fs/p9fs_impl.h>
 
 static int
-virtfs_mount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
+p9fs_mount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
     struct cred *cr)
 {
 	int e;
@@ -38,7 +38,7 @@ virtfs_mount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
 }
 
 static int
-virtfs_unmount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
+p9fs_unmount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
     struct cred *cr)
 {
 	int e;
@@ -57,58 +57,58 @@ virtfs_unmount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
 	return (EBUSY);
 }
 
-static const fs_operation_def_t virtfs_vfsops_template[] = {
-	{ .name = VFSNAME_MOUNT, .func = { .vfs_mount = virtfs_mount }},
-	{ .name = VFSNAME_UNMOUNT, .func = { .vfs_unmount = virtfs_unmount }},
+static const fs_operation_def_t p9fs_vfsops_template[] = {
+	{ .name = VFSNAME_MOUNT, .func = { .vfs_mount = p9fs_mount }},
+	{ .name = VFSNAME_UNMOUNT, .func = { .vfs_unmount = p9fs_unmount }},
 	{ .name = NULL, .func = NULL },
 };
 
-static int virtfs_fstyp;
-vfsopts_t *virtfs_vfsops;
+static int p9fs_fstyp;
+vfsopts_t *p9fs_vfsops;
 
 static int
-virtfs_init(int fstyp, char *name)
+p9fs_init(int fstyp, char *name)
 {
 	int e;
 
-	if ((e = vfs_setfsops(fstyp, virtfs_vfsops_template,
-	    &virtfs_vfsops)) != 0) {
-		cmn_err(CE_WARN, "virtfs: bad vfs ops template");
+	if ((e = vfs_setfsops(fstyp, p9fs_vfsops_template,
+	    &p9fs_vfsops)) != 0) {
+		cmn_err(CE_WARN, "p9fs: bad vfs ops template");
 		return (error);
 	}
 
-	if ((e = vn_make_ops(name, virtfs_vnops_template,
-	    &virtfs_vnodeops)) != 0) {
+	if ((e = vn_make_ops(name, p9fs_vnops_template,
+	    &p9fs_vnodeops)) != 0) {
 		(void) vfs_freevfsops_by_type(fstyp);
-		cmn_err(CE_WARN, "virtfs: bad vnode ops template");
+		cmn_err(CE_WARN, "p9fs: bad vnode ops template");
 		return (error);
 	}
 
-	virtfs_fstyp = fstyp;
+	p9fs_fstyp = fstyp;
 
 	return (0);
 }
 
-static mntopts_t virtfs_mntopts_list[] = {
+static mntopts_t p9fs_mntopts_list[] = {
 };
 
-static mntopts_t virtfs_mntopts = {
-	.mo_list =		virtfs_mntopts_list,
-	.mo_count =		ARRAY_SIZE(virtfs_mntopts_list),
+static mntopts_t p9fs_mntopts = {
+	.mo_list =		p9fs_mntopts_list,
+	.mo_count =		ARRAY_SIZE(p9fs_mntopts_list),
 };
 
-static vfsdef_t virtfs_vfsdev = {
+static vfsdef_t p9fs_vfsdev = {
 	.def_version =		VFSDEF_VERSION,
-	.name =			"virtfs",
-	.init =			virtfs_init,
+	.name =			"p9fs",
+	.init =			p9fs_init,
 	.flags =		VSW_HASPROTO,
-	.optproto =		&virtfs_mntopts,
+	.optproto =		&p9fs_mntopts,
 };
 
-static struct modlfs virtfs_modlfs = {
+static struct modlfs p9fs_modlfs = {
 	.fs_modops =		&mod_fsops,
-	.fs_linkinfo =		"virtio file system",
-	.fs_vfsdef =		&virtfs_vfsdev,
+	.fs_linkinfo =		"plan 9 file system (9P2000.u)",
+	.fs_vfsdef =		&p9fs_vfsdev,
 }
 
 int
@@ -116,7 +116,7 @@ _init(void)
 {
 	int r;
 
-	if ((r = mod_install(&virtfs_modlinkage)) != 0) {
+	if ((r = mod_install(&p9fs_modlinkage)) != 0) {
 		/*
 		 * XXX fail
 		 */
@@ -128,7 +128,7 @@ _init(void)
 int
 _info(struct modinfo *mip)
 {
-	return (mod_info(&virtfs_modlinkage, mip));
+	return (mod_info(&p9fs_modlinkage, mip));
 }
 
 int
@@ -136,7 +136,7 @@ _fini(void)
 {
 	int r;
 
-	if ((r = mod_remove(&virtfs_modlinkage)) == 0) {
+	if ((r = mod_remove(&p9fs_modlinkage)) == 0) {
 		/*
 		 * XXX cleanup
 		 */

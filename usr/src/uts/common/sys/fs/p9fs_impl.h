@@ -13,21 +13,21 @@
  * Copyright 2021 Oxide Computer Company
  */
 
-#ifndef _SYS_FS_VIRTFS_IMPL_H
-#define	_SYS_FS_VIRTFS_IMPL_H
+#ifndef _SYS_FS_P9FS_IMPL_H
+#define	_SYS_FS_P9FS_IMPL_H
 
 /*
- * XXX virtfs
+ * XXX p9fs
  */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern const struct fs_operation_def virtfs_vnodeops_template[];
+extern const struct fs_operation_def p9fs_vnodeops_template[];
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _SYS_FS_VIRTFS_IMPL_H */
+#endif /* _SYS_FS_P9FS_IMPL_H */

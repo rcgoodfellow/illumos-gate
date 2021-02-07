@@ -15,14 +15,14 @@
 
 #include <sys/vfs.h>
 #include <sys/vfs_opreg.h>
-#include <sys/fs/virtfs_impl.h>
+#include <sys/fs/p9fs_impl.h>
 
 /*
- * XXX virtfs
+ * XXX p9fs
  */
 
 struct vnodeops *lo_vnodeops;
 
-const fs_operation_def_t virtfs_vnodeops_template[] = {
+const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = NULL, .func = NULL },
 };
