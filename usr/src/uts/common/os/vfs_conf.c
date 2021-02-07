@@ -66,7 +66,7 @@ struct vfssw vfssw[] = {
 	{ "namefs" },				/* NAMEFS */
 	{ "proc" },				/* PROCFS */
 	{ "samfs" },				/* QFS */
-	{ "nfs" },				/* NFS Version 2 */
+	{ "nfs" },				/* NFS */
 	{ "zfs" },				/* ZFS */
 	{ "hsfs" },				/* HSFS */
 	{ "lofs" },				/* LOFS */
@@ -82,6 +82,7 @@ struct vfssw vfssw[] = {
 	{ "sharefs" },				/* SHAREFS */
 	{ "dcfs" },				/* DCFS */
 	{ "smbfs" },				/* SMBFS */
+	{ "p9fs" },				/* Plan 9 (9P) */
 	{ "" },					/* reserved for loadable fs */
 	{ "" },
 	{ "" },

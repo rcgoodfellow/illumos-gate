@@ -1254,6 +1254,8 @@ SMBSRV_OBJS +=	$(SMBSRV_SHARED_OBJS)			\
 		smb3_kdf.o \
 		smb31_preauth.o
 
+P9FS_OBJS +=	p9fs_vnops.o	p9fs_vfsops.o
+
 PCFS_OBJS +=	pc_alloc.o	pc_dir.o	pc_node.o	pc_subr.o \
 		pc_vfsops.o	pc_vnops.o
 
