@@ -30,6 +30,8 @@
 
 
 static ldi_ident_t p9fs_li;
+static int p9fs_fstyp;
+vfsops_t *p9fs_vfsops;
 
 static int
 p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
@@ -40,7 +42,8 @@ p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
 	    UIO_SYSSPACE : UIO_USERSPACE;
 	struct pathname dir, spec;
 	ldi_handle_t lh = NULL;
-	p9fs_session_t *p9s = NULL;
+	dev_t dev;
+	p9fs_t *p9 = NULL;
 
 	if ((e = secpolicy_fs_mount(cr, mv, vfs)) != 0) {
 		return (EPERM);
@@ -79,29 +82,48 @@ p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
 	cmn_err(CE_WARN, "p9fs: spec = %s", spec.pn_path);
 
 	if (ldi_open_by_name(spec.pn_path, FREAD | FWRITE | FEXCL, cr, &lh,
-	    p9fs_li) != 0) {
+	    p9fs_li) != 0 ||
+	    ldi_get_dev(lh, &dev) != 0) {
 		cmn_err(CE_WARN, "ldi open of %s failed", spec.pn_path);
 		goto bail;
 	}
 	cmn_err(CE_WARN, "ldi open of %s ok!", spec.pn_path);
 
-	if (p9fs_session_init(&p9s, lh) != 0) {
+	p9 = kmem_zalloc(sizeof (*p9), KM_SLEEP);
+	p9->p9_vfs = vfs;
+
+	if (p9fs_session_init(&p9->p9_session, lh) != 0) {
 		cmn_err(CE_WARN, "p9fs session failure!");
 		goto bail;
 	}
 
-#if 0
-	p9fs_session_fini(p9s);
-	p9s = NULL;
+	if (p9->p9_session->p9s_root_qid->qid_type != PLAN9_QIDTYPE_DIR) {
+		cmn_err(CE_WARN, "p9fs: / is not a directory?");
+		goto bail;
+	}
 
-	(void) ldi_close(lh, FREAD | FWRITE | FEXCL, cr);
+	p9->p9_root = p9fs_make_node(p9, p9->p9_session->p9s_root_fid,
+	    p9->p9_session->p9s_root_qid);
+
+	/*
+	 * The LDI handle now belongs to the session.
+	 */
 	lh = NULL;
-	cmn_err(CE_WARN, "ldi closed!");
-#endif
+
+	vfs->vfs_data = p9;
+	vfs->vfs_dev = dev;
+	vfs->vfs_fstype = p9fs_fstyp;
+	vfs_make_fsid(&vfs->vfs_fsid, dev, p9fs_fstyp);
+
+	/*
+	 * Create the root vnode.
+	 */
+
+	return (0);
 
 bail:
-	if (p9s != NULL) {
-		p9fs_session_fini(p9s);
+	if (p9->p9_session != NULL) {
+		p9fs_session_fini(p9->p9_session);
 	}
 	if (lh != NULL) {
 		(void) ldi_close(lh, FREAD | FWRITE | FEXCL, cr);
@@ -134,7 +156,7 @@ static int
 p9fs_root(struct vfs *vfs, struct vnode **vnp)
 {
 	p9fs_t *p9 = vfs->vfs_data;
-	vnode_t *vn = p9->p9_root;
+	vnode_t *vn = p9->p9_root->p9n_vnode;
 
 	VN_HOLD(vn);
 	*vnp = vn;
@@ -177,9 +199,6 @@ static const fs_operation_def_t p9fs_vfsops_template[] = {
 	{ .name = VFSNAME_VGET, .func = { .vfs_vget = p9fs_vget }},
 	{ .name = NULL, .func = NULL },
 };
-
-static int p9fs_fstyp;
-vfsops_t *p9fs_vfsops;
 
 static int
 p9fs_init(int fstyp, char *name)

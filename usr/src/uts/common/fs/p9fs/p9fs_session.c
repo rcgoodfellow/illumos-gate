@@ -8,6 +8,7 @@
 #include <sys/modctl.h>
 #include <sys/policy.h>
 #include <sys/sysmacros.h>
+#include <sys/stdbool.h>
 #include <sys/fs/p9fs_impl.h>
 
 
@@ -38,19 +39,13 @@
 #define	MODE_ORCLOSE			0x40
 
 
-typedef struct qid {
-	uint8_t qid_type;
-	uint32_t qid_version;
-	uint64_t qid_path;
-} qid_t;
-
-typedef struct reqbuf {
+struct reqbuf {
 	unsigned rb_error;
 	uint8_t *rb_data;
 	size_t rb_capacity;
 	size_t rb_pos;
 	size_t rb_limit;
-} reqbuf_t;
+};
 
 /*
  * Reset the buffer to allow the assembly of a new message.
@@ -200,14 +195,22 @@ reqbuf_get_u64(reqbuf_t *rb)
 	return (val);
 }
 
-qid_t *
+void
+reqbuf_free_qid(p9fs_qid_t *qid)
+{
+	if (qid != NULL) {
+		kmem_free(qid, sizeof (*qid));
+	}
+}
+
+p9fs_qid_t *
 reqbuf_get_qid(reqbuf_t *rb)
 {
 	if (rb->rb_error != 0) {
 		return (NULL);
 	}
 
-	qid_t *qid;
+	p9fs_qid_t *qid;
 	if ((qid = kmem_zalloc(sizeof (*qid), KM_SLEEP)) == NULL) {
 		rb->rb_error = 1;
 		return (NULL);
@@ -414,7 +417,20 @@ reqbuf_error(reqbuf_t *rb)
 
 /*
  * 9P2000.u:
- *	 size[4] Tversion tag[2] msize[4] version[s]
+ *	size[4] Tstat tag[2] fid[4]
+ */
+static void
+create_tstat(reqbuf_t *rb, uint16_t tag, uint32_t fid)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TSTAT);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+}
+
+/*
+ * 9P2000.u:
+ *	size[4] Tversion tag[2] msize[4] version[s]
  */
 static void
 create_tversion(reqbuf_t *rb, const char *version, size_t msize)
@@ -424,6 +440,20 @@ create_tversion(reqbuf_t *rb, const char *version, size_t msize)
 	reqbuf_append_u16(rb, TAG_NOTAG);
 	reqbuf_append_u32(rb, msize);
 	reqbuf_append_str(rb, version);
+}
+
+static void
+create_tattach(reqbuf_t *rb, uint16_t tag, uint32_t fid, uint32_t afid,
+    const char *uname, const char *aname, uint32_t n_uname)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TATTACH);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+	reqbuf_append_u32(rb, afid);
+	reqbuf_append_str(rb, uname);
+	reqbuf_append_str(rb, aname);
+	reqbuf_append_u32(rb, n_uname);
 }
 
 int
@@ -463,6 +493,25 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 		    (unsigned)reqbuf_remainder(rrecv), size - 7);
 		return (e);
 	}
+	reqbuf_trim(rrecv, size);
+
+	if (type != expected_type) {
+		if (type == PLAN9_RERROR) {
+			/*
+			 * XXX Attempt to unpack the error information...
+			 */
+			char *estr = reqbuf_get_str(rrecv);
+			uint32_t eno = reqbuf_get_u32(rrecv);
+			if (reqbuf_error(rrecv) != 0) {
+				cmn_err(CE_WARN, "p9fs: error \"%s\" num %u",
+				    estr, eno);
+			}
+			reqbuf_strfree(estr);
+		}
+		cmn_err(CE_WARN, "p9fs: read type %u != expected %u",
+		    type, expected_type);
+		return (e);
+	}
 
 	if (tag != expected_tag) {
 		cmn_err(CE_WARN, "p9fs: read tag %x != expected %x",
@@ -470,55 +519,175 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 		return (e);
 	}
 
-	if (type != expected_type) {
-		cmn_err(CE_WARN, "p9fs: read type %u != expected %u",
-		    type, expected_type);
-		return (e);
-	}
-
 	return (0);
 }
+
+static void p9fs_session_cleanup(p9fs_session_t *p9s);
 
 int
 p9fs_session_init(p9fs_session_t **p9sp, ldi_handle_t lh)
 {
 	p9fs_session_t *p9s = kmem_zalloc(sizeof (*p9s), KM_SLEEP);
 	p9s->p9s_ldi = lh;
+	p9s->p9s_msize = 4096;
+	p9s->p9s_next_tag = 101;
+	mutex_init(&p9s->p9s_mutex, NULL, MUTEX_DRIVER, NULL);
+	if (reqbuf_alloc(&p9s->p9s_send, p9s->p9s_msize) != 0 ||
+	    reqbuf_alloc(&p9s->p9s_recv, p9s->p9s_msize) != 0) {
+		goto fail;
+	}
 
 	/*
 	 * Negotiate the version with the remote peer.  Note that this has the
 	 * effect of resetting any previously allocated file handles in a
 	 * transport like Virtio where there is no explicit connection per se.
 	 */
-	uint32_t msize = 4096;
-	reqbuf_t *rsend, *rrecv;
-	if (reqbuf_alloc(&rsend, msize) != 0 ||
-	    reqbuf_alloc(&rrecv, msize) != 0) {
+	create_tversion(p9s->p9s_send, "9P2000.u", p9s->p9s_msize);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, TAG_NOTAG, 
+	    PLAN9_RVERSION) != 0) {
 		goto fail;
 	}
-	create_tversion(rsend, "9P2000.u", msize);
 
-	if (p9fs_rpc(p9s, rsend, rrecv, TAG_NOTAG, PLAN9_RVERSION) != 0) {
-		goto fail;
-	}
-	uint32_t newmsize = reqbuf_get_u32(rrecv);
-	char *version = reqbuf_get_str(rrecv);
-	if (reqbuf_error(rrecv) != 0) {
+	uint32_t newmsize = reqbuf_get_u32(p9s->p9s_recv);
+	char *version = reqbuf_get_str(p9s->p9s_recv);
+	if (reqbuf_error(p9s->p9s_recv) != 0) {
 		reqbuf_strfree(version);
 		cmn_err(CE_WARN, "p9fs: version decode failed");
 		goto fail;
 	}
 
 	cmn_err(CE_WARN, "p9fs: msize = %u, version = %s", newmsize, version);
+
+	/*
+	 * XXX For now, we demand the size and version that we sent.
+	 */
+	bool version_ok = strcmp(version, "9P2000.u") == 0;
 	reqbuf_strfree(version);
+	if (newmsize != p9s->p9s_msize || !version_ok) {
+		cmn_err(CE_WARN, "p9fs: bogus hypervisor, giving up");
+		goto fail;
+	}
+
+	/*
+	 * Attach as root and look up the root of the file system.
+	 */
+	p9s->p9s_root_fid = 0x80000001;
+	uint16_t t = p9s->p9s_next_tag++;
+	create_tattach(p9s->p9s_send, t, p9s->p9s_root_fid, ~0,
+	    "root", "", 0);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, 
+	    PLAN9_RATTACH) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not ATTACH");
+		goto fail;
+	}
+
+	p9s->p9s_root_qid = reqbuf_get_qid(p9s->p9s_recv);
+	if (reqbuf_error(p9s->p9s_recv) != 0) {
+		cmn_err(CE_WARN, "p9fs: attach decode failed");
+		goto fail;
+	}
+
+	*p9sp = p9s;
+	return (0);
 
 fail:
-	reqbuf_free(rsend);
-	reqbuf_free(rrecv);
+	p9fs_session_cleanup(p9s);
 	return (EINVAL);
+}
+
+void
+p9fs_session_lock(p9fs_session_t *p9s)
+{
+	mutex_enter(&p9s->p9s_mutex);
+}
+
+void
+p9fs_session_unlock(p9fs_session_t *p9s)
+{
+	mutex_exit(&p9s->p9s_mutex);
 }
 
 void
 p9fs_session_fini(p9fs_session_t *p9s)
 {
+	/*
+	 * In case it helps the hypervisor release resources we attempt a reset
+	 * by sending a new VERSION message, which has the effect of clunking
+	 * all the fids.
+	 */
+	p9fs_session_lock(p9s);
+	create_tversion(p9s->p9s_send, "9P2000.u", p9s->p9s_msize);
+	(void) p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, TAG_NOTAG, 
+	    PLAN9_RVERSION);
+	p9fs_session_unlock(p9s);
+
+	p9fs_session_cleanup(p9s);
+}
+
+static void
+p9fs_session_cleanup(p9fs_session_t *p9s)
+{
+	reqbuf_free_qid(p9s->p9s_root_qid);
+	reqbuf_free(p9s->p9s_send);
+	reqbuf_free(p9s->p9s_recv);
+	(void) ldi_close(p9s->p9s_ldi, FREAD | FWRITE | FEXCL, kcred);
+	mutex_destroy(&p9s->p9s_mutex);
+	kmem_free(p9s, sizeof (*p9s));
+}
+
+int
+p9fs_session_stat(p9fs_session_t *p9s, uint32_t fid, p9fs_stat_t *p9st)
+{
+	uint16_t t;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	t = p9s->p9s_next_tag++;
+	create_tstat(p9s->p9s_send, t, fid);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RSTAT) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not STAT %x", fid);
+		return (EIO);
+	}
+
+	(void) reqbuf_get_u16(p9s->p9s_recv); /* XXX unused length prefix? */
+
+	(void) reqbuf_get_u16(p9s->p9s_recv); /* size */
+	(void) reqbuf_get_u16(p9s->p9s_recv); /* type */
+	(void) reqbuf_get_u32(p9s->p9s_recv); /* dev */
+
+	p9st->p9st_qid = reqbuf_get_qid(p9s->p9s_recv);
+
+	p9st->p9st_mode = reqbuf_get_u32(p9s->p9s_recv);
+
+	p9st->p9st_atime = reqbuf_get_u32(p9s->p9s_recv);
+	p9st->p9st_mtime = reqbuf_get_u32(p9s->p9s_recv);
+
+	p9st->p9st_length = reqbuf_get_u64(p9s->p9s_recv);
+
+	p9st->p9st_name = reqbuf_get_str(p9s->p9s_recv);
+	reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* uid */
+	reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* gid */
+	reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* muid */
+	p9st->p9st_extension = reqbuf_get_str(p9s->p9s_recv);
+
+	p9st->p9st_uid = reqbuf_get_u32(p9s->p9s_recv);
+	p9st->p9st_gid = reqbuf_get_u32(p9s->p9s_recv);
+	p9st->p9st_muid = reqbuf_get_u32(p9s->p9s_recv);
+
+	if (reqbuf_error(p9s->p9s_recv) != 0) {
+		p9fs_session_stat_reset(p9st);
+		cmn_err(CE_WARN, "p9fs: STAT %u decode failed", fid);
+		return (EIO);
+	}
+
+	return (0);
+}
+
+void
+p9fs_session_stat_reset(p9fs_stat_t *p9st)
+{
+	reqbuf_strfree(p9st->p9st_name);
+	reqbuf_strfree(p9st->p9st_extension);
+	reqbuf_free_qid(p9st->p9st_qid);
+	bzero(p9st, sizeof (*p9st));
 }
