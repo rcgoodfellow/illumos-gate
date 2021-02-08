@@ -21,7 +21,7 @@
  * XXX p9fs
  */
 
-struct vnodeops *lo_vnodeops;
+struct vnodeops *p9fs_vnodeops;
 
 const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = NULL, .func = NULL },

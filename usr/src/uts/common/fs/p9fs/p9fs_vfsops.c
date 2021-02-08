@@ -17,33 +17,106 @@
  * XXX p9fs
  */
 
+#include <sys/ddi.h>
+#include <sys/sunddi.h>
+#include <sys/sunldi.h>
 #include <sys/vfs.h>
 #include <sys/vfs_opreg.h>
 #include <sys/modctl.h>
 #include <sys/policy.h>
+#include <sys/mount.h>
 #include <sys/sysmacros.h>
 #include <sys/fs/p9fs_impl.h>
 
+
+static ldi_ident_t p9fs_li;
+
 static int
-p9fs_mount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
+p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
     struct cred *cr)
 {
 	int e;
+	int fromspace = (uap->flags & MS_SYSSPACE) ?
+	    UIO_SYSSPACE : UIO_USERSPACE;
+	struct pathname dir, spec;
+	ldi_handle_t lh = NULL;
+	p9fs_session_t *p9s = NULL;
 
-	if ((e = secpolicy_fs_mount(cr, vn, vfs)) != 0) {
+	if ((e = secpolicy_fs_mount(cr, mv, vfs)) != 0) {
 		return (EPERM);
 	}
 
+	if (mv->v_type != VDIR) {
+		return (ENOTDIR);
+	}
+
+	if (uap->flags & MS_REMOUNT) {
+		return (ENOTSUP);
+	}
+
+	mutex_enter(&mv->v_lock);
+	if (!(uap->flags & MS_OVERLAY) &&
+	    (mv->v_count != 1 || (mv->v_flag & VROOT))) {
+		mutex_exit(&mv->v_lock);
+		return (EBUSY);
+	}
+	mutex_exit(&mv->v_lock);
+
+	if ((uap->flags & MS_DATA) || uap->datalen > 0) {
+		/*
+		 * Consumers must use MS_OPTIONSTR.
+		 */
+		return (EINVAL);
+	}
+
+	if ((e = pn_get(uap->dir, fromspace, &dir)) != 0) {
+		return (e);
+	}
+	if ((e = pn_get(uap->spec, fromspace, &spec)) != 0) {
+		pn_free(&dir);
+		return (e);
+	}
+	cmn_err(CE_WARN, "p9fs: spec = %s", spec.pn_path);
+
+	if (ldi_open_by_name(spec.pn_path, FREAD | FWRITE | FEXCL, cr, &lh,
+	    p9fs_li) != 0) {
+		cmn_err(CE_WARN, "ldi open of %s failed", spec.pn_path);
+		goto bail;
+	}
+	cmn_err(CE_WARN, "ldi open of %s ok!", spec.pn_path);
+
+	if (p9fs_session_init(&p9s, lh) != 0) {
+		cmn_err(CE_WARN, "p9fs session failure!");
+		goto bail;
+	}
+
+#if 0
+	p9fs_session_fini(p9s);
+	p9s = NULL;
+
+	(void) ldi_close(lh, FREAD | FWRITE | FEXCL, cr);
+	lh = NULL;
+	cmn_err(CE_WARN, "ldi closed!");
+#endif
+
+bail:
+	if (p9s != NULL) {
+		p9fs_session_fini(p9s);
+	}
+	if (lh != NULL) {
+		(void) ldi_close(lh, FREAD | FWRITE | FEXCL, cr);
+	}
+	pn_free(&spec);
+	pn_free(&dir);
 	return (EINVAL);
 }
 
 static int
-p9fs_unmount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
-    struct cred *cr)
+p9fs_unmount(struct vfs *vfs, int flag, struct cred *cr)
 {
 	int e;
 
-	if ((e = secpolicy_fs_unmount(cr, vn, vfs)) != 0) {
+	if ((e = secpolicy_fs_unmount(cr, vfs)) != 0) {
 		return (EPERM);
 	}
 
@@ -57,14 +130,56 @@ p9fs_unmount(struct vfs *vfs, struct vnode *vn, struct mounta *uap,
 	return (EBUSY);
 }
 
+static int
+p9fs_root(struct vfs *vfs, struct vnode **vnp)
+{
+	p9fs_t *p9 = vfs->vfs_data;
+	vnode_t *vn = p9->p9_root;
+
+	VN_HOLD(vn);
+	*vnp = vn;
+	return (0);
+}
+
+static int
+p9fs_statvfs(struct vfs *vfs, struct statvfs64 *st)
+{
+	/*
+	 * XXX
+	 */
+	return (EIO);
+}
+
+static int
+p9fs_sync(struct vfs *vfs, short flag, struct cred *cr)
+{
+	/*
+	 * XXX
+	 */
+	return (0);
+}
+
+static int
+p9fs_vget(struct vfs *vfs, struct vnode **vnp, struct fid *fid)
+{
+	/*
+	 * XXX
+	 */
+	return (EIO);
+}
+
 static const fs_operation_def_t p9fs_vfsops_template[] = {
 	{ .name = VFSNAME_MOUNT, .func = { .vfs_mount = p9fs_mount }},
 	{ .name = VFSNAME_UNMOUNT, .func = { .vfs_unmount = p9fs_unmount }},
+	{ .name = VFSNAME_ROOT, .func = { .vfs_root = p9fs_root }},
+	{ .name = VFSNAME_STATVFS, .func = { .vfs_statvfs = p9fs_statvfs }},
+	{ .name = VFSNAME_SYNC, .func = { .vfs_sync = p9fs_sync }},
+	{ .name = VFSNAME_VGET, .func = { .vfs_vget = p9fs_vget }},
 	{ .name = NULL, .func = NULL },
 };
 
 static int p9fs_fstyp;
-vfsopts_t *p9fs_vfsops;
+vfsops_t *p9fs_vfsops;
 
 static int
 p9fs_init(int fstyp, char *name)
@@ -74,14 +189,14 @@ p9fs_init(int fstyp, char *name)
 	if ((e = vfs_setfsops(fstyp, p9fs_vfsops_template,
 	    &p9fs_vfsops)) != 0) {
 		cmn_err(CE_WARN, "p9fs: bad vfs ops template");
-		return (error);
+		return (e);
 	}
 
-	if ((e = vn_make_ops(name, p9fs_vnops_template,
+	if ((e = vn_make_ops(name, p9fs_vnodeops_template,
 	    &p9fs_vnodeops)) != 0) {
 		(void) vfs_freevfsops_by_type(fstyp);
 		cmn_err(CE_WARN, "p9fs: bad vnode ops template");
-		return (error);
+		return (e);
 	}
 
 	p9fs_fstyp = fstyp;
@@ -89,7 +204,7 @@ p9fs_init(int fstyp, char *name)
 	return (0);
 }
 
-static mntopts_t p9fs_mntopts_list[] = {
+static mntopt_t p9fs_mntopts_list[] = {
 };
 
 static mntopts_t p9fs_mntopts = {
@@ -109,7 +224,12 @@ static struct modlfs p9fs_modlfs = {
 	.fs_modops =		&mod_fsops,
 	.fs_linkinfo =		"plan 9 file system (9P2000.u)",
 	.fs_vfsdef =		&p9fs_vfsdev,
-}
+};
+
+static struct modlinkage p9fs_modlinkage = {
+	.ml_rev =		MODREV_1,
+	.ml_linkage =		{ &p9fs_modlfs, NULL },
+};
 
 int
 _init(void)
@@ -117,10 +237,10 @@ _init(void)
 	int r;
 
 	if ((r = mod_install(&p9fs_modlinkage)) != 0) {
-		/*
-		 * XXX fail
-		 */
+		return (r);
 	}
+
+	VERIFY0(ldi_ident_from_mod(&p9fs_modlinkage, &p9fs_li));
 
 	return (r);
 }
@@ -137,9 +257,8 @@ _fini(void)
 	int r;
 
 	if ((r = mod_remove(&p9fs_modlinkage)) == 0) {
-		/*
-		 * XXX cleanup
-		 */
+		ldi_ident_release(p9fs_li);
+		p9fs_li = NULL;
 	}
 
 	return (r);
