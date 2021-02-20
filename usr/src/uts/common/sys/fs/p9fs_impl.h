@@ -117,6 +117,8 @@ typedef struct p9fs_node {
 	vnode_t *p9n_vnode;
 	uint32_t p9n_fid;
 	p9fs_qid_t p9n_qid;
+
+	uint64_t p9n_readdir_offset;
 } p9fs_node_t;
 
 typedef struct p9fs_req {
