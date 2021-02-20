@@ -119,7 +119,58 @@ p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid)
 	return (p9n);
 }
 
+static int
+p9fs_open(vnode_t **vp, int flag, cred_t *cr, caller_context_t *ct)
+{
+#if 0
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+#endif
+
+	if (flag & FWRITE) {
+		/*
+		 * XXX
+		 */
+		return (EPERM);
+	}
+
+	return (0);
+}
+
+static int
+p9fs_close(vnode_t *v, int flag, int count, offset_t offset, cred_t *cr,
+    caller_context_t *ct)
+{
+	return (0);
+}
+
+static int
+p9fs_access(vnode_t *v, int mode, int flags, struct cred *cr,
+    caller_context_t *ct)
+{
+	if (mode & VWRITE) {
+		return (EPERM);
+	}
+
+	/*
+	 * XXX check the bits.  secpolicy_vnode_access2() etc?
+	 */
+
+	return (0);
+}
+
+static int
+p9fs_readdir(struct vnode *v, struct uio *uio, struct cred *cr,
+    int *eof, caller_context_t *ct, int flags)
+{
+}
+
 const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_GETATTR, .func = { .vop_getattr = p9fs_getattr }},
+	{ .name = VOPNAME_OPEN, .func = { .vop_open = p9fs_open }},
+	{ .name = VOPNAME_CLOSE, .func = { .vop_close = p9fs_close }},
+	{ .name = VOPNAME_ACCESS, .func = { .vop_access = p9fs_access }},
+	{ .name = VOPNAME_READDIR, .func = { .vop_readdir = p9fs_readdir }},
 	{ .name = NULL, .func = NULL },
 };
