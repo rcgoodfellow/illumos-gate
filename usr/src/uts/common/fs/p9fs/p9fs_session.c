@@ -26,6 +26,8 @@
 #define	PLAN9_ROPEN			(PLAN9_TOPEN + 1)
 #define	PLAN9_TREAD			116
 #define	PLAN9_RREAD			(PLAN9_TREAD + 1)
+#define	PLAN9_TCLUNK			120
+#define	PLAN9_RCLUNK			(PLAN9_TCLUNK + 1)
 #define	PLAN9_TSTAT			124
 #define	PLAN9_RSTAT			(PLAN9_TSTAT + 1)
 
@@ -417,6 +419,34 @@ reqbuf_error(reqbuf_t *rb)
 
 /*
  * 9P2000.u:
+ *	size[4] Tclunk tag[2] fid[4]
+ */
+static void
+create_tclunk(reqbuf_t *rb, uint16_t tag, uint32_t fid)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TCLUNK);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+}
+
+/*
+ * 9P2000.u:
+ * 	size[4] Twalk tag[2] fid[4] newfid[4] nwname[2] nwname*(wname[s])
+ */
+static void
+create_twalk0(reqbuf_t *rb, uint16_t tag, uint32_t fid, uint32_t newfid)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TWALK);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+	reqbuf_append_u32(rb, newfid);
+	reqbuf_append_u16(rb, 0);
+}
+
+/*
+ * 9P2000.u:
  *	size[4] Tstat tag[2] fid[4]
  */
 static void
@@ -426,6 +456,36 @@ create_tstat(reqbuf_t *rb, uint16_t tag, uint32_t fid)
 	reqbuf_append_u8(rb, PLAN9_TSTAT);
 	reqbuf_append_u16(rb, tag);
 	reqbuf_append_u32(rb, fid);
+}
+
+/*
+ * 9P2000.u:
+ *	size[4] Topen tag[2] fid[4] mode[1]
+ */
+static void
+create_topen(reqbuf_t *rb, uint16_t tag, uint32_t fid, uint8_t omode)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TOPEN);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+	reqbuf_append_u8(rb, omode);
+}
+
+/*
+ * 9P2000.u:
+ *	size[4] Tread tag[2] fid[4] offset[8] count[4]
+ */
+static void
+create_tread(reqbuf_t *rb, uint16_t tag, uint32_t fid, uint64_t offset,
+    uint32_t count)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TREAD);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+	reqbuf_append_u64(rb, offset);
+	reqbuf_append_u32(rb, count);
 }
 
 /*
@@ -502,9 +562,9 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 			 */
 			char *estr = reqbuf_get_str(rrecv);
 			uint32_t eno = reqbuf_get_u32(rrecv);
-			if (reqbuf_error(rrecv) != 0) {
+			if (reqbuf_error(rrecv) == 0) {
 				cmn_err(CE_WARN, "p9fs: error \"%s\" num %u",
-				    estr, eno);
+				    estr != NULL ? estr : "?", eno);
 			}
 			reqbuf_strfree(estr);
 		}
@@ -525,9 +585,10 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 static void p9fs_session_cleanup(p9fs_session_t *p9s);
 
 int
-p9fs_session_init(p9fs_session_t **p9sp, ldi_handle_t lh)
+p9fs_session_init(p9fs_session_t **p9sp, ldi_handle_t lh, uint_t id)
 {
 	p9fs_session_t *p9s = kmem_zalloc(sizeof (*p9s), KM_SLEEP);
+	p9s->p9s_id = id;
 	p9s->p9s_ldi = lh;
 	p9s->p9s_msize = 4096;
 	p9s->p9s_next_tag = 101;
@@ -568,10 +629,17 @@ p9fs_session_init(p9fs_session_t **p9sp, ldi_handle_t lh)
 		goto fail;
 	}
 
+	char nam[128];
+	(void) snprintf(nam, sizeof (nam), "p9fs_session_%u", id);
+	if ((p9s->p9s_fid_space = id_space_create(nam, 1, INT_MAX)) == NULL) {
+		cmn_err(CE_WARN, "p9fs: idspace failure");
+		goto fail;
+	}
+
 	/*
 	 * Attach as root and look up the root of the file system.
 	 */
-	p9s->p9s_root_fid = 0x80000001;
+	p9s->p9s_root_fid = id_alloc(p9s->p9s_fid_space);
 	uint16_t t = p9s->p9s_next_tag++;
 	create_tattach(p9s->p9s_send, t, p9s->p9s_root_fid, ~0,
 	    "root", "", 0);
@@ -630,6 +698,9 @@ p9fs_session_cleanup(p9fs_session_t *p9s)
 	reqbuf_free_qid(p9s->p9s_root_qid);
 	reqbuf_free(p9s->p9s_send);
 	reqbuf_free(p9s->p9s_recv);
+	if (p9s->p9s_fid_space != NULL) {
+		id_space_destroy(p9s->p9s_fid_space);
+	}
 	(void) ldi_close(p9s->p9s_ldi, FREAD | FWRITE | FEXCL, kcred);
 	mutex_destroy(&p9s->p9s_mutex);
 	kmem_free(p9s, sizeof (*p9s));
@@ -683,6 +754,55 @@ p9fs_session_stat(p9fs_session_t *p9s, uint32_t fid, p9fs_stat_t *p9st)
 	return (0);
 }
 
+int
+p9fs_session_clunk(p9fs_session_t *p9s, uint32_t fid)
+{
+	uint16_t t;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	t = p9s->p9s_next_tag++;
+	create_tclunk(p9s->p9s_send, t, fid);
+
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RCLUNK) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not CLUNK %x", fid);
+		return (EIO);
+	}
+
+	id_free(p9s->p9s_fid_space, fid);
+	return (0);
+}
+
+int
+p9fs_session_dupfid(p9fs_session_t *p9s, uint32_t fid, uint32_t *newfid)
+{
+	uint16_t t;
+	id_t id;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	if ((id = id_alloc_nosleep(p9s->p9s_fid_space)) == -1) {
+		return (ENOMEM);
+	}
+
+	t = p9s->p9s_next_tag++;
+	create_twalk0(p9s->p9s_send, t, fid, id);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RWALK) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not WALK %x", fid);
+		id_free(p9s->p9s_fid_space, id);
+		return (EIO);
+	}
+
+	/*
+	 * 9P2000.u:
+	 *	size[4] Rwalk tag[2] nwqid[2] nwqid*(qid[13])
+	 *
+	 * XXX If this fid duplication was a success, discard the qid for now?
+	 */
+	*newfid = id;
+	return (0);
+}
+
 void
 p9fs_session_stat_reset(p9fs_stat_t *p9st)
 {
@@ -690,4 +810,174 @@ p9fs_session_stat_reset(p9fs_stat_t *p9st)
 	reqbuf_strfree(p9st->p9st_extension);
 	reqbuf_free_qid(p9st->p9st_qid);
 	bzero(p9st, sizeof (*p9st));
+}
+
+int
+p9fs_session_readdir(p9fs_session_t *p9s, uint32_t fid, p9fs_readdir_t **p9rdp)
+{
+	int r;
+	uint16_t t;
+	p9fs_readdir_t *p9rd = kmem_zalloc(sizeof (*p9rd), KM_SLEEP);
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	if ((r = p9fs_session_dupfid(p9s, fid, &p9rd->p9rd_fid)) != 0) {
+		kmem_free(p9rd, sizeof (*p9rd));
+		return (r);
+	}
+
+	/*
+	 * After duplicating the fid, we must open it for read.
+	 */
+	t = p9s->p9s_next_tag++;
+	create_topen(p9s->p9s_send, t, p9rd->p9rd_fid, MODE_OREAD);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_ROPEN) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not OPEN %x", fid);
+		(void) p9fs_session_clunk(p9s, p9rd->p9rd_fid);
+		kmem_free(p9rd, sizeof (*p9rd));
+		return (EIO);
+	}
+
+	list_create(&p9rd->p9rd_ents, sizeof (p9fs_readdir_ent_t),
+	    offsetof(p9fs_readdir_ent_t, p9de_link));
+	p9rd->p9rd_next_ord = 2; /* XXX skip ".", 0, and "..", 1. */
+	p9rd->p9rd_next_offset = 0;
+	p9rd->p9rd_eof = false;
+
+	*p9rdp = p9rd;
+	return (0);
+}
+
+void
+p9fs_session_readdir_ent_free(p9fs_readdir_ent_t *p9de)
+{
+	reqbuf_strfree(p9de->p9de_name);
+	kmem_free(p9de, sizeof (*p9de));
+}
+
+void
+p9fs_session_readdir_free(p9fs_session_t *p9s, p9fs_readdir_t *p9rd)
+{
+	p9fs_readdir_ent_t *t;
+
+	(void) p9fs_session_clunk(p9s, p9rd->p9rd_fid);
+
+	while ((t = list_remove_head(&p9rd->p9rd_ents)) != NULL) {
+		p9fs_session_readdir_ent_free(t);
+	}
+	list_destroy(&p9rd->p9rd_ents);
+
+	kmem_free(p9rd, sizeof (*p9rd));
+}
+
+int
+p9fs_session_readdir_next(p9fs_session_t *p9s, p9fs_readdir_t *p9rd)
+{
+	uint16_t t;
+	id_t id;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	t = p9s->p9s_next_tag++;
+	create_tread(p9s->p9s_send, t, p9rd->p9rd_fid, p9rd->p9rd_next_offset, 256);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RREAD) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not READ %x", p9rd->p9rd_fid);
+		return (EIO);
+	}
+
+	/*
+	 * The read response for a directory is specially formatted.  For
+	 * 9P2000.u, the body of the read contains a whole number of variable
+	 * length RSTAT-style responses.
+	 *
+	 * First, determine the number of bytes that were read:
+	 */
+	uint32_t rcount = reqbuf_get_u32(p9s->p9s_recv);
+
+	if (rcount == 0) {
+		p9rd->p9rd_eof = true;
+		return (0);
+	}
+
+	if (rcount != reqbuf_remainder(p9s->p9s_recv)) {
+		/*
+		 * XXX
+		 */
+		cmn_err(CE_WARN, "p9fs: rcount %u != remainder %lu",
+		    rcount, reqbuf_remainder(p9s->p9s_recv));
+		return (EIO);
+	}
+
+	while (reqbuf_remainder(p9s->p9s_recv) != 0) {
+		/*
+		 * Read the next stat entry, keeping only the relevant fields.
+		 */
+		p9fs_qid_t *qid;
+		char *name;
+
+		(void) reqbuf_get_u16(p9s->p9s_recv); /* size */
+		(void) reqbuf_get_u16(p9s->p9s_recv); /* type */
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* dev */
+
+		qid = reqbuf_get_qid(p9s->p9s_recv);
+
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* mode */
+
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* atime */
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* mtime */
+
+		(void) reqbuf_get_u64(p9s->p9s_recv); /* length */
+
+		name = reqbuf_get_str(p9s->p9s_recv);
+		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* uid */
+		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* gid */
+		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* muid */
+		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* ext. */
+
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* numeric uid */
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* numeric gid */
+		(void) reqbuf_get_u32(p9s->p9s_recv); /* numeric muid */
+
+		if (reqbuf_error(p9s->p9s_recv) != 0) {
+			reqbuf_free_qid(qid);
+			reqbuf_strfree(name);
+			cmn_err(CE_WARN, "p9fs: readdir %u decode failed",
+			    p9rd->p9rd_fid);
+			return (EIO);
+		}
+
+		if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+			/*
+			 * There is a brief note in the Plan 9 intro(5)
+			 * page:
+			 *
+			 *	All directories must support walks to the
+			 *	directory '..' (dot-dot) meaning parent
+			 *	directory, although by convention directories
+			 *	contain no explicit entry for '..' or '.'
+			 *	(dot).
+			 *
+			 * Although QEMU appears to have missed this memo, and
+			 * includes both special entries at least some of the
+			 * time in a read of a directory under 9P2000.u, we
+			 * will omit whatever it told us here and insert our
+			 * own entries.
+			 */
+			reqbuf_free_qid(qid);
+			reqbuf_strfree(name);
+			continue;
+		}
+
+		p9fs_readdir_ent_t *p9de = kmem_zalloc(sizeof (*p9de),
+		    KM_SLEEP);
+		p9de->p9de_qid = *qid;
+		reqbuf_free_qid(qid);
+		p9de->p9de_name = name;
+		p9de->p9de_ord = p9rd->p9rd_next_ord++;
+		list_insert_tail(&p9rd->p9rd_ents, p9de);
+	}
+
+	p9rd->p9rd_next_offset += rcount;
+
+	return (0);
 }

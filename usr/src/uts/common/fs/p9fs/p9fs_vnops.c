@@ -13,6 +13,7 @@
  * Copyright 2021 Oxide Computer Company
  */
 
+#include <sys/stddef.h>
 #include <sys/vfs.h>
 #include <sys/vfs_opreg.h>
 #include <sys/stat.h>
@@ -105,7 +106,6 @@ p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid)
 	struct vnode *v = vn_alloc(KM_SLEEP);
 	vn_setops(v, p9fs_vnodeops);
 	v->v_type = VDIR;
-	v->v_flag = VROOT;
 
 	p9fs_node_t *p9n = kmem_zalloc(sizeof (*p9n), KM_SLEEP);
 	p9n->p9n_fs = p9;
@@ -164,6 +164,160 @@ static int
 p9fs_readdir(struct vnode *v, struct uio *uio, struct cred *cr,
     int *eof, caller_context_t *ct, int flags)
 {
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+	int r;
+
+	/*
+	 * XXX Deal only with the root directory for now
+	 */
+	if (!(v->v_flag & VROOT)) {
+		mutex_exit(&p9n->p9n_mutex);
+		return (EIO);
+	}
+
+	/*
+	 * XXX Each "byte" in our offset will represent a single directory.
+	 */
+	offset_t offset = uio->uio_loffset;
+	offset_t orig_offset = offset;
+	if (eof != NULL) {
+		*eof = 0;
+	}
+
+	/*
+	 * XXX This is totally serialised for now.
+	 */
+	mutex_enter(&p9n->p9n_mutex);
+
+	p9fs_session_lock(p9s);
+
+	if (p9n->p9n_readdir != NULL) {
+		p9fs_readdir_t *p9rd = p9n->p9n_readdir;
+		p9fs_readdir_ent_t *p9de = list_head(&p9rd->p9rd_ents);
+		bool reset = false;
+
+		if (p9de != NULL) {
+			/*
+			 * We have a spare directory entry from a previous
+			 * readdir that we were not able to pass entirely to
+			 * userland.
+			 */
+			if (offset < p9de->p9de_ord) {
+				/*
+				 * This walk has reset to an earlier position.
+				 * We need to start walking again from the
+				 * beginning.
+				 */
+				reset = true;
+			}
+		} else if (offset < p9rd->p9rd_next_ord) {
+			/*
+			 * The next directory entry we were going to emit is
+			 * later in the walk than the requested entry.
+			 */
+			reset = true;
+		}
+
+		if (reset) {
+			p9fs_session_readdir_free(p9s, p9n->p9n_readdir);
+			p9n->p9n_readdir = NULL;
+		}
+	}
+
+	if (p9n->p9n_readdir == NULL) {
+		/*
+		 * Open a new readdir cursor for this directory:
+		 */
+		if ((r = p9fs_session_readdir(p9s, p9n->p9n_fid,
+		    &p9n->p9n_readdir) != 0)) {
+			goto bail;
+		}
+	}
+
+	/*
+	 * Scroll through the directory entries we have until we find the one
+	 * that matches our offset.
+	 */
+	for (;;) {
+		p9fs_readdir_t *p9rd = p9n->p9n_readdir;
+		p9fs_readdir_ent_t *p9de = NULL;
+
+		if (offset == 0 || offset == 1) {
+			const char *name = offset == 0 ? "." : "..";
+			size_t sz = DIRENT64_RECLEN(strlen(name));
+			dirent64_t *d = kmem_zalloc(sz, KM_SLEEP);
+			d->d_ino = p9n->p9n_qid.qid_path;
+			d->d_off = offset;
+			d->d_reclen = sz;
+			(void) strlcpy(d->d_name, name, DIRENT64_NAMELEN(sz));
+			(void) uiomove(d, sz, UIO_READ, uio);
+			kmem_free(d, sz);
+			offset++;
+			continue;
+		}
+
+		if ((p9de = list_head(&p9rd->p9rd_ents)) != NULL) {
+			if (offset > p9de->p9de_ord) {
+				/*
+				 * This entry is before our offset, so discard
+				 * it.
+				 */
+				(void) list_remove_head(&p9rd->p9rd_ents);
+				p9fs_session_readdir_ent_free(p9de);
+				continue;
+			}
+
+			/*
+			 * XXX Do we have enough space to write this out?
+			 */
+			size_t sz = DIRENT64_RECLEN(strlen(p9de->p9de_name));
+			if (sz > uio->uio_resid) {
+				break;
+			}
+
+			dirent64_t *d = kmem_zalloc(sz, KM_SLEEP);
+			d->d_ino = p9de->p9de_qid.qid_path;
+			d->d_off = offset;
+			d->d_reclen = sz;
+			(void) strlcpy(d->d_name, p9de->p9de_name,
+			    DIRENT64_NAMELEN(sz));
+			(void) uiomove(d, sz, UIO_READ, uio);
+			kmem_free(d, sz);
+			offset++;
+			continue;
+		}
+
+		if (p9rd->p9rd_eof) {
+			if (eof != NULL) {
+				*eof = 1;
+			}
+			break;
+		}
+
+		/*
+		 * Fetch another page of results.
+		 */
+		if ((r = p9fs_session_readdir_next(p9s, p9rd)) != 0) {
+			if (offset != orig_offset) {
+				/*
+				 * We have written out some entries, so don't
+				 * report an I/O failure now.
+				 */
+				break;
+			}
+			goto bail;
+		}
+	}
+
+	uio->uio_loffset = offset;
+	r = 0;
+
+bail:
+	p9fs_session_unlock(p9s);
+	mutex_exit(&p9n->p9n_mutex);
+	return (r);
 }
 
 const fs_operation_def_t p9fs_vnodeops_template[] = {

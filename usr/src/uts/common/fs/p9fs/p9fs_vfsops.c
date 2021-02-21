@@ -32,6 +32,7 @@
 static ldi_ident_t p9fs_li;
 static int p9fs_fstyp;
 vfsops_t *p9fs_vfsops;
+uint_t p9fs_next_ses_id;
 
 static int
 p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
@@ -92,7 +93,7 @@ p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
 	p9 = kmem_zalloc(sizeof (*p9), KM_SLEEP);
 	p9->p9_vfs = vfs;
 
-	if (p9fs_session_init(&p9->p9_session, lh) != 0) {
+	if (p9fs_session_init(&p9->p9_session, lh, p9fs_next_ses_id++) != 0) {
 		cmn_err(CE_WARN, "p9fs session failure!");
 		goto bail;
 	}
@@ -104,6 +105,7 @@ p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
 
 	p9->p9_root = p9fs_make_node(p9, p9->p9_session->p9s_root_fid,
 	    p9->p9_session->p9s_root_qid);
+	p9->p9_root->p9n_vnode->v_flag |= VROOT;
 
 	/*
 	 * The LDI handle now belongs to the session.

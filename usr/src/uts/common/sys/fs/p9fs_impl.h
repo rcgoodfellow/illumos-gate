@@ -19,6 +19,7 @@
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/sunldi.h>
+#include <sys/stdbool.h>
 
 /*
  * XXX p9fs
@@ -91,10 +92,13 @@ typedef struct p9fs_qid {
 typedef struct reqbuf reqbuf_t;
 
 typedef struct p9fs_session {
+	uint_t p9s_id;
 	ldi_handle_t p9s_ldi;
 	kmutex_t p9s_mutex;
 	size_t p9s_msize;
 	uint16_t p9s_next_tag;
+
+	id_space_t *p9s_fid_space;
 
 	/*
 	 * XXX
@@ -118,8 +122,24 @@ typedef struct p9fs_node {
 	uint32_t p9n_fid;
 	p9fs_qid_t p9n_qid;
 
-	uint64_t p9n_readdir_offset;
+	kmutex_t p9n_mutex;
+	struct p9fs_readdir *p9n_readdir;
 } p9fs_node_t;
+
+typedef struct p9fs_readdir_ent {
+	p9fs_qid_t p9de_qid;
+	offset_t p9de_ord;
+	char *p9de_name;
+	list_node_t p9de_link;
+} p9fs_readdir_ent_t;
+
+typedef struct p9fs_readdir {
+	uint32_t p9rd_fid;
+	bool p9rd_eof;
+	list_t p9rd_ents;
+	uint64_t p9rd_next_offset;
+	offset_t p9rd_next_ord;
+} p9fs_readdir_t;
 
 typedef struct p9fs_req {
 } p9fs_req_t;
@@ -140,12 +160,17 @@ typedef struct p9fs_stat {
 	uint32_t p9st_muid;
 } p9fs_stat_t;
 
-extern int p9fs_session_init(p9fs_session_t **p9s, ldi_handle_t lh);
+extern int p9fs_session_init(p9fs_session_t **p9s, ldi_handle_t lh, uint_t);
 extern void p9fs_session_fini(p9fs_session_t *p9s);
 extern void p9fs_session_lock(p9fs_session_t *p9s);
 extern void p9fs_session_unlock(p9fs_session_t *p9s);
 extern int p9fs_session_stat(p9fs_session_t *, uint32_t, p9fs_stat_t *);
 extern void p9fs_session_stat_reset(p9fs_stat_t *);
+extern int p9fs_session_readdir(p9fs_session_t *, uint32_t, p9fs_readdir_t **);
+extern void p9fs_session_readdir_ent_free(p9fs_readdir_ent_t *);
+extern void p9fs_session_readdir_free(p9fs_session_t *, p9fs_readdir_t *);
+extern int p9fs_session_readdir_next(p9fs_session_t *, p9fs_readdir_t *);
+
 
 extern p9fs_node_t *p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid);
 
