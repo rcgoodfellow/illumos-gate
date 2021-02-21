@@ -103,8 +103,11 @@ p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
 		goto bail;
 	}
 
+	/*
+	 * Create the root vnode:
+	 */
 	p9->p9_root = p9fs_make_node(p9, p9->p9_session->p9s_root_fid,
-	    p9->p9_session->p9s_root_qid);
+	    p9->p9_session->p9s_root_qid, VDIR);
 	p9->p9_root->p9n_vnode->v_flag |= VROOT;
 
 	/*

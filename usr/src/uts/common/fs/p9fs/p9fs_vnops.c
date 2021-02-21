@@ -26,7 +26,7 @@
 struct vnodeops *p9fs_vnodeops;
 
 static int
-p9fs_getattr(struct vnode *v, struct vattr *va, int flags, struct cred *cr,
+p9fs_getattr(vnode_t *v, struct vattr *va, int flags, struct cred *cr,
     caller_context_t *ct)
 {
 	p9fs_node_t *p9n = v->v_data;
@@ -101,11 +101,18 @@ p9fs_getattr(struct vnode *v, struct vattr *va, int flags, struct cred *cr,
 }
 
 p9fs_node_t *
-p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid)
+p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid, vtype_t type)
 {
-	struct vnode *v = vn_alloc(KM_SLEEP);
+	vnode_t *v = vn_alloc(KM_SLEEP);
 	vn_setops(v, p9fs_vnodeops);
-	v->v_type = VDIR;
+
+	v->v_type = type;
+	if (type == VREG) {
+		/*
+		 * XXX ?
+		 */
+		v->v_flag |= VNOSWAP;
+	}
 
 	p9fs_node_t *p9n = kmem_zalloc(sizeof (*p9n), KM_SLEEP);
 	p9n->p9n_fs = p9;
@@ -114,8 +121,9 @@ p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid)
 
 	p9n->p9n_vnode = v;
 	v->v_data = p9n;
+	VFS_HOLD(p9->p9_vfs);
 	v->v_vfsp = p9->p9_vfs;
-
+	vn_exists(v);
 	return (p9n);
 }
 
@@ -161,7 +169,7 @@ p9fs_access(vnode_t *v, int mode, int flags, struct cred *cr,
 }
 
 static int
-p9fs_readdir(struct vnode *v, struct uio *uio, struct cred *cr,
+p9fs_readdir(vnode_t *v, struct uio *uio, struct cred *cr,
     int *eof, caller_context_t *ct, int flags)
 {
 	p9fs_node_t *p9n = v->v_data;
@@ -320,11 +328,74 @@ bail:
 	return (r);
 }
 
+static int
+p9fs_lookup(vnode_t *v, char *name, vnode_t **vp, pathname_t *lookpn,
+    int flags, vnode_t *rdir, cred_t *cr, caller_context_t *ct,
+    int *direntflags, pathname_t *outpn)
+{
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+	int r;
+	uint32_t chfid;
+	p9fs_qid_t chqid;
+
+	if (v->v_type != VDIR) {
+		return (ENOTDIR);
+	}
+
+	if (flags & LOOKUP_XATTR) {
+		return (ENOTSUP);
+	}
+
+	if (name[0] == '\0') {
+		/*
+		 * XXX
+		 */
+		VN_HOLD(v);
+		*vp = v;
+		return (0);
+	}
+
+	p9fs_session_lock(p9s);
+	r = p9fs_session_lookup(p9s, p9n->p9n_fid, name, &chfid, &chqid);
+	p9fs_session_unlock(p9s);
+
+	if (r != 0) {
+		return (r);
+	}
+
+	/*
+	 * Use the qid type field to determine what vnode type we require:
+	 */
+	vtype_t vt;
+	switch (chqid.qid_type) {
+	case PLAN9_QIDTYPE_DIR:
+		vt = VDIR;
+		break;
+	case PLAN9_QIDTYPE_FILE:
+		vt = VREG;
+		break;
+	default:
+		cmn_err(CE_WARN, "p9fs: lookup \"%s\" had type %x\n",
+		    name, chqid.qid_type);
+		p9fs_session_lock(p9s);
+		(void) p9fs_session_clunk(p9s, chfid);
+		p9fs_session_unlock(p9s);
+		return (ENOTSUP);
+	}
+
+	p9fs_node_t *chnode = p9fs_make_node(p9, chfid, &chqid, vt);
+	*vp = chnode->p9n_vnode;
+	return (0);
+}
+
 const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_GETATTR, .func = { .vop_getattr = p9fs_getattr }},
 	{ .name = VOPNAME_OPEN, .func = { .vop_open = p9fs_open }},
 	{ .name = VOPNAME_CLOSE, .func = { .vop_close = p9fs_close }},
 	{ .name = VOPNAME_ACCESS, .func = { .vop_access = p9fs_access }},
 	{ .name = VOPNAME_READDIR, .func = { .vop_readdir = p9fs_readdir }},
+	{ .name = VOPNAME_LOOKUP, .func = { .vop_lookup = p9fs_lookup }},
 	{ .name = NULL, .func = NULL },
 };
