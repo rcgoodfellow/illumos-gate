@@ -170,9 +170,11 @@ extern int p9fs_session_readdir(p9fs_session_t *, uint32_t, p9fs_readdir_t **);
 extern void p9fs_session_readdir_ent_free(p9fs_readdir_ent_t *);
 extern void p9fs_session_readdir_free(p9fs_session_t *, p9fs_readdir_t *);
 extern int p9fs_session_readdir_next(p9fs_session_t *, p9fs_readdir_t *);
+extern int p9fs_session_lookup(p9fs_session_t *, uint32_t, const char *,
+    uint32_t *, p9fs_qid_t *);
+extern int p9fs_session_clunk(p9fs_session_t *, uint32_t);
 
-
-extern p9fs_node_t *p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid);
+extern p9fs_node_t *p9fs_make_node(p9fs_t *, uint32_t, p9fs_qid_t *, vtype_t);
 
 #ifdef __cplusplus
 }

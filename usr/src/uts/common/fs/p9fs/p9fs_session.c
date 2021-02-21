@@ -447,6 +447,23 @@ create_twalk0(reqbuf_t *rb, uint16_t tag, uint32_t fid, uint32_t newfid)
 
 /*
  * 9P2000.u:
+ * 	size[4] Twalk tag[2] fid[4] newfid[4] nwname[2] nwname*(wname[s])
+ */
+static void
+create_twalk1(reqbuf_t *rb, uint16_t tag, uint32_t fid, uint32_t newfid,
+    const char *name)
+{
+	reqbuf_reset(rb);
+	reqbuf_append_u8(rb, PLAN9_TWALK);
+	reqbuf_append_u16(rb, tag);
+	reqbuf_append_u32(rb, fid);
+	reqbuf_append_u32(rb, newfid);
+	reqbuf_append_u16(rb, 1);
+	reqbuf_append_str(rb, name);
+}
+
+/*
+ * 9P2000.u:
  *	size[4] Tstat tag[2] fid[4]
  */
 static void
@@ -532,6 +549,7 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 		return (EIO);
 	}
 
+read_again:
 	if ((e = reqbuf_read(rrecv, p9s->p9s_ldi)) != 0) {
 		cmn_err(CE_WARN, "p9fs: read failed: %d", e);
 		return (e);
@@ -555,6 +573,21 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 	}
 	reqbuf_trim(rrecv, size);
 
+	if (tag != expected_tag) {
+		cmn_err(CE_WARN, "p9fs: read tag %x != expected %x, discarding",
+		    tag, expected_tag);
+
+		/*
+		 * XXX With the current code structure, an interrupted read may
+		 * leave a reply to a previous request in the buffer.  Rather
+		 * than make this fatal, we discard and try again.
+		 *
+		 * When this is restructured to correctly track more than one
+		 * concurrent request, we'll fix this.
+		 */
+		goto read_again;
+	}
+
 	if (type != expected_type) {
 		if (type == PLAN9_RERROR) {
 			/*
@@ -570,12 +603,6 @@ p9fs_rpc(p9fs_session_t *p9s, reqbuf_t *rsend, reqbuf_t *rrecv,
 		}
 		cmn_err(CE_WARN, "p9fs: read type %u != expected %u",
 		    type, expected_type);
-		return (e);
-	}
-
-	if (tag != expected_tag) {
-		cmn_err(CE_WARN, "p9fs: read tag %x != expected %x",
-		    tag, expected_tag);
 		return (e);
 	}
 
@@ -771,6 +798,48 @@ p9fs_session_clunk(p9fs_session_t *p9s, uint32_t fid)
 
 	id_free(p9s->p9s_fid_space, fid);
 	return (0);
+}
+
+int
+p9fs_session_lookup(p9fs_session_t *p9s, uint32_t fid, const char *name,
+    uint32_t *newfid, p9fs_qid_t *newqid)
+{
+	int r;
+	uint16_t t;
+	id_t id;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	if ((id = id_alloc_nosleep(p9s->p9s_fid_space)) == -1) {
+		return (ENOMEM);
+	}
+
+	t = p9s->p9s_next_tag++;
+	create_twalk1(p9s->p9s_send, t, fid, id, name);
+	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RWALK) != 0) {
+		cmn_err(CE_WARN, "p9fs: could not WALK %x", fid);
+		id_free(p9s->p9s_fid_space, id);
+		return (EIO);
+	}
+
+	/*
+	 * 9P2000.u:
+	 *	size[4] Rwalk tag[2] nwqid[2] nwqid*(qid[13])
+	 */
+	uint16_t nqids = reqbuf_get_u16(p9s->p9s_recv);
+	p9fs_qid_t *qid = reqbuf_get_qid(p9s->p9s_recv);
+
+	if (reqbuf_error(p9s->p9s_recv) == 0 && nqids == 1) {
+		*newfid = id;
+		*newqid = *qid;
+		r = 0;
+	} else {
+		cmn_err(CE_WARN, "p9fs: lookup %u decode failed", fid);
+		r = EIO;
+	}
+
+	reqbuf_free_qid(qid);
+	return (r);
 }
 
 int
