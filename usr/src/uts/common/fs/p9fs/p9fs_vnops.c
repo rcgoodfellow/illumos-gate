@@ -178,12 +178,11 @@ p9fs_readdir(vnode_t *v, struct uio *uio, struct cred *cr,
 	int r;
 
 	/*
-	 * XXX Deal only with the root directory for now
+	 * XXX This is totally serialised for now.
 	 */
-	if (!(v->v_flag & VROOT)) {
-		mutex_exit(&p9n->p9n_mutex);
-		return (EIO);
-	}
+	mutex_enter(&p9n->p9n_mutex);
+
+	VERIFY3U(v->v_type, ==, VDIR);
 
 	/*
 	 * XXX Each "byte" in our offset will represent a single directory.
@@ -193,11 +192,6 @@ p9fs_readdir(vnode_t *v, struct uio *uio, struct cred *cr,
 	if (eof != NULL) {
 		*eof = 0;
 	}
-
-	/*
-	 * XXX This is totally serialised for now.
-	 */
-	mutex_enter(&p9n->p9n_mutex);
 
 	p9fs_session_lock(p9s);
 
@@ -376,6 +370,9 @@ p9fs_lookup(vnode_t *v, char *name, vnode_t **vp, pathname_t *lookpn,
 	case PLAN9_QIDTYPE_FILE:
 		vt = VREG;
 		break;
+	case PLAN9_QIDTYPE_SYMLINK:
+		vt = VLNK;
+		break;
 	default:
 		cmn_err(CE_WARN, "p9fs: lookup \"%s\" had type %x\n",
 		    name, chqid.qid_type);
@@ -390,6 +387,47 @@ p9fs_lookup(vnode_t *v, char *name, vnode_t **vp, pathname_t *lookpn,
 	return (0);
 }
 
+static int
+p9fs_readlink(vnode_t *v, struct uio *uio, cred_t *cr, caller_context_t *ct)
+{
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+	int r;
+
+	if (v->v_type != VLNK) {
+		return (EINVAL);
+	}
+
+	p9fs_stat_t p9st;
+	bzero(&p9st, sizeof (p9st));
+
+	p9fs_session_lock(p9s);
+	r = p9fs_session_stat(p9s, p9n->p9n_fid, &p9st);
+	p9fs_session_unlock(p9s);
+
+	if (r == 0 && p9st.p9st_qid->qid_type != PLAN9_QIDTYPE_SYMLINK) {
+		/*
+		 * We expected a symlink, but we didn't get one in the stat
+		 * request.
+		 */
+		r = EINVAL;
+	}
+
+	if (r == 0) {
+		/*
+		 * The link target is in the extension field for symlink files.
+		 */
+		size_t sz = strlen(p9st.p9st_extension);
+		r = uiomove(p9st.p9st_extension, min(sz, uio->uio_resid),
+		    UIO_READ, uio);
+	}
+
+	p9fs_session_stat_reset(&p9st);
+
+	return (0);
+}
+
 const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_GETATTR, .func = { .vop_getattr = p9fs_getattr }},
 	{ .name = VOPNAME_OPEN, .func = { .vop_open = p9fs_open }},
@@ -397,5 +435,6 @@ const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_ACCESS, .func = { .vop_access = p9fs_access }},
 	{ .name = VOPNAME_READDIR, .func = { .vop_readdir = p9fs_readdir }},
 	{ .name = VOPNAME_LOOKUP, .func = { .vop_lookup = p9fs_lookup }},
+	{ .name = VOPNAME_READLINK, .func = { .vop_readlink = p9fs_readlink }},
 	{ .name = NULL, .func = NULL },
 };
