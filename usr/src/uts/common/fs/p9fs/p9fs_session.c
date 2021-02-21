@@ -590,16 +590,36 @@ read_again:
 
 	if (type != expected_type) {
 		if (type == PLAN9_RERROR) {
+			int decoded = 0;
+
 			/*
 			 * XXX Attempt to unpack the error information...
 			 */
 			char *estr = reqbuf_get_str(rrecv);
 			uint32_t eno = reqbuf_get_u32(rrecv);
+
 			if (reqbuf_error(rrecv) == 0) {
-				cmn_err(CE_WARN, "p9fs: error \"%s\" num %u",
-				    estr != NULL ? estr : "?", eno);
+				if (strcasecmp("permission denied",
+				    estr) == 0) {
+					/*
+					 * XXX The numeric value 13 that comes
+					 * along with this seems like it is
+					 * Linux-specific.  That may be fine
+					 * for 9P2000.L, but what about .u?
+					 */
+					decoded = EACCES;
+				} else {
+					cmn_err(CE_WARN,
+					    "p9fs: error \"%s\" num %u",
+					    estr != NULL ? estr : "?", eno);
+				}
 			}
+
 			reqbuf_strfree(estr);
+
+			if (decoded != 0) {
+				return (decoded);
+			}
 		}
 		cmn_err(CE_WARN, "p9fs: read type %u != expected %u",
 		    type, expected_type);
