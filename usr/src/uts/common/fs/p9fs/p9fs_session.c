@@ -123,46 +123,10 @@ reqbuf_get_bcopy(reqbuf_t *rb, void *target, size_t nbytes)
 		return;
 	}
 
-	bcopy(&rb->rb_data[rb->rb_pos], target, nbytes);
+	if (target != NULL) {
+		bcopy(&rb->rb_data[rb->rb_pos], target, nbytes);
+	}
 	rb->rb_pos += nbytes;
-}
-
-uint64_t
-reqbuf_get_u(reqbuf_t *rb, size_t nbytes)
-{
-	if (rb->rb_error != 0) {
-		return (0);
-	}
-
-	if (nbytes > rb->rb_limit - rb->rb_pos) {
-		rb->rb_error = 1;
-		return (0);
-	}
-
-	uint64_t out;
-	if (nbytes == 1) {
-		uint8_t val;
-		bcopy(&rb->rb_data[rb->rb_pos], &val, nbytes);
-		out = val;
-	} else if (nbytes == 2) {
-		uint16_t val;
-		bcopy(&rb->rb_data[rb->rb_pos], &val, nbytes);
-		out = val;
-	} else if (nbytes == 4) {
-		uint32_t val;
-		bcopy(&rb->rb_data[rb->rb_pos], &val, nbytes);
-		out = val;
-	} else if (nbytes == 8) {
-		uint64_t val;
-		bcopy(&rb->rb_data[rb->rb_pos], &val, nbytes);
-		out = val;
-	} else {
-		rb->rb_error = 1;
-		return (0);
-	}
-
-	rb->rb_pos += nbytes;
-	return (out);
 }
 
 uint8_t
@@ -236,6 +200,17 @@ reqbuf_strfree(char *s)
 	if (s != NULL) {
 		strfree(s);
 	}
+}
+
+void
+reqbuf_skip_str(reqbuf_t *rb)
+{
+	uint16_t len = reqbuf_get_u16(rb);
+	if (rb->rb_error != 0) {
+		return;
+	}
+
+	reqbuf_get_bcopy(rb, NULL, len);
 }
 
 char *
@@ -786,9 +761,9 @@ p9fs_session_stat(p9fs_session_t *p9s, uint32_t fid, p9fs_stat_t *p9st)
 	p9st->p9st_length = reqbuf_get_u64(p9s->p9s_recv);
 
 	p9st->p9st_name = reqbuf_get_str(p9s->p9s_recv);
-	reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* uid */
-	reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* gid */
-	reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* muid */
+	reqbuf_skip_str(p9s->p9s_recv); /* uid */
+	reqbuf_skip_str(p9s->p9s_recv); /* gid */
+	reqbuf_skip_str(p9s->p9s_recv); /* muid */
 	p9st->p9st_extension = reqbuf_get_str(p9s->p9s_recv);
 
 	p9st->p9st_uid = reqbuf_get_u32(p9s->p9s_recv);
@@ -1130,10 +1105,10 @@ p9fs_session_readdir_next(p9fs_session_t *p9s, p9fs_readdir_t *p9rd)
 		(void) reqbuf_get_u64(p9s->p9s_recv); /* length */
 
 		name = reqbuf_get_str(p9s->p9s_recv);
-		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* uid */
-		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* gid */
-		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* muid */
-		reqbuf_strfree(reqbuf_get_str(p9s->p9s_recv)); /* ext. */
+		reqbuf_skip_str(p9s->p9s_recv); /* uid */
+		reqbuf_skip_str(p9s->p9s_recv); /* gid */
+		reqbuf_skip_str(p9s->p9s_recv); /* muid */
+		reqbuf_skip_str(p9s->p9s_recv); /* ext. */
 
 		(void) reqbuf_get_u32(p9s->p9s_recv); /* numeric uid */
 		(void) reqbuf_get_u32(p9s->p9s_recv); /* numeric gid */
