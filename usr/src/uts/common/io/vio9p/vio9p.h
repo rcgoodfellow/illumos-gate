@@ -61,6 +61,8 @@ extern "C" {
 /*
  * DRIVER PARAMETERS
  */
+#define	VIRTIO_9P_MAX_FREELIST		16
+#define	VIRTIO_9P_REQ_SIZE		8192
 
 /*
  * TYPE DEFINITIONS
@@ -72,6 +74,7 @@ typedef struct vio9p_req {
 	virtio_chain_t			*vnr_chain;
 	list_node_t			vnr_link;
 	list_node_t			vnr_link_complete;
+	list_node_t			vnr_link_free;
 } vio9p_req_t;
 #define	VIRTIO_9P_TAGLEN		32
 
@@ -87,6 +90,9 @@ typedef struct vio9p {
 
 	list_t				vin_reqs;
 	list_t				vin_completes;
+
+	uint_t				vin_req_nfreelist;
+	list_t				vin_req_freelist;
 
 	char				vin_tag[VIRTIO_9P_TAGLEN + 1];
 } vio9p_t;
