@@ -159,6 +159,20 @@ vio9p_req_free(vio9p_t *vin, vio9p_req_t *vnr)
 {
 	VERIFY(MUTEX_HELD(&vin->vin_mutex));
 
+	if (list_link_active(&vnr->vnr_link_complete)) {
+		list_remove(&vin->vin_completes, vnr);
+	}
+
+	if (vin->vin_req_nfreelist < VIRTIO_9P_MAX_FREELIST) {
+		/*
+		 * The freelist is not full, so we don't need to fully tear
+		 * this down.
+		 */
+		list_insert_head(&vin->vin_req_freelist, vnr);
+		vin->vin_req_nfreelist++;
+		return;
+	}
+
 	if (vnr->vnr_chain != NULL) {
 		virtio_chain_free(vnr->vnr_chain);
 		vnr->vnr_chain = NULL;
@@ -173,20 +187,26 @@ vio9p_req_free(vio9p_t *vin, vio9p_req_t *vnr)
 	}
 
 	list_remove(&vin->vin_reqs, vnr);
-	if (list_link_active(&vnr->vnr_link_complete)) {
-		list_remove(&vin->vin_completes, vnr);
-	}
 	kmem_free(vnr, sizeof (*vnr));
 }
 
 static vio9p_req_t *
-vio9p_req_alloc(vio9p_t *vin, size_t insz, size_t outsz, int kmflag)
+vio9p_req_alloc(vio9p_t *vin, int kmflag)
 {
 	dev_info_t *dip = vin->vin_dip;
+	vio9p_req_t *vnr;
 
 	VERIFY(MUTEX_HELD(&vin->vin_mutex));
 
-	vio9p_req_t *vnr;
+	/*
+	 * Try the free list first:
+	 */
+	if ((vnr = list_remove_head(&vin->vin_req_freelist)) != NULL) {
+		VERIFY(vin->vin_req_nfreelist > 0);
+		vin->vin_req_nfreelist--;
+		return (vnr);
+	}
+
 	if ((vnr = kmem_zalloc(sizeof (*vnr), kmflag)) == NULL) {
 		return (NULL);
 	}
@@ -199,40 +219,42 @@ vio9p_req_alloc(vio9p_t *vin, size_t insz, size_t outsz, int kmflag)
 	}
 	virtio_chain_data_set(vnr->vnr_chain, vnr);
 
-	if (outsz != 0) {
-		if ((vnr->vnr_dma_out = virtio_dma_alloc(vin->vin_virtio, outsz,
-		    &vio9p_dma_attr, DDI_DMA_CONSISTENT | DDI_DMA_READ,
-		    KM_SLEEP)) == NULL) {
-			dev_err(dip, CE_WARN, "DMA out alloc failure");
-			goto fail;
-		}
-		VERIFY3U(virtio_dma_ncookies(vnr->vnr_dma_out), ==, 1);
+	/*
+	 * Allocate outbound request buffer:
+	 */
+	if ((vnr->vnr_dma_out = virtio_dma_alloc(vin->vin_virtio,
+	    VIRTIO_9P_REQ_SIZE, &vio9p_dma_attr,
+	    DDI_DMA_CONSISTENT | DDI_DMA_WRITE, KM_SLEEP)) == NULL) {
+		dev_err(dip, CE_WARN, "DMA out alloc failure");
+		goto fail;
+	}
+	VERIFY3U(virtio_dma_ncookies(vnr->vnr_dma_out), ==, 1);
 
-		if (virtio_chain_append(vnr->vnr_chain,
-		    virtio_dma_cookie_pa(vnr->vnr_dma_out, 0),
-		    virtio_dma_cookie_size(vnr->vnr_dma_out, 0),
-		    VIRTIO_DIR_DEVICE_READS) != DDI_SUCCESS) {
-			dev_err(dip, CE_WARN, "chain append out failure");
-			goto fail;
-		}
+	if (virtio_chain_append(vnr->vnr_chain,
+	    virtio_dma_cookie_pa(vnr->vnr_dma_out, 0),
+	    virtio_dma_cookie_size(vnr->vnr_dma_out, 0),
+	    VIRTIO_DIR_DEVICE_READS) != DDI_SUCCESS) {
+		dev_err(dip, CE_WARN, "chain append out failure");
+		goto fail;
 	}
 
-	if (insz != 0) {
-		if ((vnr->vnr_dma_in = virtio_dma_alloc(vin->vin_virtio, insz,
-		    &vio9p_dma_attr, DDI_DMA_CONSISTENT | DDI_DMA_READ,
-		    KM_SLEEP)) == NULL) {
-			dev_err(dip, CE_WARN, "DMA in alloc failure");
-			goto fail;
-		}
-		VERIFY3U(virtio_dma_ncookies(vnr->vnr_dma_in), ==, 1);
+	/*
+	 * Allocate inbound request buffer:
+	 */
+	if ((vnr->vnr_dma_in = virtio_dma_alloc(vin->vin_virtio,
+	    VIRTIO_9P_REQ_SIZE, &vio9p_dma_attr,
+	    DDI_DMA_CONSISTENT | DDI_DMA_READ, KM_SLEEP)) == NULL) {
+		dev_err(dip, CE_WARN, "DMA in alloc failure");
+		goto fail;
+	}
+	VERIFY3U(virtio_dma_ncookies(vnr->vnr_dma_in), ==, 1);
 
-		if (virtio_chain_append(vnr->vnr_chain,
-		    virtio_dma_cookie_pa(vnr->vnr_dma_in, 0),
-		    virtio_dma_cookie_size(vnr->vnr_dma_in, 0),
-		    VIRTIO_DIR_DEVICE_WRITES) != DDI_SUCCESS) {
-			dev_err(dip, CE_WARN, "chain append in failure");
-			goto fail;
-		}
+	if (virtio_chain_append(vnr->vnr_chain,
+	    virtio_dma_cookie_pa(vnr->vnr_dma_in, 0),
+	    virtio_dma_cookie_size(vnr->vnr_dma_in, 0),
+	    VIRTIO_DIR_DEVICE_WRITES) != DDI_SUCCESS) {
+		dev_err(dip, CE_WARN, "chain append in failure");
+		goto fail;
 	}
 
 	return (vnr);
@@ -309,6 +331,8 @@ vio9p_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	    offsetof(vio9p_req_t, vnr_link));
 	list_create(&vin->vin_completes, sizeof (vio9p_req_t),
 	    offsetof(vio9p_req_t, vnr_link_complete));
+	list_create(&vin->vin_req_freelist, sizeof (vio9p_req_t),
+	    offsetof(vio9p_req_t, vnr_link_free));
 
 	if (virtio_feature_present(vio, VIRTIO_9P_F_MOUNT_TAG)) {
 		uint16_t len = virtio_dev_get16(vio, VIRTIO_9P_CONFIG_TAG_SZ);
@@ -385,6 +409,15 @@ vio9p_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	}
 
 	mutex_enter(&vin->vin_mutex);
+
+	for (;;) {
+		vio9p_req_t *t = list_remove_head(&vin->vin_req_freelist);
+		if (t == NULL) {
+			break;
+		}
+		vin->vin_req_nfreelist--;
+	}
+	VERIFY0(vin->vin_req_nfreelist);
 
 	if (!list_is_empty(&vin->vin_reqs)) {
 		mutex_exit(&vin->vin_mutex);
@@ -582,7 +615,7 @@ vio9p_write(dev_t dev, struct uio *uio, cred_t *cred)
 		return (EINVAL);
 	}
 
-	if (uio->uio_resid > 8192) {
+	if (uio->uio_resid > VIRTIO_9P_REQ_SIZE) {
 		/*
 		 * XXX for now, we require msize to be <= 8192.
 		 */
@@ -597,7 +630,7 @@ vio9p_write(dev_t dev, struct uio *uio, cred_t *cred)
 	}
 
 	mutex_enter(&vin->vin_mutex);
-	vio9p_req_t *vnr = vio9p_req_alloc(vin, 8192, 8192, KM_SLEEP);
+	vio9p_req_t *vnr = vio9p_req_alloc(vin, KM_SLEEP);
 	if (vnr == NULL) {
 		mutex_exit(&vin->vin_mutex);
 		return (ENOMEM);
