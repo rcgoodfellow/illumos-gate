@@ -111,7 +111,7 @@ reqbuf_trim(reqbuf_t *rb, size_t len)
 	}
 }
 
-void
+static __GNU_INLINE void
 reqbuf_get_bcopy(reqbuf_t *rb, void *target, size_t nbytes)
 {
 	if (rb->rb_error != 0) {
@@ -132,7 +132,7 @@ reqbuf_get_bcopy(reqbuf_t *rb, void *target, size_t nbytes)
 uint8_t
 reqbuf_get_u8(reqbuf_t *rb)
 {
-	uint8_t val;
+	uint8_t val = 0;
 	reqbuf_get_bcopy(rb, &val, sizeof (uint8_t));
 	return (val);
 }
@@ -140,7 +140,7 @@ reqbuf_get_u8(reqbuf_t *rb)
 uint16_t
 reqbuf_get_u16(reqbuf_t *rb)
 {
-	uint16_t val;
+	uint16_t val = 0;
 	reqbuf_get_bcopy(rb, &val, sizeof (uint16_t));
 	return (val);
 }
@@ -148,7 +148,7 @@ reqbuf_get_u16(reqbuf_t *rb)
 uint32_t
 reqbuf_get_u32(reqbuf_t *rb)
 {
-	uint32_t val;
+	uint32_t val = 0;
 	reqbuf_get_bcopy(rb, &val, sizeof (uint32_t));
 	return (val);
 }
@@ -156,7 +156,7 @@ reqbuf_get_u32(reqbuf_t *rb)
 uint64_t
 reqbuf_get_u64(reqbuf_t *rb)
 {
-	uint64_t val;
+	uint64_t val = 0;
 	reqbuf_get_bcopy(rb, &val, sizeof (uint64_t));
 	return (val);
 }
@@ -302,7 +302,7 @@ reqbuf_write(reqbuf_t *rb, ldi_handle_t lh)
 	return (e);
 }
 
-void
+static __GNU_INLINE void
 reqbuf_append_bcopy(reqbuf_t *rb, const void *data, size_t len)
 {
 	if (rb->rb_error != 0) {
