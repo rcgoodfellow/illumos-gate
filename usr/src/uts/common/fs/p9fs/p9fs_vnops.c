@@ -155,9 +155,11 @@ p9fs_free_node(p9fs_node_t *p9n)
 	p9fs_session_unlock(p9s);
 
 	/*
-	 * Release the hold on the VFS we took in p9fs_make_node() and free.
+	 * Release the hold on the VFS we took in p9fs_make_node(), free the
+	 * vnode, and free our per-vnode object.
 	 */
 	VFS_RELE(p9->p9_vfs);
+	vn_invalid(p9n->p9n_vnode);
 	vn_free(p9n->p9n_vnode);
 	kmem_free(p9n, sizeof (*p9n));
 }
@@ -808,6 +810,84 @@ p9fs_getpage(vnode_t *v, offset_t off, size_t len, uint_t *prot, page_t *pl[],
 	    seg, addr, rw, cr));
 }
 
+static int
+p9fs_putapage(vnode_t *v, page_t *pp, u_offset_t *off, size_t *len,
+    int flags, cred_t *cr)
+{
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+
+	/*
+	 * XXX Until we allow writes into our pages, it doesn't seem like there
+	 * should be any way for a page to be dirtied...
+	 */
+	cmn_err(CE_WARN, "p9fs_putapage(%p, %llu, %lu) BAH!", pp, *off, *len);
+	pvn_write_done(pp, B_ERROR | B_WRITE | B_INVAL | B_FORCE | flags);
+	return (0);
+}
+
+static int
+p9fs_putpage(vnode_t *v, offset_t off, size_t len, int flags,
+    cred_t *cr, caller_context_t *ct)
+{
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+	int e;
+
+	if (v->v_flag & VNOMAP) {
+		/*
+		 * XXX ?
+		 */
+		return (ENOSYS);
+	}
+
+	if (!vn_has_cached_data(v)) {
+		return (0);
+	}
+
+	if (len == 0) {
+		/*
+		 * Search the entire list for pages at or after our offset.
+		 */
+		return (pvn_vplist_dirty(v, off, p9fs_putapage, flags, cr));
+	}
+
+	for (offset_t i = off; i < off + len; i += PAGESIZE) {
+		page_t *pp;
+
+		/*
+		 * XXX As per other file systems...
+		 */
+		if ((flags & B_INVAL) || !(flags & B_ASYNC)) {
+			pp = page_lookup(v, i,
+			    (flags & (B_INVAL | B_FREE)) ?
+			    SE_EXCL : SE_SHARED);
+		} else {
+			pp = page_lookup(v, i,
+			    (flags & B_FREE) ? SE_EXCL : SE_SHARED);
+		}
+
+		if (pp == NULL) {
+			continue;
+		}
+
+		/*
+		 * XXX We do not yet write pages back...
+		 */
+		if (pvn_getdirty(pp, flags) == 0) {
+			continue;
+		}
+
+		cmn_err(CE_WARN, "p9fs_putpage: dirty page!");
+		pvn_write_done(pp,
+		    flags | B_ERROR | B_WRITE | B_INVAL | B_FORCE);
+	}
+
+	return (0);
+}
+
 static void
 p9fs_inactive(vnode_t *v, cred_t *cr, caller_context_t *ct)
 {
@@ -829,6 +909,18 @@ p9fs_inactive(vnode_t *v, cred_t *cr, caller_context_t *ct)
 	}
 	mutex_exit(&v->v_lock);
 
+retry:
+	if (vn_has_cached_data(v)) {
+		(void) pvn_vplist_dirty(v, 0, p9fs_putapage, B_INVAL, NULL);
+	}
+
+	mutex_enter(&v->v_lock);
+	if (vn_has_cached_data(v)) {
+		mutex_exit(&v->v_lock);
+		goto retry;
+	}
+	mutex_exit(&v->v_lock);
+
 	/*
 	 * The vnode is ours to destroy.
 	 */
@@ -846,6 +938,7 @@ const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_READ, .func = { .vop_read = p9fs_read }},
 	{ .name = VOPNAME_SEEK, .func = { .vop_seek = p9fs_seek }},
 	{ .name = VOPNAME_GETPAGE, .func = { .vop_getpage = p9fs_getpage }},
+	{ .name = VOPNAME_PUTPAGE, .func = { .vop_putpage = p9fs_putpage }},
 	{ .name = VOPNAME_INACTIVE, .func = { .vop_inactive = p9fs_inactive }},
 	{ .name = NULL, .func = NULL },
 };
