@@ -1055,7 +1055,8 @@ p9fs_session_readdir_next(p9fs_session_t *p9s, p9fs_readdir_t *p9rd)
 	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
 
 	t = p9s->p9s_next_tag++;
-	create_tread(p9s->p9s_send, t, p9rd->p9rd_fid, p9rd->p9rd_next_offset, 256);
+	create_tread(p9s->p9s_send, t, p9rd->p9rd_fid, p9rd->p9rd_next_offset,
+	    p9s->p9s_msize / 2); /* XXX request size */
 	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RREAD) != 0) {
 		cmn_err(CE_WARN, "p9fs: could not READ %x", p9rd->p9rd_fid);
 		return (EIO);
