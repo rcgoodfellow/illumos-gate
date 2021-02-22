@@ -124,6 +124,7 @@ typedef struct p9fs_node {
 
 	kmutex_t p9n_mutex;
 	struct p9fs_readdir *p9n_readdir;
+	uint32_t p9n_read_fid;
 } p9fs_node_t;
 
 typedef struct p9fs_readdir_ent {
@@ -173,6 +174,9 @@ extern int p9fs_session_readdir_next(p9fs_session_t *, p9fs_readdir_t *);
 extern int p9fs_session_lookup(p9fs_session_t *, uint32_t, const char *,
     uint32_t *, p9fs_qid_t *);
 extern int p9fs_session_clunk(p9fs_session_t *, uint32_t);
+extern int p9fs_session_read(p9fs_session_t *, uint32_t, uint64_t,
+    caddr_t, uint32_t, uint32_t *);
+extern int p9fs_session_open(p9fs_session_t *, uint32_t, uint32_t *);
 
 extern p9fs_node_t *p9fs_make_node(p9fs_t *, uint32_t, p9fs_qid_t *, vtype_t);
 

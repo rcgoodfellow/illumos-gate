@@ -608,6 +608,9 @@ read_again:
 					 * for 9P2000.L, but what about .u?
 					 */
 					decoded = EACCES;
+				} else if (strcasecmp("no such file or"
+				    " directory", estr) == 0) {
+					decoded = ENOENT;
 				} else {
 					cmn_err(CE_WARN,
 					    "p9fs: error \"%s\" num %u",
@@ -637,7 +640,7 @@ p9fs_session_init(p9fs_session_t **p9sp, ldi_handle_t lh, uint_t id)
 	p9fs_session_t *p9s = kmem_zalloc(sizeof (*p9s), KM_SLEEP);
 	p9s->p9s_id = id;
 	p9s->p9s_ldi = lh;
-	p9s->p9s_msize = 4096;
+	p9s->p9s_msize = 2 * PAGESIZE;
 	p9s->p9s_next_tag = 101;
 	mutex_init(&p9s->p9s_mutex, NULL, MUTEX_DRIVER, NULL);
 	if (reqbuf_alloc(&p9s->p9s_send, p9s->p9s_msize) != 0 ||
@@ -830,16 +833,28 @@ p9fs_session_lookup(p9fs_session_t *p9s, uint32_t fid, const char *name,
 
 	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
 
+	if (strcmp(name, ".") == 0) {
+		/*
+		 * According to walk(5):
+		 *	The file name element "." (dot) is interpreted locally
+		 *	and is not transmitted in walk messages.
+		 */
+		return (EINVAL);
+	}
+
 	if ((id = id_alloc_nosleep(p9s->p9s_fid_space)) == -1) {
 		return (ENOMEM);
 	}
 
 	t = p9s->p9s_next_tag++;
 	create_twalk1(p9s->p9s_send, t, fid, id, name);
-	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RWALK) != 0) {
-		cmn_err(CE_WARN, "p9fs: could not WALK %x", fid);
+	if ((r = p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t,
+	    PLAN9_RWALK)) != 0) {
+		if (r != ENOENT) {
+			cmn_err(CE_WARN, "p9fs: could not WALK %x", fid);
+		}
 		id_free(p9s->p9s_fid_space, id);
-		return (EIO);
+		return (r);
 	}
 
 	/*
@@ -854,7 +869,12 @@ p9fs_session_lookup(p9fs_session_t *p9s, uint32_t fid, const char *name,
 		*newqid = *qid;
 		r = 0;
 	} else {
-		cmn_err(CE_WARN, "p9fs: lookup %u decode failed", fid);
+		if (reqbuf_error(p9s->p9s_recv) == 0) {
+			cmn_err(CE_WARN, "p9fs: lookup %u decode: "
+			    "unexpected nqids %u", fid, (unsigned)nqids);
+		} else {
+			cmn_err(CE_WARN, "p9fs: lookup %u decode failed", fid);
+		}
 		r = EIO;
 	}
 
@@ -867,6 +887,7 @@ p9fs_session_dupfid(p9fs_session_t *p9s, uint32_t fid, uint32_t *newfid)
 {
 	uint16_t t;
 	id_t id;
+	int r;
 
 	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
 
@@ -876,20 +897,39 @@ p9fs_session_dupfid(p9fs_session_t *p9s, uint32_t fid, uint32_t *newfid)
 
 	t = p9s->p9s_next_tag++;
 	create_twalk0(p9s->p9s_send, t, fid, id);
-	if (p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t, PLAN9_RWALK) != 0) {
-		cmn_err(CE_WARN, "p9fs: could not WALK %x", fid);
-		id_free(p9s->p9s_fid_space, id);
-		return (EIO);
+	if ((r = p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t,
+	    PLAN9_RWALK)) != 0) {
+		cmn_err(CE_WARN, "p9fs: dupfid: could not WALK %x", fid);
+		goto out;
 	}
 
 	/*
 	 * 9P2000.u:
 	 *	size[4] Rwalk tag[2] nwqid[2] nwqid*(qid[13])
 	 *
-	 * XXX If this fid duplication was a success, discard the qid for now?
+	 * According to walk(5), "nwqid will always be less than or equal to
+	 * nwname".  As such, because we are duplicating an existing fid, there
+	 * should be no new qids.
 	 */
-	*newfid = id;
-	return (0);
+	uint16_t nqids = reqbuf_get_u16(p9s->p9s_recv);
+
+	if (reqbuf_error(p9s->p9s_recv) != 0) {
+		cmn_err(CE_WARN, "p9fs: dupfid %u decode failed", fid);
+		r = EIO;
+	} else if (nqids != 0) {
+		cmn_err(CE_WARN, "p9fs: dupfid %u decode failed, got %u qids",
+		    fid, (unsigned)nqids);
+		r = EIO;
+	} else {
+		*newfid = id;
+		r = 0;
+	}
+
+out:
+	if (r != 0) {
+		(void) p9fs_session_clunk(p9s, id);
+	}
+	return (r);
 }
 
 void
@@ -899,6 +939,78 @@ p9fs_session_stat_reset(p9fs_stat_t *p9st)
 	reqbuf_strfree(p9st->p9st_extension);
 	reqbuf_free_qid(p9st->p9st_qid);
 	bzero(p9st, sizeof (*p9st));
+}
+
+int
+p9fs_session_read(p9fs_session_t *p9s, uint32_t fid, uint64_t offset,
+    caddr_t data, uint32_t count, uint32_t *rcount)
+{
+	int r;
+	uint16_t t;
+	uint32_t ocount = count;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	if (count == 0) {
+		return (EINVAL);
+	}
+
+	if (count > p9s->p9s_msize / 2) {
+		/*
+		 * XXX qemu-system-x86_64: VirtFS reply type 117 needs 4107
+		 * bytes, buffer has 4096
+		 * XXX cap reads at a size smaller than msize.
+		 */
+		count = p9s->p9s_msize / 2;
+		VERIFY(count > 0);
+	}
+
+	t = p9s->p9s_next_tag++;
+	create_tread(p9s->p9s_send, t, fid, offset, count);
+	if ((r = p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t,
+	    PLAN9_RREAD)) != 0) {
+		cmn_err(CE_WARN, "p9fs: read: could not READ %x", fid);
+		return (r);
+	}
+
+	*rcount = reqbuf_get_u32(p9s->p9s_recv);
+
+	if (reqbuf_error(p9s->p9s_recv) != 0 ||
+	    *rcount > ocount ||
+	    *rcount != reqbuf_remainder(p9s->p9s_recv)) {
+		cmn_err(CE_WARN, "p9fs: read: READ decode error");
+		return (EIO);
+	}
+
+	reqbuf_get_bcopy(p9s->p9s_recv, data, *rcount);
+	VERIFY0(reqbuf_error(p9s->p9s_recv));
+	return (0);
+}
+
+int
+p9fs_session_open(p9fs_session_t *p9s, uint32_t fid, uint32_t *newfid)
+{
+	int r;
+	uint16_t t;
+	uint32_t tfid;
+
+	VERIFY(MUTEX_HELD(&p9s->p9s_mutex));
+
+	if ((r = p9fs_session_dupfid(p9s, fid, &tfid)) != 0) {
+		return (r);
+	}
+
+	t = p9s->p9s_next_tag++;
+	create_topen(p9s->p9s_send, t, tfid, MODE_OREAD);
+	if ((r = p9fs_rpc(p9s, p9s->p9s_send, p9s->p9s_recv, t,
+	    PLAN9_ROPEN)) != 0) {
+		cmn_err(CE_WARN, "p9fs: open: could not OPEN %x/%x", fid, tfid);
+		(void) p9fs_session_clunk(p9s, tfid);
+		return (r);
+	}
+
+	*newfid = tfid;
+	return (0);
 }
 
 int
