@@ -120,10 +120,8 @@ p9fs_mount(struct vfs *vfs, struct vnode *mv, struct mounta *uap,
 	vfs->vfs_fstype = p9fs_fstyp;
 	vfs_make_fsid(&vfs->vfs_fsid, dev, p9fs_fstyp);
 
-	/*
-	 * Create the root vnode.
-	 */
-
+	pn_free(&spec);
+	pn_free(&dir);
 	return (0);
 
 bail:

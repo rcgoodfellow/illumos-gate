@@ -135,6 +135,33 @@ p9fs_make_node(p9fs_t *p9, uint32_t fid, p9fs_qid_t *qid, vtype_t type)
 	return (p9n);
 }
 
+static void
+p9fs_free_node(p9fs_node_t *p9n)
+{
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+
+	/*
+	 * Let go of any 9P session resources:
+	 */
+	p9fs_session_lock(p9s);
+	if (p9n->p9n_readdir != NULL) {
+		p9fs_session_readdir_free(p9s, p9n->p9n_readdir);
+	}
+	if (p9n->p9n_read_fid != 0) {
+		(void) p9fs_session_clunk(p9s, p9n->p9n_read_fid);
+	}
+	(void) p9fs_session_clunk(p9s, p9n->p9n_fid);
+	p9fs_session_unlock(p9s);
+
+	/*
+	 * Release the hold on the VFS we took in p9fs_make_node() and free.
+	 */
+	VFS_RELE(p9->p9_vfs);
+	vn_free(p9n->p9n_vnode);
+	kmem_free(p9n, sizeof (*p9n));
+}
+
 static int
 p9fs_open(vnode_t **vp, int flag, cred_t *cr, caller_context_t *ct)
 {
@@ -770,6 +797,33 @@ p9fs_getpage(vnode_t *v, offset_t off, size_t len, uint_t *prot, page_t *pl[],
 	    seg, addr, rw, cr));
 }
 
+static void
+p9fs_inactive(vnode_t *v, cred_t *cr, caller_context_t *ct)
+{
+	p9fs_node_t *p9n = v->v_data;
+	p9fs_t *p9 = p9n->p9n_fs;
+	p9fs_session_t *p9s = p9->p9_session;
+
+	/*
+	 * An asynchronous hold may appear between vn_rele() and when we take
+	 * the lock.  Don't destroy anything unless we really are the last
+	 * reference.
+	 */
+	mutex_enter(&v->v_lock);
+	VERIFY(v->v_count >= 1);
+	if (v->v_count > 1) {
+		VN_RELE_LOCKED(v);
+		mutex_exit(&v->v_lock);
+		return;
+	}
+	mutex_exit(&v->v_lock);
+
+	/*
+	 * The vnode is ours to destroy.
+	 */
+	p9fs_free_node(p9n);
+}
+
 const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_GETATTR, .func = { .vop_getattr = p9fs_getattr }},
 	{ .name = VOPNAME_OPEN, .func = { .vop_open = p9fs_open }},
@@ -781,5 +835,6 @@ const fs_operation_def_t p9fs_vnodeops_template[] = {
 	{ .name = VOPNAME_READ, .func = { .vop_read = p9fs_read }},
 	{ .name = VOPNAME_SEEK, .func = { .vop_seek = p9fs_seek }},
 	{ .name = VOPNAME_GETPAGE, .func = { .vop_getpage = p9fs_getpage }},
+	{ .name = VOPNAME_INACTIVE, .func = { .vop_inactive = p9fs_inactive }},
 	{ .name = NULL, .func = NULL },
 };
