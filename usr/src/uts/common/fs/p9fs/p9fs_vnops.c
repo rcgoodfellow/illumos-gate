@@ -386,6 +386,17 @@ p9fs_lookup(vnode_t *v, char *name, vnode_t **vp, pathname_t *lookpn,
 		return (0);
 	}
 
+	if (name[0] == '.' && name[1] == '\0') {
+		/*
+		 * Depending on the server implementation, we cannot rely on
+		 * looking up the special directory entry ".".  Just return
+		 * this vnode.
+		 */
+		VN_HOLD(v);
+		*vp = v;
+		return (0);
+	}
+
 	p9fs_session_lock(p9s);
 	r = p9fs_session_lookup(p9s, p9n->p9n_fid, name, &chfid, &chqid);
 	p9fs_session_unlock(p9s);
