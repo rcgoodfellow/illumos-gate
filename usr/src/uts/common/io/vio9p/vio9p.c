@@ -582,9 +582,9 @@ vio9p_write(dev_t dev, struct uio *uio, cred_t *cred)
 		return (EINVAL);
 	}
 
-	if (uio->uio_resid > 4096) {
+	if (uio->uio_resid > 8192) {
 		/*
-		 * XXX for now, we require msize to be <= 4096.
+		 * XXX for now, we require msize to be <= 8192.
 		 */
 		return (ENOSPC);
 	}
@@ -597,7 +597,7 @@ vio9p_write(dev_t dev, struct uio *uio, cred_t *cred)
 	}
 
 	mutex_enter(&vin->vin_mutex);
-	vio9p_req_t *vnr = vio9p_req_alloc(vin, 4096, 4096, KM_SLEEP);
+	vio9p_req_t *vnr = vio9p_req_alloc(vin, 8192, 8192, KM_SLEEP);
 	if (vnr == NULL) {
 		mutex_exit(&vin->vin_mutex);
 		return (ENOMEM);
