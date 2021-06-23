@@ -56,6 +56,7 @@ LDFLAGS += $(NATIVE_LIBS:%=$(ZASSERTDEFLIB)=%)
 CPPFLAGS += -nostdinc
 CPPFLAGS += -Isrc/
 CPPFLAGS += -I$(NATIVE_ADJUNCT)/include
+CPPFLAGS += -I/usr/include
 
 # no install.bin
 INS.file = $(RM) $@; $(CP) $< $(@D); $(CHMOD) $(FILEMODE) $@

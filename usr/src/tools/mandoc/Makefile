@@ -25,10 +25,10 @@ OBJS +=		fts.o \
 		recallocarray.o \
 		strtonum.o
 
-CPPFLAGS +=	-_gcc=-nostdinc
+CPPFLAGS +=	-_gcc=-nostdinc -I/usr/include -I$(ADJUNCT_PROTO)/usr/include
 CPPFLAGS +=	-I. -include fts.h
-CPPFLAGS +=	-I$(NATIVE_ADJUNCT)/include
-LDFLAGS +=	-L$(NATIVE_ADJUNCT)/lib -R$(NATIVE_ADJUNCT)/lib
+CPPFLAGS +=	-D_FILE_OFFSET_BITS=64
+LDFLAGS +=	-L$(ADJUNCT_PROTO)/lib -R$(ADJUNCT_PROTO)/lib
 
 # 3rd party code
 SMATCH=off
