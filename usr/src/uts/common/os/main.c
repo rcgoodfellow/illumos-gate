@@ -404,6 +404,8 @@ main(void)
 	extern kmutex_t	ualock;
 #if defined(__x86)
 	extern void	fastboot_post_startup(void);
+#endif
+#if defined(i86pc)
 	extern void	progressbar_start(void);
 #endif
 	/*
@@ -446,7 +448,7 @@ main(void)
 	clock_tick_init_pre();
 	clock_init();
 
-#if defined(__x86)
+#if defined(i86pc)
 	/*
 	 * The progressbar thread uses cv_reltimedwait() and hence needs to be
 	 * started after the callout mechanism has been initialized.
