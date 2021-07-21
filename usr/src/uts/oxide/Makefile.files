@@ -53,6 +53,7 @@ CORE_OBJS +=			\
 	ddi_impl.o		\
 	dtrace_subr.o		\
 	dvma.o			\
+	dw_apb_uart.o		\
 	fpu_subr.o		\
 	fakebop.o		\
 	fastboot.o		\

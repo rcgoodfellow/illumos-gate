@@ -69,6 +69,8 @@
 #include <sys/fastboot_impl.h>
 #include <sys/ddipropdefs.h>	/* For DDI prop types */
 
+#include <sys/dw_apb_uart.h>
+
 static int have_console = 0;	/* set once primitive console is initialized */
 static char *boot_args = "";
 
@@ -1680,6 +1682,7 @@ bop_idt_init(void)
 }
 #endif	/* !defined(__xpv) */
 
+char * empty_cmdline = "";
 /*
  * This is where we enter the kernel. It dummies up the boot_ops and
  * boot_syscalls vectors and jumps off to _kobj_boot()
@@ -1713,6 +1716,9 @@ _start(struct xboot_info *xbp)
 	 */
 	if (1 || find_boot_prop("kbm_debug") != NULL)
 		kbm_debug = 1;
+
+	// TODO(ganshun): remove when we have proper cmdline handling.
+	xbp->bi_cmdline = empty_cmdline;
 
 	DBG_MSG("\n\n*** Entered illumos in _start() cmdline is: ");
 	DBG_MSG((char *)xbp->bi_cmdline);

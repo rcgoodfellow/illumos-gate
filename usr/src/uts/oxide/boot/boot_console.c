@@ -63,6 +63,9 @@ extern int bcons_getchar_xen(void);
 extern int bcons_ischar_xen(void);
 #endif /* __xpv */
 
+#include <sys/dw_apb_uart.h>
+#include <sys/uart.h>
+
 fb_info_t fb_info;
 static bcons_dev_t bcons_dev;				/* Device callbacks */
 static int console = CONS_SCREEN_TEXT;
@@ -99,16 +102,7 @@ typedef struct btem_state {
 
 static btem_state_t boot_tem;
 
-static int serial_ischar(void);
-static int serial_getchar(void);
-static void serial_putchar(int);
-static void serial_adjust_prop(void);
-
 static void defcons_putchar(int);
-
-#if !defined(_BOOT)
-static boolean_t bootprop_set_tty_mode;
-#endif
 
 #if defined(__xpv)
 static int console_hypervisor_redirect = B_FALSE;
@@ -127,53 +121,7 @@ console_hypervisor_dev_type(int *tnum)
 
 static int port;
 
-static void
-serial_init(void)
-{
-	port = tty_addr[tty_num];
-
-	outb(port + ISR, 0x20);
-	if (inb(port + ISR) & 0x20) {
-		/*
-		 * 82510 chip is present
-		 */
-		outb(port + DAT+7, 0x04);	/* clear status */
-		outb(port + ISR, 0x40);  /* set to bank 2 */
-		outb(port + MCR, 0x08);  /* IMD */
-		outb(port + DAT, 0x21);  /* FMD */
-		outb(port + ISR, 0x00);  /* set to bank 0 */
-	} else {
-		/*
-		 * set the UART in FIFO mode if it has FIFO buffers.
-		 * use 16550 fifo reset sequence specified in NS
-		 * application note. disable fifos until chip is
-		 * initialized.
-		 */
-		outb(port + FIFOR, 0x00);		/* clear */
-		outb(port + FIFOR, FIFO_ON);		/* enable */
-		outb(port + FIFOR, FIFO_ON|FIFORXFLSH);  /* reset */
-		outb(port + FIFOR,
-		    FIFO_ON|FIFODMA|FIFOTXFLSH|FIFORXFLSH|0x80);
-		if ((inb(port + ISR) & 0xc0) != 0xc0) {
-			/*
-			 * no fifo buffers so disable fifos.
-			 * this is true for 8250's
-			 */
-			outb(port + FIFOR, 0x00);
-		}
-	}
-
-	/* disable interrupts */
-	outb(port + ICR, 0);
-
-#if !defined(_BOOT)
-	if (IN_XPV_PANIC())
-		return;
-#endif
-
-	/* adjust setting based on tty properties */
-	serial_adjust_prop();
-}
+static uintptr_t dw_apb_uart_hdl;
 
 /* Advance str pointer past white space */
 #define	EAT_WHITE_SPACE(str)	{			\
@@ -397,128 +345,6 @@ get_mode_value(char *name)
 #endif
 }
 
-/*
- * adjust serial port based on properties
- * These come either from the cmdline or from boot properties.
- */
-static void
-serial_adjust_prop(void)
-{
-	char propname[20];
-	const char *propval;
-	const char *p;
-	ulong_t baud;
-	uchar_t lcr = 0;
-	uchar_t mcr = DTR | RTS;
-
-	(void) strcpy(propname, "ttyX-mode");
-	propname[3] = 'a' + tty_num;
-	propval = get_mode_value(propname);
-#if !defined(_BOOT)
-	if (propval != NULL)
-		bootprop_set_tty_mode = B_TRUE;
-#endif
-	if (propval == NULL)
-		propval = "9600,8,n,1,-";
-
-	/* property is of the form: "9600,8,n,1,-" */
-	p = propval;
-	if (MATCHES(p, "110,"))
-		baud = ASY110;
-	else if (MATCHES(p, "150,"))
-		baud = ASY150;
-	else if (MATCHES(p, "300,"))
-		baud = ASY300;
-	else if (MATCHES(p, "600,"))
-		baud = ASY600;
-	else if (MATCHES(p, "1200,"))
-		baud = ASY1200;
-	else if (MATCHES(p, "2400,"))
-		baud = ASY2400;
-	else if (MATCHES(p, "4800,"))
-		baud = ASY4800;
-	else if (MATCHES(p, "19200,"))
-		baud = ASY19200;
-	else if (MATCHES(p, "38400,"))
-		baud = ASY38400;
-	else if (MATCHES(p, "57600,"))
-		baud = ASY57600;
-	else if (MATCHES(p, "115200,"))
-		baud = ASY115200;
-	else {
-		baud = ASY9600;
-		SKIP(p, ',');
-	}
-	outb(port + LCR, DLAB);
-	outb(port + DAT + DLL, baud & 0xff);
-	outb(port + DAT + DLH, (baud >> 8) & 0xff);
-
-	switch (*p) {
-	case '5':
-		lcr |= BITS5;
-		++p;
-		break;
-	case '6':
-		lcr |= BITS6;
-		++p;
-		break;
-	case '7':
-		lcr |= BITS7;
-		++p;
-		break;
-	case '8':
-		++p;
-		/* FALLTHROUGH */
-	default:
-		lcr |= BITS8;
-		break;
-	}
-
-	SKIP(p, ',');
-
-	switch (*p) {
-	case 'n':
-		lcr |= PARITY_NONE;
-		++p;
-		break;
-	case 'o':
-		lcr |= PARITY_ODD;
-		++p;
-		break;
-	case 'e':
-		++p;
-		/* FALLTHROUGH */
-	default:
-		lcr |= PARITY_EVEN;
-		break;
-	}
-
-
-	SKIP(p, ',');
-
-	switch (*p) {
-	case '1':
-		/* STOP1 is 0 */
-		++p;
-		break;
-	default:
-		lcr |= STOP2;
-		break;
-	}
-	/* set parity bits */
-	outb(port + LCR, lcr);
-
-	(void) strcpy(propname, "ttyX-rts-dtr-off");
-	propname[3] = 'a' + tty_num;
-	propval = get_mode_value(propname);
-	if (propval == NULL)
-		propval = "false";
-	if (propval[0] != 'f' && propval[0] != 'F')
-		mcr = 0;
-	/* set modem control bits */
-	outb(port + MCR, mcr | OUT2);
-}
-
 /* Obtain the console type */
 int
 boot_console_type(int *tnum)
@@ -641,39 +467,8 @@ void
 bcons_init(struct xboot_info *xbi)
 {
 	console = CONS_TTY;
-	serial_init();
-}
-
-static void
-serial_putchar(int c)
-{
-	int checks = 10000;
-
-	while (((inb(port + LSR) & XHRE) == 0) && checks--)
-		;
-	outb(port + DAT, (char)c);
-}
-
-static int
-serial_getchar(void)
-{
-	uchar_t lsr;
-
-	while (serial_ischar() == 0)
-		;
-
-	lsr = inb(port + LSR);
-	if (lsr & (SERIAL_BREAK | SERIAL_FRAME |
-	    SERIAL_PARITY | SERIAL_OVERRUN)) {
-		if (lsr & SERIAL_OVERRUN) {
-			return (inb(port + DAT));
-		} else {
-			/* Toss the garbage */
-			(void) inb(port + DAT);
-			return (0);
-		}
-	}
-	return (inb(port + DAT));
+	dw_apb_uart_hdl = dw_apb_uart_init(DAP_0, 3000000,
+		AD_8BITS, AP_NONE, AS_1BIT);
 }
 
 static int
@@ -863,7 +658,7 @@ _doputchar(int device, int c)
 {
 	switch (device) {
 	case CONS_TTY:
-		serial_putchar(c);
+		dw_apb_uart_tx_nb(dw_apb_uart_hdl, (uint8_t*)(&c), 1);
 		return;
 	case CONS_SCREEN_TEXT:
 	case CONS_FRAMEBUFFER:
@@ -909,8 +704,9 @@ int
 bcons_getchar(void)
 {
 	for (;;) {
-		if (serial_ischar())
-			return (serial_getchar());
+		return (int)(dw_apb_uart_rx_one(dw_apb_uart_hdl));
+		//if (serial_ischar())
+			//return (serial_getchar());
 	}
 }
 
@@ -922,7 +718,7 @@ bcons_getchar(void)
 int
 bcons_ischar(void)
 {
-	return (serial_ischar());
+	return dw_apb_uart_dr(dw_apb_uart_hdl);
 }
 
 /*
@@ -954,9 +750,11 @@ bcons_post_bootenvrc(char *inputdev, char *outputdev, char *consoledev)
 		/*
 		 * No console change, but let's see if bootenv.rc had a mode
 		 * setting we should apply.
+		 * Gan: I don't think we need to vary the parameters for our
+		 * system post boot. Going to ignore this.
 		 */
-		if (console == CONS_TTY && !bootprop_set_tty_mode)
-			serial_init();
+		//if (console == CONS_TTY && !bootprop_set_tty_mode)
+		//	serial_init();
 		return;
 	}
 
@@ -964,7 +762,7 @@ bcons_post_bootenvrc(char *inputdev, char *outputdev, char *consoledev)
 
 	if (console == CONS_TTY) {
 		tty_num = ttyn;
-		serial_init();
+		//serial_init();
 	}
 }
 
