@@ -184,10 +184,10 @@
 #include <sys/acpidev.h>
 #include <sys/acpi/acpi.h>		/* for SRAT, SLIT and MSCT */
 
-/* from fakebop.c */
-extern ACPI_TABLE_SRAT *srat_ptr;
-extern ACPI_TABLE_SLIT *slit_ptr;
-extern ACPI_TABLE_MSCT *msct_ptr;
+/* XXX delete me */
+ACPI_TABLE_SRAT *srat_ptr;
+ACPI_TABLE_SLIT *slit_ptr;
+ACPI_TABLE_MSCT *msct_ptr;
 
 #define	MAX_NODES		8
 #define	NLGRP			(MAX_NODES * (MAX_NODES - 1) + 1)

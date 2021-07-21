@@ -85,42 +85,31 @@ void
 kbm_init(struct xboot_info *bi)
 {
 	/*
-	 * configure mmu information
+	 * Configure mmu information.  XXX Most of this file should move to
+	 * intel, and we can share it with i86pc by setting up these parameters.
 	 */
 	kbm_nucleus_size = (uintptr_t)bi->bi_kseg_size;
-	kbm_largepage_support = bi->bi_use_largepage;
-	kbm_nx_support = bi->bi_use_nx;
-	kbm_pae_support = bi->bi_use_pae;
-	kbm_pge_support = bi->bi_use_pge;
-	window = bi->bi_pt_window;
+	kbm_largepage_support = 1; /* Architectural */
+	kbm_nx_support = 1; /* Architectural */
+	kbm_pae_support = 1; /* Architectural */
+	kbm_pge_support = 1; /* Architectural */
+	window = bi->bi_pt_window;	/* XXX allocate a 4K page */
 	DBG(window);
-	pte_to_window = bi->bi_pte_to_pt_window;
+	pte_to_window = bi->bi_pte_to_pt_window;	/* XXX find_pte() */
 	DBG(pte_to_window);
-	if (kbm_pae_support) {
-		shift_amt = shift_amt_pae;
-		ptes_per_table = 512;
-		pte_size = 8;
-		lpagesize = TWO_MEG;
-#ifdef __amd64
-		top_level = 3;
-#else
-		top_level = 2;
-#endif
-	} else {
-		shift_amt = shift_amt_nopae;
-		ptes_per_table = 1024;
-		pte_size = 4;
-		lpagesize = FOUR_MEG;
-		top_level = 1;
-	}
 
-#ifdef __xpv
-	xen_info = bi->bi_xen_start_info;
-	mfn_list = (mfn_t *)xen_info->mfn_list;
-	DBG(mfn_list);
-	mfn_count = xen_info->nr_pages;
-	DBG(mfn_count);
-#endif
+	shift_amt = shift_amt_pae;
+	ptes_per_table = 512;
+	pte_size = 8;
+	lpagesize = TWO_MEG;
+	top_level = 3;
+
+	/*
+ 	 * XXX We can keep using the pagetable the bootloader was using, which
+ 	 * is probably simplest, or we can go build our own pagetables
+ 	 * somewhere else, with blackjack, and hookers.  For now we should just
+ 	 * grab this out of %cr3.
+ 	 */
 	top_page_table = bi->bi_top_page_table;
 	DBG(top_page_table);
 }
@@ -136,19 +125,9 @@ kbm_remap_window(paddr_t physaddr, int writeable)
 
 	DBG(physaddr);
 
-#ifdef __xpv
-	if (!writeable)
-		pt_bits &= ~PT_WRITABLE;
-	if (HYPERVISOR_update_va_mapping((uintptr_t)window,
-	    pa_to_ma(physaddr) | pt_bits, UVMF_INVLPG | UVMF_LOCAL) < 0)
-		bop_panic("HYPERVISOR_update_va_mapping() failed");
-#else
-	if (kbm_pae_support)
-		*((x86pte_t *)pte_to_window) = physaddr | pt_bits;
-	else
-		*((x86pte32_t *)pte_to_window) = physaddr | pt_bits;
+	*((x86pte_t *)pte_to_window) = physaddr | pt_bits;
 	mmu_invlpg(window);
-#endif
+
 	DBG(window);
 	return (window);
 }
@@ -169,17 +148,8 @@ kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
 	pteval = pa_to_ma(pa) | PT_NOCONSIST | PT_VALID | PT_WRITABLE;
 	if (level >= 1)
 		pteval |= PT_PAGESIZE;
-	if (kbm_pge_support && is_kernel)
+	if (is_kernel)
 		pteval |= PT_GLOBAL;
-
-#ifdef __xpv
-	/*
-	 * try update_va_mapping first - fails if page table is missing.
-	 */
-	if (HYPERVISOR_update_va_mapping(va, pteval,
-	    UVMF_INVLPG | UVMF_LOCAL) == 0)
-		return;
-#endif
 
 	/*
 	 * Find the pte that will map this address. This creates any
@@ -189,53 +159,9 @@ kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
 	if (ptep == NULL)
 		bop_panic("kbm_map: find_pte returned NULL");
 
-#ifdef __xpv
-	if (HYPERVISOR_update_va_mapping(va, pteval, UVMF_INVLPG | UVMF_LOCAL))
-		bop_panic("HYPERVISOR_update_va_mapping() failed");
-#else
-	if (kbm_pae_support)
-		*ptep = pteval;
-	else
-		*((x86pte32_t *)ptep) = pteval;
+	*ptep = pteval;
 	mmu_invlpg((caddr_t)va);
-#endif
 }
-
-#ifdef __xpv
-
-/*
- * Add a mapping for the machine page at the given virtual address.
- */
-void
-kbm_map_ma(maddr_t ma, uintptr_t va, uint_t level)
-{
-	paddr_t pte_physaddr;
-	x86pte_t pteval;
-
-	pteval = ma | PT_NOCONSIST | PT_VALID | PT_REF | PT_WRITABLE;
-	if (level == 1)
-		pteval |= PT_PAGESIZE;
-
-	/*
-	 * try update_va_mapping first - fails if page table is missing.
-	 */
-	if (HYPERVISOR_update_va_mapping(va,
-	    pteval, UVMF_INVLPG | UVMF_LOCAL) == 0)
-		return;
-
-	/*
-	 * Find the pte that will map this address. This creates any
-	 * missing intermediate level page tables
-	 */
-	(void) find_pte(va, &pte_physaddr, level, 0);
-
-	if (HYPERVISOR_update_va_mapping(va,
-	    pteval, UVMF_INVLPG | UVMF_LOCAL) != 0)
-		bop_panic("HYPERVISOR_update_va_mapping failed");
-}
-
-#endif /* __xpv */
-
 
 /*
  * Probe the boot time page tables to find the first mapping
@@ -268,11 +194,7 @@ restart_new_va:
 			probe_va = mmu.hole_end;
 
 		if (IN_HYPERVISOR_VA(probe_va))
-#if defined(__amd64) && defined(__xpv)
-			probe_va = HYPERVISOR_VIRT_END;
-#else
 			return (0);
-#endif
 
 		/*
 		 * If we don't have a valid PTP/PTE at this level
@@ -335,10 +257,6 @@ kbm_unmap(uintptr_t va)
 	if (khat_running)
 		panic("kbm_unmap() called too late");
 	else {
-#ifdef __xpv
-		(void) HYPERVISOR_update_va_mapping(va, 0,
-		    UVMF_INVLPG | UVMF_LOCAL);
-#else
 		x86pte_t *ptep;
 		level_t	level = 0;
 		uint_t  probe_only = 1;
@@ -347,12 +265,8 @@ kbm_unmap(uintptr_t va)
 		if (ptep == NULL)
 			return;
 
-		if (kbm_pae_support)
-			*ptep = 0;
-		else
-			*((x86pte32_t *)ptep) = 0;
+		*ptep = 0;
 		mmu_invlpg((caddr_t)va);
-#endif
 	}
 }
 
@@ -377,21 +291,9 @@ kbm_remap(uintptr_t va, pfn_t pfn)
 	if (ptep == NULL)
 		bop_panic("kbm_remap: find_pte returned NULL");
 
-	if (kbm_pae_support)
-		old_pte = *ptep;
-	else
-		old_pte = *((x86pte32_t *)ptep);
-
-#ifdef __xpv
-	if (HYPERVISOR_update_va_mapping(va, pte_val, UVMF_INVLPG | UVMF_LOCAL))
-		bop_panic("HYPERVISOR_update_va_mapping() failed");
-#else
-	if (kbm_pae_support)
-		*((x86pte_t *)ptep) = pte_val;
-	else
-		*((x86pte32_t *)ptep) = pte_val;
+	old_pte = *ptep;
+	*((x86pte_t *)ptep) = pte_val;
 	mmu_invlpg((caddr_t)va);
-#endif
 
 	if (!(old_pte & PT_VALID) || ma_to_pa(old_pte) == -1)
 		return (PFN_INVALID);
@@ -408,10 +310,6 @@ kbm_read_only(uintptr_t va, paddr_t pa)
 	x86pte_t pte_val = pa_to_ma(pa) |
 	    PT_NOCONSIST | PT_REF | PT_MOD | PT_VALID;
 
-#ifdef __xpv
-	if (HYPERVISOR_update_va_mapping(va, pte_val, UVMF_INVLPG | UVMF_LOCAL))
-		bop_panic("HYPERVISOR_update_va_mapping() failed");
-#else
 	x86pte_t *ptep;
 	level_t	level = 0;
 
@@ -419,12 +317,8 @@ kbm_read_only(uintptr_t va, paddr_t pa)
 	if (ptep == NULL)
 		bop_panic("kbm_read_only: find_pte returned NULL");
 
-	if (kbm_pae_support)
-		*ptep = pte_val;
-	else
-		*((x86pte32_t *)ptep) = pte_val;
+	*ptep = pte_val;
 	mmu_invlpg((caddr_t)va);
-#endif
 }
 
 /*
@@ -442,27 +336,16 @@ kbm_push(paddr_t pa)
 		return (window);
 	}
 
-	if (kbm_pae_support)
-		save_pte = *((x86pte_t *)pte_to_window);
-	else
-		save_pte = *((x86pte32_t *)pte_to_window);
+	save_pte = *((x86pte_t *)pte_to_window);
+
 	return (kbm_remap_window(pa, 0));
 }
 
 void
 kbm_pop(void)
 {
-#ifdef __xpv
-	if (HYPERVISOR_update_va_mapping((uintptr_t)window, save_pte,
-	    UVMF_INVLPG | UVMF_LOCAL) < 0)
-		bop_panic("HYPERVISOR_update_va_mapping() failed");
-#else
-	if (kbm_pae_support)
-		*((x86pte_t *)pte_to_window) = save_pte;
-	else
-		*((x86pte32_t *)pte_to_window) = save_pte;
+	*((x86pte_t *)pte_to_window) = save_pte;
 	mmu_invlpg(window);
-#endif
 }
 
 x86pte_t
@@ -470,24 +353,16 @@ get_pteval(paddr_t table, uint_t index)
 {
 	void *table_ptr = kbm_remap_window(table, 0);
 
-	if (kbm_pae_support)
-		return (((x86pte_t *)table_ptr)[index]);
-	return (((x86pte32_t *)table_ptr)[index]);
+	return (((x86pte_t *)table_ptr)[index]);
 }
 
-#ifndef __xpv
 void
 set_pteval(paddr_t table, uint_t index, uint_t level, x86pte_t pteval)
 {
 	void *table_ptr = kbm_remap_window(table, 0);
-	if (kbm_pae_support)
-		((x86pte_t *)table_ptr)[index] = pteval;
-	else
-		((x86pte32_t *)table_ptr)[index] = pteval;
-	if (level == top_level && level == 2)
-		reload_cr3();
+
+	((x86pte_t *)table_ptr)[index] = pteval;
 }
-#endif
 
 paddr_t
 make_ptable(x86pte_t *pteval, uint_t level)
@@ -498,16 +373,9 @@ make_ptable(x86pte_t *pteval, uint_t level)
 	new_table = do_bop_phys_alloc(MMU_PAGESIZE, MMU_PAGESIZE);
 	table_ptr = kbm_remap_window(new_table, 1);
 	bzero(table_ptr, MMU_PAGESIZE);
-#ifdef __xpv
-	/* Remove write permission to the new page table.  */
-	(void) kbm_remap_window(new_table, 0);
-#endif
 
-	if (level == top_level && level == 2)
-		*pteval = pa_to_ma(new_table) | PT_VALID;
-	else
-		*pteval = pa_to_ma(new_table) |
-		    PT_VALID | PT_REF | PT_USER | PT_WRITABLE;
+	*pteval = pa_to_ma(new_table) |
+	    PT_VALID | PT_REF | PT_USER | PT_WRITABLE;
 
 	return (new_table);
 }

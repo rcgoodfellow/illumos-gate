@@ -944,15 +944,6 @@ bcons_post_bootenvrc(char *inputdev, char *outputdev, char *consoledev)
 	if (post_fastreboot && console == CONS_SCREEN_GRAPHICS)
 		console = CONS_SCREEN_TEXT;
 
-	/*
-	 * USB serial and GRAPHICS console: we just collect data into a buffer.
-	 */
-	if (console == CONS_USBSER || console == CONS_SCREEN_GRAPHICS) {
-		extern void *defcons_init(size_t);
-		defcons_buf = defcons_cur = defcons_init(MMU_PAGESIZE);
-		return;
-	}
-
 	for (i = 0; devnames[i] != NULL; i++) {
 		cons = lookup_console_device(devnames[i], &ttyn);
 		if (cons != CONS_INVALID)
@@ -969,17 +960,6 @@ bcons_post_bootenvrc(char *inputdev, char *outputdev, char *consoledev)
 		return;
 	}
 
-#if defined(__xpv)
-	/*
-	 * if the hypervisor is using the currently selected console device then
-	 * default to using the hypervisor as the console device.
-	 */
-	if (cons == console_hypervisor_device) {
-		cons = CONS_HYPERVISOR;
-		console_hypervisor_redirect = B_TRUE;
-	}
-#endif /* __xpv */
-
 	console = cons;
 
 	if (console == CONS_TTY) {
@@ -987,36 +967,6 @@ bcons_post_bootenvrc(char *inputdev, char *outputdev, char *consoledev)
 		serial_init();
 	}
 }
-
-#if defined(__xpv)
-boolean_t
-bcons_hypervisor_redirect(void)
-{
-	return (console_hypervisor_redirect);
-}
-
-void
-bcons_device_change(int new_console)
-{
-	if (new_console < CONS_MIN || new_console > CONS_MAX)
-		return;
-
-	/*
-	 * If we are asked to switch the console to the hypervisor, that
-	 * really means to switch the console to whichever device the
-	 * hypervisor is/was using.
-	 */
-	if (new_console == CONS_HYPERVISOR)
-		new_console = console_hypervisor_device;
-
-	console = new_console;
-
-	if (new_console == CONS_TTY) {
-		tty_num = console_hypervisor_tty_num;
-		serial_init();
-	}
-}
-#endif /* __xpv */
 
 static void
 defcons_putchar(int c)
