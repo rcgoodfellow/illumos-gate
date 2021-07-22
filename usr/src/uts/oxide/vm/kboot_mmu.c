@@ -64,13 +64,6 @@
 static caddr_t window;
 static caddr_t pte_to_window;
 
-/*
- * this are needed by mmu_init()
- */
-int kbm_nx_support = 0;		/* NX bit in PTEs is in use */
-int kbm_pae_support = 0;	/* PAE is 64 bit Page table entries */
-int kbm_pge_support = 0;	/* PGE is Page table global bit enabled */
-int kbm_largepage_support = 0;
 uint_t kbm_nucleus_size = 0;
 
 #define	BOOT_SHIFT(l)	(shift_amt[l])
@@ -89,10 +82,6 @@ kbm_init(struct xboot_info *bi)
 	 * intel, and we can share it with i86pc by setting up these parameters.
 	 */
 	kbm_nucleus_size = (uintptr_t)bi->bi_kseg_size;
-	kbm_largepage_support = 1; /* Architectural */
-	kbm_nx_support = 1; /* Architectural */
-	kbm_pae_support = 1; /* Architectural */
-	kbm_pge_support = 1; /* Architectural */
 	window = bi->bi_pt_window;	/* XXX allocate a 4K page */
 	DBG(window);
 	pte_to_window = bi->bi_pte_to_pt_window;	/* XXX find_pte() */
@@ -204,10 +193,8 @@ restart_new_va:
 		ptep = find_pte(probe_va, &pte_physaddr, l, 1);
 		if (ptep == NULL)
 			bop_panic("kbm_probe: find_pte returned NULL");
-		if (kbm_pae_support)
-			pte_val = *ptep;
-		else
-			pte_val = *((x86pte32_t *)ptep);
+
+		pte_val = *ptep;
 		if (!PTE_ISVALID(pte_val)) {
 			probe_va = (probe_va & BOOT_MASK(l)) + BOOT_SZ(l);
 			if (probe_va <= *va)
@@ -237,9 +224,6 @@ restart_new_va:
 		if (PTE_GET(pte_val, PT_WRITABLE))
 			*prot |= PROT_WRITE;
 
-		/*
-		 * pt_nx is cleared if processor doesn't support NX bit
-		 */
 		if (PTE_GET(pte_val, mmu.pt_nx))
 			*prot &= ~PROT_EXEC;
 

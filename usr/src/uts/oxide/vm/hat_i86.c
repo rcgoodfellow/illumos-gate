@@ -766,23 +766,20 @@ set_max_page_level()
 {
 	level_t lvl;
 
-	if (!kbm_largepage_support) {
-		lvl = 0;
-	} else {
-		if (is_x86_feature(x86_featureset, X86FSET_1GPG)) {
-			lvl = 2;
-			if (chk_optimal_1gtlb &&
-			    cpuid_opteron_erratum(CPU, 6671130)) {
-				lvl = 1;
-			}
-			if (plat_mnode_xcheck(LEVEL_SIZE(2) >>
-			    LEVEL_SHIFT(0))) {
-				lvl = 1;
-			}
-		} else {
+	if (is_x86_feature(x86_featureset, X86FSET_1GPG)) {
+		lvl = 2;
+		if (chk_optimal_1gtlb &&
+		    cpuid_opteron_erratum(CPU, 6671130)) {
 			lvl = 1;
 		}
+		if (plat_mnode_xcheck(LEVEL_SIZE(2) >>
+		    LEVEL_SHIFT(0))) {
+			lvl = 1;
+		}
+	} else {
+		lvl = 1;
 	}
+
 	mmu.max_page_level = lvl;
 
 	if ((lvl == 2) && (enable_1gpg == 0))
@@ -860,11 +857,8 @@ mmu_init(void)
 	/*
 	 * Detect NX and PAE usage.
 	 */
-	mmu.pae_hat = kbm_pae_support;
-	if (kbm_nx_support)
-		mmu.pt_nx = PT_NX;
-	else
-		mmu.pt_nx = 0;
+	mmu.pae_hat = 1;
+	mmu.pt_nx = PT_NX;
 
 	/*
 	 * Use CPU info to set various MMU parameters

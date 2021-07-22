@@ -90,7 +90,6 @@ hat_kdi_init(void)
 	ht = htable_create(kas.a_hat, hat_kdi_page, 0, NULL);
 	use_kbm = 0;
 
-#ifndef __xpv
 	/*
 	 * Get an address at which to put the pagetable and devload it.
 	 */
@@ -104,46 +103,10 @@ hat_kdi_init(void)
 
 	HTABLE_INC(ht->ht_valid_cnt);
 	htable_release(ht);
-#endif
 }
 
-#ifdef __xpv
-
-/*
- * translate machine address to physical address
- */
-static uint64_t
-kdi_ptom(uint64_t pa)
-{
-	extern pfn_t *mfn_list;
-	ulong_t mfn = mfn_list[mmu_btop(pa)];
-
-	return (pfn_to_pa(mfn) | (pa & MMU_PAGEOFFSET));
-}
-
-/*
- * This is like mfn_to_pfn(), but we can't use ontrap() from kmdb.
- * Instead we let the fault happen and kmdb deals with it.
- */
-static uint64_t
-kdi_mtop(uint64_t ma)
-{
-	pfn_t pfn;
-	mfn_t mfn = ma >> MMU_PAGESHIFT;
-
-	if (HYPERVISOR_memory_op(XENMEM_maximum_ram_page, NULL) < mfn)
-		return (ma | PFN_IS_FOREIGN_MFN);
-
-	pfn = mfn_to_pfn_mapping[mfn];
-	if (pfn >= mfn_count || pfn_to_mfn(pfn) != mfn)
-		return (ma | PFN_IS_FOREIGN_MFN);
-	return (pfn_to_pa(pfn) | (ma & MMU_PAGEOFFSET));
-}
-
-#else
 #define	kdi_mtop(m)	(m)
 #define	kdi_ptom(p)	(p)
-#endif
 
 /*ARGSUSED*/
 int
@@ -176,11 +139,8 @@ kdi_vtop(uintptr_t va, uint64_t *pap)
 	 * We can't go through normal hat routines, so we'll use
 	 * kdi_pread() to walk the page tables
 	 */
-#if defined(__xpv)
-	*pap = pfn_to_pa(CPU->cpu_current_hat->hat_htable->ht_pfn);
-#else
 	*pap = getcr3_pa();
-#endif
+
 	for (level = mmu.max_level; ; --level) {
 		index = (va >> LEVEL_SHIFT(level)) & (mmu.ptes_per_table - 1);
 		*pap += index << mmu.pte_size_shift;
@@ -242,17 +202,11 @@ kdi_prw(caddr_t buf, size_t nbytes, uint64_t pa, size_t *ncopiedp, int doread)
 		 */
 		if (use_kbm)
 			(void) kbm_push(pa);
-#if defined(__xpv)
-		else
-			(void) HYPERVISOR_update_va_mapping(
-			    (uintptr_t)va, pte, UVMF_INVLPG);
-#else
 		else if (hat_kdi_use_pae)
 			*hat_kdi_pte = pte;
 		else
 			*(x86pte32_t *)hat_kdi_pte = pte;
 		mmu_flush_tlb_kpage(hat_kdi_page);
-#endif
 
 		bcopy(from, to, sz);
 
@@ -261,17 +215,11 @@ kdi_prw(caddr_t buf, size_t nbytes, uint64_t pa, size_t *ncopiedp, int doread)
 		 */
 		if (use_kbm)
 			kbm_pop();
-#if defined(__xpv)
-		else
-			(void) HYPERVISOR_update_va_mapping(
-			    (uintptr_t)va, 0, UVMF_INVLPG);
-#else
 		else if (hat_kdi_use_pae)
 			*hat_kdi_pte = 0;
 		else
 			*(x86pte32_t *)hat_kdi_pte = 0;
 		mmu_flush_tlb_kpage(hat_kdi_page);
-#endif
 
 		buf += sz;
 		pa += sz;
@@ -298,7 +246,6 @@ kdi_pwrite(caddr_t buf, size_t nbytes, uint64_t addr, size_t *ncopiedp)
 	return (kdi_prw(buf, nbytes, addr, ncopiedp, 0));
 }
 
-#if !defined(__xpv)
 /*
  * This gets used for flushing the TLB on all the slaves just prior to doing a
  * kdi_prw().  It's unclear why this was originally done, since kdi_prw() itself
@@ -310,7 +257,6 @@ kdi_flush_caches(void)
 {
 	mmu_flush_tlb(FLUSH_TLB_ALL, NULL);
 }
-#endif
 
 /*
  * Return the number of bytes, relative to the beginning of a given range, that
@@ -320,7 +266,6 @@ kdi_flush_caches(void)
 size_t
 kdi_range_is_nontoxic(uintptr_t va, size_t sz, int write)
 {
-#if defined(__amd64)
 	extern uintptr_t toxic_addr;
 	extern size_t	toxic_size;
 
@@ -339,18 +284,4 @@ kdi_range_is_nontoxic(uintptr_t va, size_t sz, int write)
 		return (va < hole_start ? hole_start - va : 0);
 
 	return (sz);
-
-#elif defined(__i386)
-	extern void *device_arena_contains(void *, size_t, size_t *);
-	uintptr_t v;
-
-	v = (uintptr_t)device_arena_contains((void *)va, sz, NULL);
-	if (v == 0)
-		return (sz);
-	else if (v <= va)
-		return (0);
-	else
-		return (v - va);
-
-#endif	/* __i386 */
 }

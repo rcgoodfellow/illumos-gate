@@ -1162,42 +1162,6 @@ process_boot_environment(struct boot_modules *benv)
 		if (do_bsys_getproplen(NULL, name) >= 0)
 			continue;
 
-		/* Translate netboot variables */
-		if (strcmp(name, "boot.netif.gateway") == 0) {
-			bsetprops(BP_ROUTER_IP, value);
-			continue;
-		}
-		if (strcmp(name, "boot.netif.hwaddr") == 0) {
-			bsetprops(BP_BOOT_MAC, value);
-			continue;
-		}
-		if (strcmp(name, "boot.netif.ip") == 0) {
-			bsetprops(BP_HOST_IP, value);
-			continue;
-		}
-		if (strcmp(name, "boot.netif.netmask") == 0) {
-			bsetprops(BP_SUBNET_MASK, value);
-			continue;
-		}
-		if (strcmp(name, "boot.netif.server") == 0) {
-			bsetprops(BP_SERVER_IP, value);
-			continue;
-		}
-		if (strcmp(name, "boot.netif.server") == 0) {
-			if (do_bsys_getproplen(NULL, BP_SERVER_IP) < 0)
-				bsetprops(BP_SERVER_IP, value);
-			continue;
-		}
-		if (strcmp(name, "boot.nfsroot.server") == 0) {
-			if (do_bsys_getproplen(NULL, BP_SERVER_IP) < 0)
-				bsetprops(BP_SERVER_IP, value);
-			continue;
-		}
-		if (strcmp(name, "boot.nfsroot.path") == 0) {
-			bsetprops(BP_SERVER_PATH, value);
-			continue;
-		}
-
 		if (name_is_blacklisted(name) == B_TRUE)
 			continue;
 
@@ -1317,75 +1281,6 @@ build_boot_properties(struct xboot_info *xbp)
 	boot_args[0] = 0;
 	boot_arg_len = 0;
 
-#ifdef __xpv
-	/*
-	 * Xen puts a lot of device information in front of the kernel name
-	 * let's grab them and make them boot properties.  The first
-	 * string w/o an "=" in it will be the boot-file property.
-	 */
-	(void) strcpy(namebuf, "xpv-");
-	for (;;) {
-		/*
-		 * get to next property
-		 */
-		while (ISSPACE(*value))
-			++value;
-		name = value;
-		/*
-		 * look for an "="
-		 */
-		while (*value && !ISSPACE(*value) && *value != '=') {
-			value++;
-		}
-		if (*value != '=') { /* no "=" in the property */
-			value = name;
-			break;
-		}
-		name_len = value - name;
-		value_len = 0;
-		/*
-		 * skip over the "="
-		 */
-		value++;
-		while (value[value_len] && !ISSPACE(value[value_len])) {
-			++value_len;
-		}
-		/*
-		 * build property name with "xpv-" prefix
-		 */
-		if (name_len + 4 > 32) { /* skip if name too long */
-			value += value_len;
-			continue;
-		}
-		bcopy(name, &namebuf[4], name_len);
-		name_len += 4;
-		namebuf[name_len] = 0;
-		bcopy(value, propbuf, value_len);
-		propbuf[value_len] = 0;
-		bsetprops(namebuf, propbuf);
-
-		/*
-		 * xpv-root is set to the logical disk name of the xen
-		 * VBD when booting from a disk-based filesystem.
-		 */
-		if (strcmp(namebuf, "xpv-root") == 0)
-			xen_vbdroot_props(propbuf);
-		/*
-		 * While we're here, if we have a "xpv-nfsroot" property
-		 * then we need to set "fstype" to "nfs" so we mount
-		 * our root from the nfs server.  Also parse the xpv-nfsroot
-		 * property to create the properties that nfs_mountroot will
-		 * need to find the root and mount it.
-		 */
-		if (strcmp(namebuf, "xpv-nfsroot") == 0)
-			xen_nfsroot_props(propbuf);
-
-		if (strcmp(namebuf, "xpv-ip") == 0)
-			xen_ip_props(propbuf);
-		value += value_len;
-	}
-#endif
-
 	while (ISSPACE(*value))
 		++value;
 	/*
@@ -1502,59 +1397,19 @@ build_boot_properties(struct xboot_info *xbp)
 
 	process_boot_environment(benv);
 
-#ifndef __xpv
 	/*
 	 * Build boot command line for Fast Reboot
 	 */
 	build_fastboot_cmdline(xbp);
 
 	if (xbp->bi_mb_version == 1) {
-		multiboot_info_t *mbi = xbp->bi_mb_info;
-		int netboot;
-		struct sol_netinfo *sip;
-
-		/*
-		 * set the BIOS boot device from GRUB
-		 */
-		netboot = 0;
-
 		/*
 		 * Save various boot information for Fast Reboot
 		 */
 		save_boot_info(xbp);
-
-		if (mbi != NULL && mbi->flags & MB_INFO_BOOTDEV) {
-			boot_device = mbi->boot_device >> 24;
-			if (boot_device == 0x20)
-				netboot++;
-			str[0] = (boot_device >> 4) + '0';
-			str[1] = (boot_device & 0xf) + '0';
-			str[2] = 0;
-			bsetprops("bios-boot-device", str);
-		} else {
-			netboot = 1;
-		}
-
-		/*
-		 * In the netboot case, drives_info is overloaded with the
-		 * dhcp ack. This is not multiboot compliant and requires
-		 * special pxegrub!
-		 */
-		if (netboot && mbi->drives_length != 0) {
-			sip = (struct sol_netinfo *)(uintptr_t)mbi->drives_addr;
-			if (sip->sn_infotype == SN_TYPE_BOOTP)
-				bsetprop(DDI_PROP_TYPE_BYTE,
-				    "bootp-response",
-				    sizeof ("bootp-response"),
-				    (void *)(uintptr_t)mbi->drives_addr,
-				    mbi->drives_length);
-			else if (sip->sn_infotype == SN_TYPE_RARP)
-				setup_rarp_props(sip);
-		}
 	}
 
 	bsetprop32("stdout", stdout_val);
-#endif /* __xpv */
 
 	/*
 	 * more conjured up values for made up things....
@@ -1735,9 +1590,9 @@ _start(struct xboot_info *xbp)
 	/*
 	 * initialize the boot time allocator
 	 */
-	next_phys = xbp->bi_next_paddr;
+	next_phys = 0;
 	DBG(next_phys);
-	next_virt = (uintptr_t)xbp->bi_next_vaddr;
+	next_virt = (uintptr_t)0;
 	DBG(next_virt);
 	DBG_MSG("Initializing boot time memory management...");
 	kbm_init(xbp);
@@ -1760,24 +1615,12 @@ _start(struct xboot_info *xbp)
 	 */
 	bops->bsys_ealloc = do_bsys_ealloc;
 
-#ifdef __xpv
-	/*
-	 * On domain 0 we need to free up some physical memory that is
-	 * usable for DMA. Since GRUB loaded the boot_archive, it is
-	 * sitting in low MFN memory. We'll relocated the boot archive
-	 * pages to high PFN memory.
-	 */
-	if (DOMAIN_IS_INITDOMAIN(xen_info))
-		relocate_boot_archive(xbp);
-#endif
-
-#ifndef __xpv
 	/*
 	 * Install an IDT to catch early pagefaults (shouldn't have any).
 	 * Also needed for kmdb.
 	 */
 	bop_idt_init();
-#endif
+
 	/*
 	 * Start building the boot properties from the command line
 	 */
