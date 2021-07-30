@@ -2116,13 +2116,9 @@ _start(struct xboot_info *xbp)
 	DBG_MSG((char *)xbp->bi_cmdline);
 	DBG_MSG("\n\n\n");
 
-	/*
-	 * physavail is no longer used by startup
-	 */
 	bm.physinstalled = xbp->bi_phys_install;
 	bm.pcimem = xbp->bi_pcimem;
 	bm.rsvdmem = xbp->bi_rsvdmem;
-	bm.physavail = NULL;
 
 	/*
 	 * initialize the boot time allocator

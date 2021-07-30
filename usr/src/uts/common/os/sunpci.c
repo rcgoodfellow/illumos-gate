@@ -998,7 +998,7 @@ typedef struct pci_pm_context {
  *   Set device power level to lowest that can generate PME, or D3 if none can
  *   Turn off bus master enable in pci command register
  */
-#if defined(i86pc)
+#if defined(__x86)
 extern int acpi_ddi_setwake(dev_info_t *dip, int level);
 #endif
 
@@ -1111,7 +1111,7 @@ done:
 	pci_config_put16(hdl, PCI_CONF_COMM, pcicmd);
 
 
-#if defined(i86pc)
+#if defined(__x86)
 	if (pci_enable_wakeup &&
 	    (p->ppc_suspend_level & PCI_PMCSR_PME_EN) != 0) {
 		ret = acpi_ddi_setwake(dip, 3);

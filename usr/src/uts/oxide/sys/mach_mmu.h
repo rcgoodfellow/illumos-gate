@@ -169,7 +169,6 @@ extern uint_t ptes_per_table;
 extern paddr_t top_page_table;
 extern uint_t top_level;
 extern uint_t pte_size;
-extern uint_t shift_amt_nopae[];
 extern uint_t shift_amt_pae[];
 extern uint32_t lpagesize;
 

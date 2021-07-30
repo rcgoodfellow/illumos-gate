@@ -43,7 +43,7 @@ ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
 #
 #	Include common rules.
 #
-include $(UTSBASE)/intel/Makefile.intel
+include $(UTSBASE)/i86pc/Makefile.i86pc
 
 #
 #	Define targets
@@ -71,4 +71,4 @@ install:	$(INSTALL_DEPS)
 #
 #	Include common targets.
 #
-include $(UTSBASE)/intel/Makefile.targ
+include $(UTSBASE)/i86pc/Makefile.targ

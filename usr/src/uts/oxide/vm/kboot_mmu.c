@@ -40,29 +40,22 @@
 #include <sys/machsystm.h>
 #include <sys/promif.h>
 #include <sys/kobj.h>
-#ifdef __xpv
-#include <sys/hypervisor.h>
-#endif
 #include <vm/kboot_mmu.h>
 #include <vm/hat_pte.h>
 #include <vm/hat_i86.h>
 #include <vm/seg_kmem.h>
 
-#if 0
-/*
- * Joe's debug printing
- */
-#define	DBG(x)    \
-	bop_printf(NULL, "kboot_mmu.c: %s is %" PRIx64 "\n", #x, (uint64_t)(x));
-#else
-#define	DBG(x)	/* naught */
-#endif
+extern uint_t kbm_debug;
+#define	DBG_MSG(s)	{ if (kbm_debug) bop_printf(NULL, "%s", s); }
+#define	DBG(x)		{ if (kbm_debug)			\
+	bop_printf(NULL, __FILE__ "%s is %" PRIx64 "\n", #x, (uint64_t)(x));	\
+	}
 
 /*
  * Page table and memory stuff.
  */
 static caddr_t window;
-static caddr_t pte_to_window;
+static x86pte_t *pte_to_window;
 
 uint_t kbm_nucleus_size = 0;
 
@@ -75,16 +68,16 @@ uint_t kbm_nucleus_size = 0;
  * Initialize memory management parameters for boot time page table management
  */
 void
-kbm_init(struct xboot_info *bi)
+kbm_init(bootops_t *bops)
 {
 	/*
 	 * Configure mmu information.  XXX Most of this file should move to
 	 * intel, and we can share it with i86pc by setting up these parameters.
 	 */
-	kbm_nucleus_size = (uintptr_t)bi->bi_kseg_size;
-	window = bi->bi_pt_window;	/* XXX allocate a 4K page */
+	kbm_nucleus_size = FOUR_MEG;
+	window = BOP_ALLOC(bops, NULL, MMU_PAGESIZE, MMU_PAGESIZE);
 	DBG(window);
-	pte_to_window = bi->bi_pte_to_pt_window;	/* XXX find_pte() */
+	pte_to_window = find_pte((uintptr_t)window, NULL, 0, 0);
 	DBG(pte_to_window);
 
 	shift_amt = shift_amt_pae;
@@ -94,12 +87,10 @@ kbm_init(struct xboot_info *bi)
 	top_level = 3;
 
 	/*
- 	 * XXX We can keep using the pagetable the bootloader was using, which
- 	 * is probably simplest, or we can go build our own pagetables
- 	 * somewhere else, with blackjack, and hookers.  For now we should just
- 	 * grab this out of %cr3.
+	 * XXX For now we just grab the existing table the loader set up, but
+	 * we may want to create our own from scratch and then switch to it.
  	 */
-	top_page_table = bi->bi_top_page_table;
+	top_page_table = getcr3();
 	DBG(top_page_table);
 }
 
@@ -114,7 +105,7 @@ kbm_remap_window(paddr_t physaddr, int writeable)
 
 	DBG(physaddr);
 
-	*((x86pte_t *)pte_to_window) = physaddr | pt_bits;
+	*pte_to_window = physaddr | pt_bits;
 	mmu_invlpg(window);
 
 	DBG(window);
@@ -320,7 +311,7 @@ kbm_push(paddr_t pa)
 		return (window);
 	}
 
-	save_pte = *((x86pte_t *)pte_to_window);
+	save_pte = *pte_to_window;
 
 	return (kbm_remap_window(pa, 0));
 }
@@ -328,7 +319,7 @@ kbm_push(paddr_t pa)
 void
 kbm_pop(void)
 {
-	*((x86pte_t *)pte_to_window) = save_pte;
+	*pte_to_window = save_pte;
 	mmu_invlpg(window);
 }
 

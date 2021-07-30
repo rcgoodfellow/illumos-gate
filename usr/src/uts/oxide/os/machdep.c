@@ -120,12 +120,7 @@
 #include <sys/dumphdr.h>
 #include <sys/compress.h>
 #include <sys/cpu_module.h>
-#if defined(__xpv)
-#include <sys/hypervisor.h>
-#include <sys/xpv_panic.h>
-#endif
 
-#include <sys/fastboot.h>
 #include <sys/machelf.h>
 #include <sys/kobj.h>
 #include <sys/multiboot.h>
@@ -187,8 +182,6 @@ void debug_enter(char *);
 extern void pm_cfb_check_and_powerup(void);
 extern void pm_cfb_rele(void);
 
-extern fastboot_info_t newkernel;
-
 /*
  * Instructions to enable or disable SMAP, respectively.
  */
@@ -215,20 +208,12 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	int reset_status = 0;
 	static char fallback_str[] = "Falling back to regular reboot.\n";
 
-	if (fcn == AD_FASTREBOOT && !newkernel.fi_valid)
+	if (fcn == AD_FASTREBOOT)
 		fcn = AD_BOOT;
 
 	if (!panicstr) {
 		kpreempt_disable();
-		if (fcn == AD_FASTREBOOT) {
-			mutex_enter(&cpu_lock);
-			if (CPU_ACTIVE(cpu_get(bootcpuid))) {
-				affinity_set(bootcpuid);
-			}
-			mutex_exit(&cpu_lock);
-		} else {
-			affinity_set(CPU_CURRENT);
-		}
+		affinity_set(CPU_CURRENT);
 	}
 
 	if (force_shutdown_method != AD_UNKNOWN)
@@ -295,18 +280,6 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	}
 
 	/*
-	 * If the system is panicking, the preloaded kernel is valid, and
-	 * fastreboot_onpanic has been set, and the system has been up for
-	 * longer than fastreboot_onpanic_uptime (default to 10 minutes),
-	 * choose Fast Reboot.
-	 */
-	if (fcn == AD_BOOT && panicstr && newkernel.fi_valid &&
-	    fastreboot_onpanic &&
-	    (panic_lbolt - lbolt_at_boot) > fastreboot_onpanic_uptime) {
-		fcn = AD_FASTREBOOT;
-	}
-
-	/*
 	 * Try to quiesce devices.
 	 */
 	if (is_first_quiesce) {
@@ -319,28 +292,14 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 
 		quiesce_active = 1;
 		quiesce_devices(ddi_root_node(), &reset_status);
-		if (reset_status == -1) {
-			if (fcn == AD_FASTREBOOT && !force_fastreboot) {
-				prom_printf("Driver(s) not capable of fast "
-				    "reboot.\n");
-				prom_printf(fallback_str);
-				fastreboot_capable = 0;
-				fcn = AD_BOOT;
-			} else if (fcn != AD_FASTREBOOT)
-				fastreboot_capable = 0;
-		}
 		quiesce_active = 0;
 	}
 
 	/*
 	 * Try to reset devices. reset_leaves() should only be called
-	 * a) when there are no other threads that could be accessing devices,
-	 *    and
-	 * b) on a system that's not capable of fast reboot (fastreboot_capable
-	 *    being 0), or on a system where quiesce_devices() failed to
-	 *    complete (quiesce_active being 1).
+	 * when there are no other threads that could be accessing devices.
 	 */
-	if (is_first_reset && (!fastreboot_capable || quiesce_active)) {
+	if (is_first_reset && quiesce_active) {
 		/*
 		 * Clear is_first_reset before calling reset_devices()
 		 * so that if reset_devices() causes panics, it will not
@@ -350,30 +309,15 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 		reset_leaves();
 	}
 
-	/* Verify newkernel checksum */
-	if (fastreboot_capable && fcn == AD_FASTREBOOT &&
-	    fastboot_cksum_verify(&newkernel) != 0) {
-		fastreboot_capable = 0;
-		prom_printf("Fast reboot: checksum failed for the new "
-		    "kernel.\n");
-		prom_printf(fallback_str);
-	}
-
 	(void) spl8();
 
-	if (fastreboot_capable && fcn == AD_FASTREBOOT) {
-		/*
-		 * psm_shutdown is called within fast_reboot()
-		 */
-		fast_reboot();
-	} else {
-		(*psm_shutdownf)(cmd, fcn);
+	(*psm_shutdownf)(cmd, fcn);
 
-		if (fcn == AD_HALT || fcn == AD_POWEROFF)
-			halt((char *)NULL);
-		else
-			prom_reboot("");
-	}
+	if (fcn == AD_HALT || fcn == AD_POWEROFF)
+		halt((char *)NULL);
+	else
+		prom_reboot("");
+
 	/*NOTREACHED*/
 }
 
@@ -382,21 +326,10 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 void
 mdpreboot(int cmd, int fcn, char *mdep)
 {
-	if (fcn == AD_FASTREBOOT && !fastreboot_capable) {
-		fcn = AD_BOOT;
-#ifdef	__xpv
-		cmn_err(CE_WARN, "Fast reboot is not supported on xVM");
-#else
-		cmn_err(CE_WARN,
-		    "Fast reboot is not supported on this platform%s",
-		    fastreboot_nosup_message());
-#endif
-	}
-
 	if (fcn == AD_FASTREBOOT) {
-		fastboot_load_kernel(mdep);
-		if (!newkernel.fi_valid)
-			fcn = AD_BOOT;
+		fcn = AD_BOOT;
+		cmn_err(CE_WARN,
+		    "Fast reboot is not supported on this platform");
 	}
 
 	(*psm_preshutdownf)(cmd, fcn);

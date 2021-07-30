@@ -24,27 +24,12 @@
  * Use is subject to license terms.
  */
 
-/*
- * WARNING: This file is used by both dboot and the kernel.
- */
-
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 #include <sys/param.h>
 #include <sys/machparam.h>
 #include <sys/mach_mmu.h>
-#ifdef __xpv
-#include <sys/hypervisor.h>
-#endif
 
-#ifdef _BOOT
-#include <dboot/dboot_printf.h>
-#define	bop_panic dboot_panic
-#else
 #include <sys/bootconf.h>
-#endif
 
-uint_t shift_amt_nopae[] = {12, 22};
 uint_t shift_amt_pae[] = {12, 21, 30, 39};
 uint_t *shift_amt;
 uint_t ptes_per_table;

@@ -297,6 +297,7 @@ SYS_KMODS	+=
 MISC_KMODS	+= gfx_private pcie
 MISC_KMODS	+= acpidev
 MISC_KMODS	+= drmach_acpi
+MISC_KMODS	+= tem
 
 #
 #	'Dacf' modules (/kernel/dacf)

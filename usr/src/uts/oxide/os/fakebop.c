@@ -39,9 +39,6 @@
 #include <sys/bootconf.h>
 #include <sys/bootsvcs.h>
 #include <sys/bootinfo.h>
-#include <sys/multiboot.h>
-#include <sys/multiboot2.h>
-#include <sys/multiboot2_impl.h>
 #include <sys/bootvfs.h>
 #include <sys/bootprops.h>
 #include <sys/varargs.h>
@@ -50,7 +47,6 @@
 #include <sys/machsystm.h>
 #include <sys/archsystm.h>
 #include <sys/boot_console.h>
-#include <sys/framebuffer.h>
 #include <sys/cmn_err.h>
 #include <sys/systm.h>
 #include <sys/promif.h>
@@ -60,24 +56,20 @@
 #include <sys/privregs.h>
 #include <sys/sysmacros.h>
 #include <sys/ctype.h>
-#include <sys/fastboot.h>
 #include <vm/kboot_mmu.h>
 #include <vm/hat_pte.h>
 #include <sys/kobj.h>
 #include <sys/kobj_lex.h>
 #include <sys/pci_cfgspace_impl.h>
-#include <sys/fastboot_impl.h>
 #include <sys/ddipropdefs.h>	/* For DDI prop types */
-
+#include <sys/boot_data.h>
 #include <sys/dw_apb_uart.h>
 
-static int have_console = 0;	/* set once primitive console is initialized */
-static char *boot_args = "";
-
 /*
- * Debugging macros
+ * Debugging macros - XXX clean this up and make it shared; this is replicated
+ * in kboot_mmu.c and maybe other places.
  */
-static uint_t kbm_debug = 0;
+uint_t kbm_debug = 0;
 #define	DBG_MSG(s)	{ if (kbm_debug) bop_printf(NULL, "%s", s); }
 #define	DBG(x)		{ if (kbm_debug)			\
 	bop_printf(NULL, "%s is %" PRIx64 "\n", #x, (uint64_t)(x));	\
@@ -89,17 +81,18 @@ static uint_t kbm_debug = 0;
 		bcons_putchar(*cp);		\
 	}
 
-bootops_t bootop;	/* simple bootops we'll pass on to kernel */
-struct bsys_mem bm;
+extern int bootrd_debug;
+static bootops_t bootop;
+static struct bsys_mem bm;
+static const bt_prop_t *bt_props;
 
 /*
- * Boot info from "glue" code in low memory. xbootp is used by:
- *	do_bop_phys_alloc(), do_bsys_alloc() and read_bootenvrc().
+ * Next available virtual address to allocate.  Do not allocate page 0.
  */
-static struct xboot_info *xbootp;
-static uintptr_t next_virt;	/* next available virtual address */
-static paddr_t next_phys;	/* next available physical address from dboot */
-static paddr_t high_phys = -(paddr_t)1;	/* last used physical address */
+static uintptr_t next_virt = (uintptr_t)MMU_PAGESIZE;
+static paddr_t next_phys = 0;	/* next available physical address */
+static paddr_t high_phys = -(paddr_t)1;	/* lowest allocated address */
+struct memlist first_memlist;
 
 /*
  * buffer for vsnprintf for console I/O
@@ -108,50 +101,15 @@ static paddr_t high_phys = -(paddr_t)1;	/* last used physical address */
 static char buffer[BUFFERSIZE];
 
 /*
- * stuff to store/report/manipulate boot property settings.
- */
-typedef struct bootprop {
-	struct bootprop *bp_next;
-	char *bp_name;
-	int bp_flags;			/* DDI prop type */
-	uint_t bp_vlen;			/* 0 for boolean */
-	char *bp_value;
-} bootprop_t;
-
-static bootprop_t *bprops = NULL;
-static char *curr_page = NULL;		/* ptr to avail bprop memory */
-static int curr_space = 0;		/* amount of memory at curr_page */
-
-/*
  * some allocator statistics
  */
 static ulong_t total_bop_alloc_scratch = 0;
 static ulong_t total_bop_alloc_kernel = 0;
 
-static int early_allocation = 1;
-
-int force_fastreboot = 0;
-volatile int fastreboot_onpanic = 0;
-int post_fastreboot = 0;
-volatile int fastreboot_capable = 1;
-
 /*
- * Information saved from current boot for fast reboot.
- * If the information size exceeds what we have allocated, fast reboot
- * will not be supported.
+ * Not used here, but required by the openprom driver.
  */
-multiboot_info_t saved_mbi;
-mb_memory_map_t saved_mmap[FASTBOOT_SAVED_MMAP_COUNT];
-uint8_t saved_drives[FASTBOOT_SAVED_DRIVES_SIZE];
-char saved_cmdline[FASTBOOT_SAVED_CMDLINE_LEN];
-int saved_cmdline_len = 0;
-size_t saved_file_size[FASTBOOT_MAX_FILES_MAP];
-
-/*
- * Turn off fastreboot_onpanic to avoid panic loop.
- */
-char fastreboot_onpanic_cmdline[FASTBOOT_SAVED_CMDLINE_LEN];
-static const char fastreboot_onpanic_args[] = " -B fastreboot_onpanic=0";
+char saved_cmdline[1] = "";
 
 /*
  * Allocate aligned physical memory at boot time. This allocator allocates
@@ -164,16 +122,7 @@ do_bop_phys_alloc(uint64_t size, uint64_t align)
 	paddr_t	pa = 0;
 	paddr_t	start;
 	paddr_t	end;
-	struct memlist	*ml = (struct memlist *)xbootp->bi_phys_install;
-
-	/*
-	 * Be careful if high memory usage is limited in startup.c
-	 * Since there are holes in the low part of the physical address
-	 * space we can treat physmem as a pfn (not just a pgcnt) and
-	 * get a conservative upper limit.
-	 */
-	if (physmem != 0 && high_phys > pfn_to_pa(physmem))
-		high_phys = pfn_to_pa(physmem);
+	struct memlist *ml = bm.physinstalled;
 
 	/*
 	 * find the highest available memory in physinstalled
@@ -192,23 +141,11 @@ do_bop_phys_alloc(uint64_t size, uint64_t align)
 		if (end - start < size)
 			continue;
 
-		/*
-		 * Early allocations need to use low memory, since
-		 * physmem might be further limited by bootenv.rc
-		 */
-		if (early_allocation) {
-			if (pa == 0 || start < pa)
-				pa = start;
-		} else {
-			if (end - size > pa)
-				pa = end - size;
-		}
+		if (end - size > pa)
+			pa = end - size;
 	}
 	if (pa != 0) {
-		if (early_allocation)
-			next_phys = pa + size;
-		else
-			high_phys = pa;
+		high_phys = pa;
 		return (pa);
 	}
 	bop_panic("do_bop_phys_alloc(0x%" PRIx64 ", 0x%" PRIx64
@@ -271,8 +208,8 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	va = (uintptr_t)virthint;
 	s = size;
 	level = 1;
-	pgsize = xbootp->bi_use_pae ? TWO_MEG : FOUR_MEG;
-	if (xbootp->bi_use_largepage && a == pgsize) {
+	pgsize = TWO_MEG;
+	if (a == pgsize) {
 		while (IS_P2ALIGNED(pa, pgsize) && IS_P2ALIGNED(va, pgsize) &&
 		    s >= pgsize) {
 			kbm_map(va, pa, level, is_kernel);
@@ -319,96 +256,35 @@ do_bsys_ealloc(bootops_t *bop, caddr_t virthint, size_t size,
 	return (0);
 }
 
+#define	FIND_BT_PROP_F_NO_FALLBACK	0x1U
+#define	FIND_BT_PROP_F_ONLY_FALLBACK	0x2U
 
-static void
-bsetprop(int flags, char *name, int nlen, void *value, int vlen)
+static const bt_prop_t *
+find_bt_prop(const char *name, uint32_t flags)
 {
-	uint_t size;
-	uint_t need_size;
-	bootprop_t *b;
+	const bt_prop_t *btpp;
 
-	/*
-	 * align the size to 16 byte boundary
-	 */
-	size = sizeof (bootprop_t) + nlen + 1 + vlen;
-	size = (size + 0xf) & ~0xf;
-	if (size > curr_space) {
-		need_size = (size + (MMU_PAGEOFFSET)) & MMU_PAGEMASK;
-		curr_page = do_bsys_alloc(NULL, 0, need_size, MMU_PAGESIZE);
-		curr_space = need_size;
+	if ((flags & FIND_BT_PROP_F_ONLY_FALLBACK) != 0 &&
+	    (flags & FIND_BT_PROP_F_NO_FALLBACK) != 0) {
+		bop_panic("conflicting flags passed to find_bt_prop()");
 	}
 
-	/*
-	 * use a bootprop_t at curr_page and link into list
-	 */
-	b = (bootprop_t *)curr_page;
-	curr_page += sizeof (bootprop_t);
-	curr_space -=  sizeof (bootprop_t);
-	b->bp_next = bprops;
-	bprops = b;
-
-	/*
-	 * follow by name and ending zero byte
-	 */
-	b->bp_name = curr_page;
-	bcopy(name, curr_page, nlen);
-	curr_page += nlen;
-	*curr_page++ = 0;
-	curr_space -= nlen + 1;
-
-	/*
-	 * set the property type
-	 */
-	b->bp_flags = flags & DDI_PROP_TYPE_MASK;
-
-	/*
-	 * copy in value, but no ending zero byte
-	 */
-	b->bp_value = curr_page;
-	b->bp_vlen = vlen;
-	if (vlen > 0) {
-		bcopy(value, curr_page, vlen);
-		curr_page += vlen;
-		curr_space -= vlen;
+	if ((flags & FIND_BT_PROP_F_ONLY_FALLBACK) == 0) {
+		for (btpp = bt_props; btpp != NULL; btpp = btpp->btp_next) {
+			if (strcmp(name, btpp->btp_name) == 0)
+				return (btpp);
+		}
 	}
 
-	/*
-	 * align new values of curr_page, curr_space
-	 */
-	while (curr_space & 0xf) {
-		++curr_page;
-		--curr_space;
+	if (flags & FIND_BT_PROP_F_NO_FALLBACK)
+		return (NULL);
+
+	for (btpp = bt_fallback_props; btpp != NULL; btpp = btpp->btp_next) {
+		if (strcmp(name, btpp->btp_name) == 0)
+			return (btpp);
 	}
-}
 
-static void
-bsetprops(char *name, char *value)
-{
-	bsetprop(DDI_PROP_TYPE_STRING, name, strlen(name),
-	    value, strlen(value) + 1);
-}
-
-static void
-bsetprop32(char *name, uint32_t value)
-{
-	bsetprop(DDI_PROP_TYPE_INT, name, strlen(name),
-	    (void *)&value, sizeof (value));
-}
-
-static void
-bsetprop64(char *name, uint64_t value)
-{
-	bsetprop(DDI_PROP_TYPE_INT64, name, strlen(name),
-	    (void *)&value, sizeof (value));
-}
-
-static void
-bsetpropsi(char *name, int value)
-{
-	char prop_val[32];
-
-	(void) snprintf(prop_val, sizeof (prop_val), "%d", value);
-	bsetprops(name, prop_val);
+	return (NULL);
 }
 
 /*
@@ -418,14 +294,12 @@ bsetpropsi(char *name, int value)
 int
 do_bsys_getproptype(bootops_t *bop, const char *name)
 {
-	bootprop_t *b;
+	const bt_prop_t *btpp;
 
-	for (b = bprops; b != NULL; b = b->bp_next) {
-		if (strcmp(name, b->bp_name) != 0)
-			continue;
-		return (b->bp_flags);
-	}
-	return (-1);
+	if ((btpp = find_bt_prop(name, 0)) == NULL)
+		return (-1);
+
+	return (btpp->btp_typeflags & DDI_PROP_TYPE_MASK);
 }
 
 /*
@@ -435,14 +309,22 @@ do_bsys_getproptype(bootops_t *bop, const char *name)
 int
 do_bsys_getproplen(bootops_t *bop, const char *name)
 {
-	bootprop_t *b;
+	const bt_prop_t *btpp;
 
-	for (b = bprops; b; b = b->bp_next) {
-		if (strcmp(name, b->bp_name) != 0)
-			continue;
-		return (b->bp_vlen);
+	if ((btpp = find_bt_prop(name, 0)) == NULL)
+		return (-1);
+
+	/*
+	 * The signature of this method should really be changed instead to
+	 * return a size_t.  Until we do that work, this ugly thing.
+	 */
+	if (btpp->btp_vlen > INT_MAX) {
+		bop_panic("value for property %s has length %lu, which "
+		    "cannot be represented to the legacy bootops interface",
+		    name, btpp->btp_vlen);
 	}
-	return (-1);
+
+	return (btpp->btp_vlen);
 }
 
 /*
@@ -452,15 +334,13 @@ do_bsys_getproplen(bootops_t *bop, const char *name)
 int
 do_bsys_getprop(bootops_t *bop, const char *name, void *value)
 {
-	bootprop_t *b;
+	const bt_prop_t *btpp;
 
-	for (b = bprops; b; b = b->bp_next) {
-		if (strcmp(name, b->bp_name) != 0)
-			continue;
-		bcopy(b->bp_value, value, b->bp_vlen);
-		return (0);
-	}
-	return (-1);
+	if ((btpp = find_bt_prop(name, 0)) == NULL)
+		return (-1);
+
+	bcopy(btpp->btp_value, value, btpp->btp_vlen);
+	return (0);
 }
 
 /*
@@ -470,75 +350,46 @@ do_bsys_getprop(bootops_t *bop, const char *name, void *value)
 static char *
 do_bsys_nextprop(bootops_t *bop, char *name)
 {
-	bootprop_t *b;
+	const bt_prop_t *btpp;
 
 	/*
-	 * A null name is a special signal for the 1st boot property
+	 * We want to return all the normal properties (from the SP) in order;
+	 * if we're given NULL we're being asked for the named of the first
+	 * one.  However, once those are exhausted, we want to return the
+	 * fallback properties iff they're not shadowed by a real property.
+	 *
+	 * In principle this should all be a merged map, which would be much
+	 * faster, but this whole path is run through only once and this is
+	 * still fairly simple: once we're given the name of a property that
+	 * exists only as a fallback, we return only fallbacks.
 	 */
 	if (name == NULL || strlen(name) == 0) {
-		if (bprops == NULL)
-			return (NULL);
-		return (bprops->bp_name);
-	}
-
-	for (b = bprops; b; b = b->bp_next) {
-		if (name != b->bp_name)
-			continue;
-		b = b->bp_next;
-		if (b == NULL)
-			return (NULL);
-		return (b->bp_name);
-	}
-	return (NULL);
-}
-
-/*
- * Parse numeric value from a string. Understands decimal, hex, octal, - and ~
- */
-static int
-parse_value(char *p, uint64_t *retval)
-{
-	int adjust = 0;
-	uint64_t tmp = 0;
-	int digit;
-	int radix = 10;
-
-	*retval = 0;
-	if (*p == '-' || *p == '~')
-		adjust = *p++;
-
-	if (*p == '0') {
-		++p;
-		if (*p == 0)
-			return (0);
-		if (*p == 'x' || *p == 'X') {
-			radix = 16;
-			++p;
-		} else {
-			radix = 8;
-			++p;
+		if (bt_props != NULL) {
+			return ((char *)bt_props->btp_name);
 		}
+		return ((char *)bt_fallback_props->btp_name);
 	}
-	while (*p) {
-		if ('0' <= *p && *p <= '9')
-			digit = *p - '0';
-		else if ('a' <= *p && *p <= 'f')
-			digit = 10 + *p - 'a';
-		else if ('A' <= *p && *p <= 'F')
-			digit = 10 + *p - 'A';
-		else
-			return (-1);
-		if (digit >= radix)
-			return (-1);
-		tmp = tmp * radix + digit;
-		++p;
+
+	btpp = find_bt_prop(name, FIND_BT_PROP_F_NO_FALLBACK);
+	if (btpp != NULL) {
+		if (btpp->btp_next != NULL)
+			return ((char *)btpp->btp_next->btp_name);
+		btpp = bt_fallback_props;
+	} else {
+		btpp = find_bt_prop(name, FIND_BT_PROP_F_ONLY_FALLBACK);
+		if (btpp == NULL) {
+			bop_panic("unknown boot-time property name '%s' "
+			    "passed as previous property name", name);
+		}
+		btpp = btpp->btp_next;
 	}
-	if (adjust == '-')
-		tmp = -tmp;
-	else if (adjust == '~')
-		tmp = ~tmp;
-	*retval = tmp;
-	return (0);
+
+	while (btpp != NULL &&
+	    find_bt_prop(btpp->btp_name, FIND_BT_PROP_F_NO_FALLBACK) != NULL)
+		btpp = btpp->btp_next;
+
+	/* XXX constify this interface properly; it has few consumers */
+	return (btpp == NULL ? NULL : (char *)btpp->btp_name);
 }
 
 static boolean_t
@@ -620,222 +471,12 @@ boot_prop_display(char *buffer)
 }
 
 /*
- * 2nd part of building the table of boot properties. This includes:
- * - values from /boot/solaris/bootenv.rc (ie. eeprom(1m) values)
- *
- * lines look like one of:
- * ^$
- * ^# comment till end of line
- * setprop name 'value'
- * setprop name value
- * setprop name "value"
- *
- * we do single character I/O since this is really just looking at memory
+ * bootenv.rc is not supported on this architecture.  We've already done the
+ * equivalent long before anyone could ask us to do so.
  */
 void
 read_bootenvrc(void)
 {
-	int fd;
-	char *line;
-	int c;
-	int bytes_read;
-	char *name;
-	int n_len;
-	char *value;
-	int v_len;
-	char *inputdev;	/* these override the command line if serial ports */
-	char *outputdev;
-	char *consoledev;
-	uint64_t lvalue;
-	int use_xencons = 0;
-	extern int bootrd_debug;
-
-#ifdef __xpv
-	if (!DOMAIN_IS_INITDOMAIN(xen_info))
-		use_xencons = 1;
-#endif /* __xpv */
-
-	DBG_MSG("Opening /boot/solaris/bootenv.rc\n");
-	fd = BRD_OPEN(bfs_ops, "/boot/solaris/bootenv.rc", 0);
-	DBG(fd);
-
-	line = do_bsys_alloc(NULL, NULL, MMU_PAGESIZE, MMU_PAGESIZE);
-	while (fd >= 0) {
-
-		/*
-		 * get a line
-		 */
-		for (c = 0; ; ++c) {
-			bytes_read = BRD_READ(bfs_ops, fd, line + c, 1);
-			if (bytes_read == 0) {
-				if (c == 0)
-					goto done;
-				break;
-			}
-			if (line[c] == '\n')
-				break;
-		}
-		line[c] = 0;
-
-		/*
-		 * ignore comment lines
-		 */
-		c = 0;
-		while (ISSPACE(line[c]))
-			++c;
-		if (line[c] == '#' || line[c] == 0)
-			continue;
-
-		/*
-		 * must have "setprop " or "setprop\t"
-		 */
-		if (strncmp(line + c, "setprop ", 8) != 0 &&
-		    strncmp(line + c, "setprop\t", 8) != 0)
-			continue;
-		c += 8;
-		while (ISSPACE(line[c]))
-			++c;
-		if (line[c] == 0)
-			continue;
-
-		/*
-		 * gather up the property name
-		 */
-		name = line + c;
-		n_len = 0;
-		while (line[c] && !ISSPACE(line[c]))
-			++n_len, ++c;
-
-		/*
-		 * gather up the value, if any
-		 */
-		value = "";
-		v_len = 0;
-		while (ISSPACE(line[c]))
-			++c;
-		if (line[c] != 0) {
-			value = line + c;
-			while (line[c] && !ISSPACE(line[c]))
-				++v_len, ++c;
-		}
-
-		if (v_len >= 2 && value[0] == value[v_len - 1] &&
-		    (value[0] == '\'' || value[0] == '"')) {
-			++value;
-			v_len -= 2;
-		}
-		name[n_len] = 0;
-		if (v_len > 0)
-			value[v_len] = 0;
-		else
-			continue;
-
-		/*
-		 * ignore "boot-file" property, it's now meaningless
-		 */
-		if (strcmp(name, "boot-file") == 0)
-			continue;
-		if (strcmp(name, "boot-args") == 0 &&
-		    strlen(boot_args) > 0)
-			continue;
-
-		/*
-		 * If a property was explicitly set on the command line
-		 * it will override a setting in bootenv.rc. We make an
-		 * exception for a property from the bootloader such as:
-		 *
-		 * console="text,ttya,ttyb,ttyc,ttyd"
-		 *
-		 * In such a case, picking the first value here (as
-		 * lookup_console_devices() does) is at best a guess; if
-		 * bootenv.rc has a value, it's probably better.
-		 */
-		if (strcmp(name, "console") == 0) {
-			char propval[BP_MAX_STRLEN] = "";
-
-			if (do_bsys_getprop(NULL, name, propval) == -1 ||
-			    strchr(propval, ',') != NULL)
-				bsetprops(name, value);
-			continue;
-		}
-
-		if (do_bsys_getproplen(NULL, name) == -1)
-			bsetprops(name, value);
-	}
-done:
-	if (fd >= 0)
-		(void) BRD_CLOSE(bfs_ops, fd);
-
-
-	/*
-	 * Check if we have to limit the boot time allocator
-	 */
-	if (do_bsys_getproplen(NULL, "physmem") != -1 &&
-	    do_bsys_getprop(NULL, "physmem", line) >= 0 &&
-	    parse_value(line, &lvalue) != -1) {
-		if (0 < lvalue && (lvalue < physmem || physmem == 0)) {
-			physmem = (pgcnt_t)lvalue;
-			DBG(physmem);
-		}
-	}
-	early_allocation = 0;
-
-	/*
-	 * Check for bootrd_debug.
-	 */
-	if (find_boot_prop("bootrd_debug"))
-		bootrd_debug = 1;
-
-	/*
-	 * check to see if we have to override the default value of the console
-	 */
-	if (!use_xencons) {
-		inputdev = line;
-		v_len = do_bsys_getproplen(NULL, "input-device");
-		if (v_len > 0)
-			(void) do_bsys_getprop(NULL, "input-device", inputdev);
-		else
-			v_len = 0;
-		inputdev[v_len] = 0;
-
-		outputdev = inputdev + v_len + 1;
-		v_len = do_bsys_getproplen(NULL, "output-device");
-		if (v_len > 0)
-			(void) do_bsys_getprop(NULL, "output-device",
-			    outputdev);
-		else
-			v_len = 0;
-		outputdev[v_len] = 0;
-
-		consoledev = outputdev + v_len + 1;
-		v_len = do_bsys_getproplen(NULL, "console");
-		if (v_len > 0) {
-			(void) do_bsys_getprop(NULL, "console", consoledev);
-			if (post_fastreboot &&
-			    strcmp(consoledev, "graphics") == 0) {
-				bsetprops("console", "text");
-				v_len = strlen("text");
-				bcopy("text", consoledev, v_len);
-			}
-		} else {
-			v_len = 0;
-		}
-		consoledev[v_len] = 0;
-		bcons_post_bootenvrc(inputdev, outputdev, consoledev);
-	} else {
-		/*
-		 * Ensure console property exists
-		 * If not create it as "hypervisor"
-		 */
-		v_len = do_bsys_getproplen(NULL, "console");
-		if (v_len < 0)
-			bsetprops("console", "hypervisor");
-		inputdev = outputdev = consoledev = "hypervisor";
-		bcons_post_bootenvrc(inputdev, outputdev, consoledev);
-	}
-
-	if (find_boot_prop("prom_debug") || kbm_debug)
-		boot_prop_display(line);
 }
 
 /*
@@ -845,9 +486,6 @@ done:
 void
 vbop_printf(void *ptr, const char *fmt, va_list ap)
 {
-	if (have_console == 0)
-		return;
-
 	(void) vsnprintf(buffer, BUFFERSIZE, fmt, ap);
 	PUT_STRING(buffer);
 }
@@ -889,538 +527,8 @@ static struct boot_syscalls bop_sysp = {
 	bcons_ischar,
 };
 
-static char *whoami;
-
-#define	BUFLEN	64
-
-static void
-setup_rarp_props(struct sol_netinfo *sip)
-{
-	char buf[BUFLEN];	/* to hold ip/mac addrs */
-	uint8_t *val;
-
-	val = (uint8_t *)&sip->sn_ciaddr;
-	(void) snprintf(buf, BUFLEN, "%d.%d.%d.%d",
-	    val[0], val[1], val[2], val[3]);
-	bsetprops(BP_HOST_IP, buf);
-
-	val = (uint8_t *)&sip->sn_siaddr;
-	(void) snprintf(buf, BUFLEN, "%d.%d.%d.%d",
-	    val[0], val[1], val[2], val[3]);
-	bsetprops(BP_SERVER_IP, buf);
-
-	if (sip->sn_giaddr != 0) {
-		val = (uint8_t *)&sip->sn_giaddr;
-		(void) snprintf(buf, BUFLEN, "%d.%d.%d.%d",
-		    val[0], val[1], val[2], val[3]);
-		bsetprops(BP_ROUTER_IP, buf);
-	}
-
-	if (sip->sn_netmask != 0) {
-		val = (uint8_t *)&sip->sn_netmask;
-		(void) snprintf(buf, BUFLEN, "%d.%d.%d.%d",
-		    val[0], val[1], val[2], val[3]);
-		bsetprops(BP_SUBNET_MASK, buf);
-	}
-
-	if (sip->sn_mactype != 4 || sip->sn_maclen != 6) {
-		bop_printf(NULL, "unsupported mac type %d, mac len %d\n",
-		    sip->sn_mactype, sip->sn_maclen);
-	} else {
-		val = sip->sn_macaddr;
-		(void) snprintf(buf, BUFLEN, "%x:%x:%x:%x:%x:%x",
-		    val[0], val[1], val[2], val[3], val[4], val[5]);
-		bsetprops(BP_BOOT_MAC, buf);
-	}
-}
-
-static void
-build_panic_cmdline(const char *cmd, int cmdlen)
-{
-	int proplen;
-	size_t arglen;
-
-	arglen = sizeof (fastreboot_onpanic_args);
-	/*
-	 * If we allready have fastreboot-onpanic set to zero,
-	 * don't add them again.
-	 */
-	if ((proplen = do_bsys_getproplen(NULL, FASTREBOOT_ONPANIC)) > 0 &&
-	    proplen <=  sizeof (fastreboot_onpanic_cmdline)) {
-		(void) do_bsys_getprop(NULL, FASTREBOOT_ONPANIC,
-		    fastreboot_onpanic_cmdline);
-		if (FASTREBOOT_ONPANIC_NOTSET(fastreboot_onpanic_cmdline))
-			arglen = 1;
-	}
-
-	/*
-	 * construct fastreboot_onpanic_cmdline
-	 */
-	if (cmdlen + arglen > sizeof (fastreboot_onpanic_cmdline)) {
-		DBG_MSG("Command line too long: clearing "
-		    FASTREBOOT_ONPANIC "\n");
-		fastreboot_onpanic = 0;
-	} else {
-		bcopy(cmd, fastreboot_onpanic_cmdline, cmdlen);
-		if (arglen != 1)
-			bcopy(fastreboot_onpanic_args,
-			    fastreboot_onpanic_cmdline + cmdlen, arglen);
-		else
-			fastreboot_onpanic_cmdline[cmdlen] = 0;
-	}
-}
-
-
-#ifndef	__xpv
 /*
- * Construct boot command line for Fast Reboot. The saved_cmdline
- * is also reported by "eeprom bootcmd".
- */
-static void
-build_fastboot_cmdline(struct xboot_info *xbp)
-{
-	saved_cmdline_len =  strlen(xbp->bi_cmdline) + 1;
-	if (saved_cmdline_len > FASTBOOT_SAVED_CMDLINE_LEN) {
-		DBG(saved_cmdline_len);
-		DBG_MSG("Command line too long: clearing fastreboot_capable\n");
-		fastreboot_capable = 0;
-	} else {
-		bcopy((void *)(xbp->bi_cmdline), (void *)saved_cmdline,
-		    saved_cmdline_len);
-		saved_cmdline[saved_cmdline_len - 1] = '\0';
-		build_panic_cmdline(saved_cmdline, saved_cmdline_len - 1);
-	}
-}
-
-/*
- * Save memory layout, disk drive information, unix and boot archive sizes for
- * Fast Reboot.
- */
-static void
-save_boot_info(struct xboot_info *xbi)
-{
-	multiboot_info_t *mbi = xbi->bi_mb_info;
-	struct boot_modules *modp;
-	int i;
-
-	bcopy(mbi, &saved_mbi, sizeof (multiboot_info_t));
-	if (mbi->mmap_length > sizeof (saved_mmap)) {
-		DBG_MSG("mbi->mmap_length too big: clearing "
-		    "fastreboot_capable\n");
-		fastreboot_capable = 0;
-	} else {
-		bcopy((void *)(uintptr_t)mbi->mmap_addr, (void *)saved_mmap,
-		    mbi->mmap_length);
-	}
-
-	if ((mbi->flags & MB_INFO_DRIVE_INFO) != 0) {
-		if (mbi->drives_length > sizeof (saved_drives)) {
-			DBG(mbi->drives_length);
-			DBG_MSG("mbi->drives_length too big: clearing "
-			    "fastreboot_capable\n");
-			fastreboot_capable = 0;
-		} else {
-			bcopy((void *)(uintptr_t)mbi->drives_addr,
-			    (void *)saved_drives, mbi->drives_length);
-		}
-	} else {
-		saved_mbi.drives_length = 0;
-		saved_mbi.drives_addr = 0;
-	}
-
-	/*
-	 * Current file sizes.  Used by fastboot.c to figure out how much
-	 * memory to reserve for panic reboot.
-	 * Use the module list from the dboot-constructed xboot_info
-	 * instead of the list referenced by the multiboot structure
-	 * because that structure may not be addressable now.
-	 */
-	saved_file_size[FASTBOOT_NAME_UNIX] = FOUR_MEG - PAGESIZE;
-	for (i = 0, modp = (struct boot_modules *)(uintptr_t)xbi->bi_modules;
-	    i < xbi->bi_module_cnt; i++, modp++) {
-		saved_file_size[FASTBOOT_NAME_BOOTARCHIVE] += modp->bm_size;
-	}
-}
-#endif	/* __xpv */
-
-/*
- * Import boot environment module variables as properties, applying
- * blacklist filter for variables we know we will not use.
- *
- * Since the environment can be relatively large, containing many variables
- * used only for boot loader purposes, we will use a blacklist based filter.
- * To keep the blacklist from growing too large, we use prefix based filtering.
- * This is possible because in many cases, the loader variable names are
- * using a structured layout.
- *
- * We will not overwrite already set properties.
- *
- * Note that the menu items in particular can contain characters not
- * well-handled as bootparams, such as spaces, brackets, and the like, so that's
- * another reason.
- */
-static struct bop_blacklist {
-	const char *bl_name;
-	int bl_name_len;
-} bop_prop_blacklist[] = {
-	{ "ISADIR", sizeof ("ISADIR") },
-	{ "acpi", sizeof ("acpi") },
-	{ "autoboot_delay", sizeof ("autoboot_delay") },
-	{ "beansi_", sizeof ("beansi_") },
-	{ "beastie", sizeof ("beastie") },
-	{ "bemenu", sizeof ("bemenu") },
-	{ "boot.", sizeof ("boot.") },
-	{ "bootenv", sizeof ("bootenv") },
-	{ "currdev", sizeof ("currdev") },
-	{ "dhcp.", sizeof ("dhcp.") },
-	{ "interpret", sizeof ("interpret") },
-	{ "kernel", sizeof ("kernel") },
-	{ "loaddev", sizeof ("loaddev") },
-	{ "loader_", sizeof ("loader_") },
-	{ "mainansi_", sizeof ("mainansi_") },
-	{ "mainmenu_", sizeof ("mainmenu_") },
-	{ "maintoggled_", sizeof ("maintoggled_") },
-	{ "menu_timeout_command", sizeof ("menu_timeout_command") },
-	{ "menuset_", sizeof ("menuset_") },
-	{ "module_path", sizeof ("module_path") },
-	{ "nfs.", sizeof ("nfs.") },
-	{ "optionsansi_", sizeof ("optionsansi_") },
-	{ "optionsmenu_", sizeof ("optionsmenu_") },
-	{ "optionstoggled_", sizeof ("optionstoggled_") },
-	{ "pcibios", sizeof ("pcibios") },
-	{ "prompt", sizeof ("prompt") },
-	{ "smbios", sizeof ("smbios") },
-	{ "tem", sizeof ("tem") },
-	{ "twiddle_divisor", sizeof ("twiddle_divisor") },
-	{ "zfs_be", sizeof ("zfs_be") },
-};
-
-/*
- * Match the name against prefixes in above blacklist. If the match was
- * found, this name is blacklisted.
- */
-static boolean_t
-name_is_blacklisted(const char *name)
-{
-	int i, n;
-
-	n = sizeof (bop_prop_blacklist) / sizeof (bop_prop_blacklist[0]);
-	for (i = 0; i < n; i++) {
-		if (strncmp(bop_prop_blacklist[i].bl_name, name,
-		    bop_prop_blacklist[i].bl_name_len - 1) == 0) {
-			return (B_TRUE);
-		}
-	}
-	return (B_FALSE);
-}
-
-static void
-process_boot_environment(struct boot_modules *benv)
-{
-	char *env, *ptr, *name, *value;
-	uint32_t size, name_len, value_len;
-
-	if (benv == NULL || benv->bm_type != BMT_ENV)
-		return;
-	ptr = env = benv->bm_addr;
-	size = benv->bm_size;
-	do {
-		name = ptr;
-		/* find '=' */
-		while (*ptr != '=') {
-			ptr++;
-			if (ptr > env + size) /* Something is very wrong. */
-				return;
-		}
-		name_len = ptr - name;
-		if (sizeof (buffer) <= name_len)
-			continue;
-
-		(void) strncpy(buffer, name, sizeof (buffer));
-		buffer[name_len] = '\0';
-		name = buffer;
-
-		value_len = 0;
-		value = ++ptr;
-		while ((uintptr_t)ptr - (uintptr_t)env < size) {
-			if (*ptr == '\0') {
-				ptr++;
-				value_len = (uintptr_t)ptr - (uintptr_t)env;
-				break;
-			}
-			ptr++;
-		}
-
-		/* Did we reach the end of the module? */
-		if (value_len == 0)
-			return;
-
-		if (*value == '\0')
-			continue;
-
-		/* Is this property already set? */
-		if (do_bsys_getproplen(NULL, name) >= 0)
-			continue;
-
-		if (name_is_blacklisted(name) == B_TRUE)
-			continue;
-
-		/* Create new property. */
-		bsetprops(name, value);
-
-		/* Avoid reading past the module end. */
-		if (size <= (uintptr_t)ptr - (uintptr_t)env)
-			return;
-	} while (*ptr != '\0');
-}
-
-/*
- * 1st pass at building the table of boot properties. This includes:
- * - values set on the command line: -B a=x,b=y,c=z ....
- * - known values we just compute (ie. from xbp)
- * - values from /boot/solaris/bootenv.rc (ie. eeprom(1m) values)
- *
- * the grub command line looked like:
- * kernel boot-file [-B prop=value[,prop=value]...] [boot-args]
- *
- * whoami is the same as boot-file
- */
-static void
-build_boot_properties(struct xboot_info *xbp)
-{
-	char *name;
-	int name_len;
-	char *value;
-	int value_len;
-	struct boot_modules *bm, *rdbm, *benv = NULL;
-	char *propbuf;
-	int quoted = 0;
-	int boot_arg_len;
-	uint_t i, midx;
-	char modid[32];
-#ifndef __xpv
-	static int stdout_val = 0;
-	uchar_t boot_device;
-	char str[3];
-#endif
-
-	/*
-	 * These have to be done first, so that kobj_mount_root() works
-	 */
-	DBG_MSG("Building boot properties\n");
-	propbuf = do_bsys_alloc(NULL, NULL, MMU_PAGESIZE, 0);
-	DBG((uintptr_t)propbuf);
-	if (xbp->bi_module_cnt > 0) {
-		bm = xbp->bi_modules;
-		rdbm = NULL;
-		for (midx = i = 0; i < xbp->bi_module_cnt; i++) {
-			if (bm[i].bm_type == BMT_ROOTFS) {
-				rdbm = &bm[i];
-				continue;
-			}
-			if (bm[i].bm_type == BMT_HASH ||
-			    bm[i].bm_type == BMT_FONT ||
-			    bm[i].bm_name == NULL)
-				continue;
-
-			if (bm[i].bm_type == BMT_ENV) {
-				if (benv == NULL)
-					benv = &bm[i];
-				else
-					continue;
-			}
-
-			(void) snprintf(modid, sizeof (modid),
-			    "module-name-%u", midx);
-			bsetprops(modid, (char *)bm[i].bm_name);
-			(void) snprintf(modid, sizeof (modid),
-			    "module-addr-%u", midx);
-			bsetprop64(modid, (uint64_t)(uintptr_t)bm[i].bm_addr);
-			(void) snprintf(modid, sizeof (modid),
-			    "module-size-%u", midx);
-			bsetprop64(modid, (uint64_t)bm[i].bm_size);
-			++midx;
-		}
-		if (rdbm != NULL) {
-			bsetprop64("ramdisk_start",
-			    (uint64_t)(uintptr_t)rdbm->bm_addr);
-			bsetprop64("ramdisk_end",
-			    (uint64_t)(uintptr_t)rdbm->bm_addr + rdbm->bm_size);
-		}
-	}
-
-	/*
-	 * If there are any boot time modules or hashes present, then disable
-	 * fast reboot.
-	 */
-	if (xbp->bi_module_cnt > 1) {
-		fastreboot_disable(FBNS_BOOTMOD);
-	}
-
-#ifndef __xpv
-	/*
-	 * Disable fast reboot if we're using the Multiboot 2 boot protocol,
-	 * since we don't currently support MB2 info and module relocation.
-	 * Note that fast reboot will have already been disabled if multiple
-	 * modules are present, since the current implementation assumes that
-	 * we only have a single module, the boot_archive.
-	 */
-	if (xbp->bi_mb_version != 1) {
-		fastreboot_disable(FBNS_MULTIBOOT2);
-	}
-#endif
-
-	DBG_MSG("Parsing command line for boot properties\n");
-	value = xbp->bi_cmdline;
-
-	/*
-	 * allocate memory to collect boot_args into
-	 */
-	boot_arg_len = strlen(xbp->bi_cmdline) + 1;
-	boot_args = do_bsys_alloc(NULL, NULL, boot_arg_len, MMU_PAGESIZE);
-	boot_args[0] = 0;
-	boot_arg_len = 0;
-
-	while (ISSPACE(*value))
-		++value;
-	/*
-	 * value now points at the boot-file
-	 */
-	value_len = 0;
-	while (value[value_len] && !ISSPACE(value[value_len]))
-		++value_len;
-	if (value_len > 0) {
-		whoami = propbuf;
-		bcopy(value, whoami, value_len);
-		whoami[value_len] = 0;
-		bsetprops("boot-file", whoami);
-		/*
-		 * strip leading path stuff from whoami, so running from
-		 * PXE/miniroot makes sense.
-		 */
-		if (strstr(whoami, "/platform/") != NULL)
-			whoami = strstr(whoami, "/platform/");
-		bsetprops("whoami", whoami);
-	}
-
-	/*
-	 * Values forcibly set boot properties on the command line via -B.
-	 * Allow use of quotes in values. Other stuff goes on kernel
-	 * command line.
-	 */
-	name = value + value_len;
-	while (*name != 0) {
-		/*
-		 * anything not " -B" is copied to the command line
-		 */
-		if (!ISSPACE(name[0]) || name[1] != '-' || name[2] != 'B') {
-			boot_args[boot_arg_len++] = *name;
-			boot_args[boot_arg_len] = 0;
-			++name;
-			continue;
-		}
-
-		/*
-		 * skip the " -B" and following white space
-		 */
-		name += 3;
-		while (ISSPACE(*name))
-			++name;
-		while (*name && !ISSPACE(*name)) {
-			value = strstr(name, "=");
-			if (value == NULL)
-				break;
-			name_len = value - name;
-			++value;
-			value_len = 0;
-			quoted = 0;
-			for (; ; ++value_len) {
-				if (!value[value_len])
-					break;
-
-				/*
-				 * is this value quoted?
-				 */
-				if (value_len == 0 &&
-				    (value[0] == '\'' || value[0] == '"')) {
-					quoted = value[0];
-					++value_len;
-				}
-
-				/*
-				 * In the quote accept any character,
-				 * but look for ending quote.
-				 */
-				if (quoted) {
-					if (value[value_len] == quoted)
-						quoted = 0;
-					continue;
-				}
-
-				/*
-				 * a comma or white space ends the value
-				 */
-				if (value[value_len] == ',' ||
-				    ISSPACE(value[value_len]))
-					break;
-			}
-
-			if (value_len == 0) {
-				bsetprop(DDI_PROP_TYPE_ANY, name, name_len,
-				    NULL, 0);
-			} else {
-				char *v = value;
-				int l = value_len;
-				if (v[0] == v[l - 1] &&
-				    (v[0] == '\'' || v[0] == '"')) {
-					++v;
-					l -= 2;
-				}
-				bcopy(v, propbuf, l);
-				propbuf[l] = '\0';
-				bsetprop(DDI_PROP_TYPE_STRING, name, name_len,
-				    propbuf, l + 1);
-			}
-			name = value + value_len;
-			while (*name == ',')
-				++name;
-		}
-	}
-
-	/*
-	 * set boot-args property
-	 * 1275 name is bootargs, so set
-	 * that too
-	 */
-	bsetprops("boot-args", boot_args);
-	bsetprops("bootargs", boot_args);
-
-	process_boot_environment(benv);
-
-	/*
-	 * Build boot command line for Fast Reboot
-	 */
-	build_fastboot_cmdline(xbp);
-
-	if (xbp->bi_mb_version == 1) {
-		/*
-		 * Save various boot information for Fast Reboot
-		 */
-		save_boot_info(xbp);
-	}
-
-	bsetprop32("stdout", stdout_val);
-
-	/*
-	 * more conjured up values for made up things....
-	 */
-	bsetprops("mfg-name", "Oxide Computer Company");
-	bsetprops("impl-arch-name", "oxide");
-}
-
-#if !defined(__xpv)
-/*
- * simple description of a stack frame (args are 32 bit only currently)
+ * simple description of a stack frame (args are 64 bit only currently)
  */
 typedef struct bop_frame {
 	struct bop_frame *old_frame;
@@ -1428,6 +536,7 @@ typedef struct bop_frame {
 	long arg[1];
 } bop_frame_t;
 
+/* XXX shareable */
 void
 bop_traceback(bop_frame_t *frame)
 {
@@ -1465,6 +574,7 @@ struct trapframe {
 	ulong_t stk_seg;
 };
 
+/* XXX shareable */
 void
 bop_trap(ulong_t *tfp)
 {
@@ -1505,11 +615,10 @@ bop_trap(ulong_t *tfp)
 }
 
 extern void bop_trap_handler(void);
-
 static gate_desc_t *bop_idt;
-
 static desctbr_t bop_idt_info;
 
+/* XXX shareable? */
 /*
  * Install a temporary IDT that lets us catch errors in the boot time code.
  * We shouldn't get any faults at all while this is installed, so we'll
@@ -1535,111 +644,136 @@ bop_idt_init(void)
 	bop_idt_info.dtr_base = (uintptr_t)bop_idt;
 	wr_idtr(&bop_idt_info);
 }
-#endif	/* !defined(__xpv) */
 
-char * empty_cmdline = "";
-/*
- * This is where we enter the kernel. It dummies up the boot_ops and
- * boot_syscalls vectors and jumps off to _kobj_boot()
- */
-void
-_start(struct xboot_info *xbp)
+static void
+build_memlists(paddr_t apob_phys)
 {
-	bootops_t *bops = &bootop;
-	extern void _kobj_boot();
+	/* XXX obvs */
+	first_memlist.ml_address = 0;
+	first_memlist.ml_size = 0x70000000;
+	first_memlist.ml_next = NULL;
+	first_memlist.ml_prev = NULL;
 
-	__asm__ __volatile__(
-		"outw	%0, $0x80\n\t"
-	: : "a" ((unsigned short)(0x1de)) : );
+	bm.physinstalled = &first_memlist;
+	bm.rsvdmem = NULL;
+	bm.pcimem = NULL;
+}
 
-	/*
-	 * 1st off - initialize the console for any error messages
-	 */
-	xbootp = xbp;
+static void
+memory_init(void)
+{
+	const bt_prop_t *apob_prop = find_bt_prop(BTPROP_NAME_APOB_ADDRESS, 0);
+	paddr_t apob_phys;
 
-	if (*((uint32_t *)(FASTBOOT_SWTCH_PA + FASTBOOT_STACK_OFFSET)) ==
-	    FASTBOOT_MAGIC) {
-		post_fastreboot = 1;
-		*((uint32_t *)(FASTBOOT_SWTCH_PA + FASTBOOT_STACK_OFFSET)) = 0;
+	if (apob_prop == NULL) {
+		bop_panic("APOB address property %s is missing; don't "
+		    "know how to probe memory ourselves",
+		    BTPROP_NAME_APOB_ADDRESS);
 	}
 
-	bcons_init(xbp);
-	have_console = 1;
+	if ((apob_prop->btp_typeflags & DDI_PROP_TYPE_MASK) !=
+	    DDI_PROP_TYPE_INT64) {
+		bop_panic("Boot-time property %s has incorrect type; can't "
+		    "find the APOB without it", BTPROP_NAME_APOB_ADDRESS);
+	}
 
-	/*
-	 * enable debugging XXXBOOT
-	 */
-	if (1 || find_boot_prop("kbm_debug") != NULL)
-		kbm_debug = 1;
+	apob_phys = (paddr_t)(*(uint64_t *)apob_prop->btp_value);
+	/* XXX We can't use IN_VA_HOLE() yet here to check this */
 
-	// TODO(ganshun): remove when we have proper cmdline handling.
-	xbp->bi_cmdline = empty_cmdline;
-
-	DBG_MSG("\n\n*** Entered illumos in _start() cmdline is: ");
-	DBG_MSG((char *)xbp->bi_cmdline);
-	DBG_MSG("\n\n\n");
-
-	/*
-	 * physavail is no longer used by startup
-	 */
-	bm.physinstalled = xbp->bi_phys_install;
-	bm.pcimem = xbp->bi_pcimem;
-	bm.rsvdmem = xbp->bi_rsvdmem;
-	bm.physavail = NULL;
+	build_memlists(apob_phys);
 
 	/*
 	 * initialize the boot time allocator
 	 */
-	next_phys = 0;
 	DBG(next_phys);
-	next_virt = (uintptr_t)0;
 	DBG(next_virt);
-	DBG_MSG("Initializing boot time memory management...");
-	kbm_init(xbp);
-	DBG_MSG("done\n");
+}
+
+/*
+ * This is where we enter the kernel. It dummies up the boot_ops and
+ * boot_syscalls vectors and jumps off to _kobj_boot().  How does the loader
+ * find this entry point?  By the miracle of looking at the ELF e_entry field.
+ */
+void
+_start(const bt_discovery_t *btdp)
+{
+	extern void _kobj_boot();
 
 	/*
-	 * Fill in the bootops vector
+	 * XXX This works only on *non* Oxide hardware and should be deleted.
 	 */
-	bops->bsys_version = BO_VERSION;
-	bops->boot_mem = &bm;
-	bops->bsys_alloc = do_bsys_alloc;
-	bops->bsys_free = do_bsys_free;
-	bops->bsys_getproplen = do_bsys_getproplen;
-	bops->bsys_getprop = do_bsys_getprop;
-	bops->bsys_nextprop = do_bsys_nextprop;
-	bops->bsys_printf = bop_printf;
+	outw(0x80, 0x1DE);
+
+	if (btdp == NULL) {
+#ifdef	USE_DISCOVERY_STUB
+		btdp = &bt_discovery_stub;
+#else
+		outw(0x80, 0xD15C);
+		return;
+#endif	/* USE_DISCOVERY_STUB */
+	}
+
+	bt_props = btdp->btd_prop_list;
+	bcons_init();
+
+	if (find_bt_prop("kbm_debug", 0) != NULL)
+		kbm_debug = 1;
+
+	if (find_bt_prop("bootrd_debug", 0) != NULL)
+		bootrd_debug = 1;
+
+	DBG_MSG("\n\n*** Entered illumos in _start()\n");
+	DBG(btdp);
+	DBG(btdp->btd_prop_list);
+
+	/*
+	 * Find usable memory regions and set up the structures needed by the
+	 * allocator, including bm.
+	 */
+	memory_init();
+
+	/*
+	 * Fill in the bootops vector; all of this can now work.
+	 */
+	bootop.bsys_version = BO_VERSION;
+	bootop.boot_mem = &bm;
+	bootop.bsys_alloc = do_bsys_alloc;
+	bootop.bsys_free = do_bsys_free;
+	bootop.bsys_getproplen = do_bsys_getproplen;
+	bootop.bsys_getprop = do_bsys_getprop;
+	bootop.bsys_nextprop = do_bsys_nextprop;
+	bootop.bsys_printf = bop_printf;
 
 	/*
 	 * BOP_EALLOC() is no longer needed
 	 */
-	bops->bsys_ealloc = do_bsys_ealloc;
+	bootop.bsys_ealloc = do_bsys_ealloc;
+
+	DBG_MSG("Initializing boot time memory management...");
+	kbm_init(&bootop);
+	DBG_MSG("done\n");
 
 	/*
 	 * Install an IDT to catch early pagefaults (shouldn't have any).
 	 * Also needed for kmdb.
 	 */
+	DBG_MSG("Initializing temporary IDT: ");
 	bop_idt_init();
+	DBG_MSG("done\n");
 
-	/*
-	 * Start building the boot properties from the command line
-	 */
-	DBG_MSG("Initializing boot properties:\n");
-	build_boot_properties(xbp);
+	if (find_bt_prop("prom_debug", 0) != NULL || kbm_debug) {
+		char *bufpage;
 
-	if (find_boot_prop("prom_debug") || kbm_debug) {
-		char *value;
-
-		value = do_bsys_alloc(NULL, NULL, MMU_PAGESIZE, MMU_PAGESIZE);
-		boot_prop_display(value);
+		bufpage = do_bsys_alloc(NULL, NULL, MMU_PAGESIZE, MMU_PAGESIZE);
+		boot_prop_display(bufpage);
 	}
 
 	/*
-	 * jump into krtld...
+	 * _kobj_boot() vectors us to mlsetup and thence to main(), so there
+	 * is no return from this point.
 	 */
-	_kobj_boot(&bop_sysp, NULL, bops, NULL);
+	_kobj_boot(&bop_sysp, NULL, &bootop, NULL);
 }
-
 
 /*ARGSUSED*/
 static caddr_t
@@ -1665,6 +799,7 @@ bop_no_more_mem(void)
 	bootops->bsys_free = no_more_free;
 }
 
+/* XXX shareable */
 /*ARGSUSED*/
 int
 boot_compinfo(int fd, struct compinfo *cbp)
@@ -1674,9 +809,7 @@ boot_compinfo(int fd, struct compinfo *cbp)
 	return (0);
 }
 
-/*
- * Get an integer value for given boot property
- */
+/* XXX shareable */
 int
 bootprop_getval(const char *prop_name, u_longlong_t *prop_value)
 {
@@ -1696,6 +829,7 @@ bootprop_getval(const char *prop_name, u_longlong_t *prop_value)
 	return (0);
 }
 
+/* XXX shareable */
 int
 bootprop_getstr(const char *prop_name, char *buf, size_t buflen)
 {

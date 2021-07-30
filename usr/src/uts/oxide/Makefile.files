@@ -35,6 +35,9 @@
 #	object lists
 #
 CORE_OBJS +=			\
+	boot_console.o		\
+	boot_data.o		\
+	boot_mmu.o		\
 	cbe.o			\
 	cmi.o			\
 	cmi_hw.o		\
@@ -56,8 +59,6 @@ CORE_OBJS +=			\
 	dw_apb_uart.o		\
 	fpu_subr.o		\
 	fakebop.o		\
-	fastboot.o		\
-	fb_swtch.o		\
 	hardclk.o		\
 	hat_i86.o		\
 	hat_kdi.o		\
@@ -112,6 +113,7 @@ CORE_OBJS +=			\
 	seg_vmm.o		\
 	ssp.o			\
 	startup.o		\
+	stubs.o			\
 	timestamp.o		\
 	todpc_subr.o		\
 	trap.o			\
@@ -121,17 +123,6 @@ CORE_OBJS +=			\
 	x_call.o
 
 CORE_OBJS += $(SMBIOS_OBJS)
-
-#
-# These get compiled twice:
-# - once in the dboot (direct boot) identity mapped code
-# - once for use during early startup in unix
-#
-BOOT_DRIVER_OBJS =		\
-	boot_console.o		\
-	boot_mmu.o
-
-CORE_OBJS += $(BOOT_DRIVER_OBJS)
 
 #
 #	locore.o is special. It must be the first file relocated so that it

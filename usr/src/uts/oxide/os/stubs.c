@@ -20,38 +20,46 @@
  */
 
 /*
- * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright 2021 Oxide Computer Co
  */
 
-#ifndef	_SYS_FASTBOOT_IMPL_H
-#define	_SYS_FASTBOOT_IMPL_H
-
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#ifndef	_ASM
-
-#include <sys/fastboot.h>
+#include <sys/types.h>
+#include <sys/sunddi.h>
 
 /*
- * Fast Reboot NOT SUPPORTED message IDs.
+ * This is all stuff that common or x86 code assumes exists, but it's actually
+ * specific to PCs.  For now it's easier to stub them out than to factor the
+ * code properly.
  */
-enum {
-#define	fastboot_nosup_msg(id, str)	id,
-#define	fastboot_nosup_msg_end(id)	id
-#include "fastboot_msg.h"
-};
 
-extern void fastreboot_disable(uint32_t);
-extern void fastreboot_disable_highpil(void);
-
-#endif	/* _ASM */
-
-#ifdef __cplusplus
+void
+progressbar_start(void)
+{
 }
-#endif
 
-#endif	/* _SYS_FASTBOOT_IMPL_H */
+/*ARGSUSED*/
+int
+acpi_ddi_setwake(dev_info_t *_d, int _i)
+{
+	return (0);
+}
+
+void
+fastboot_update_config(const char *_)
+{
+}
+
+void
+fastboot_update_and_load(int _i, char *_p)
+{
+}
+
+void
+fastboot_post_startup(void)
+{
+}
+
+void
+fastreboot_disable_highpil(void)
+{
+}

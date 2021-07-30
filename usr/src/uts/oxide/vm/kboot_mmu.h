@@ -40,9 +40,8 @@ extern "C" {
 
 #include <sys/mach_mmu.h>
 
-struct xboot_info;
-
-extern void kbm_init(struct xboot_info *);
+struct bootops;
+extern void kbm_init(struct bootops *);
 
 /*
  * Interface to remap the page table window, also used by HAT during init.
