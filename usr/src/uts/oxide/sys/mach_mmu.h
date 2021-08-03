@@ -59,11 +59,7 @@ extern "C" {
 #define	FOUR_GIG	((uint64_t)4 * ONE_GIG)
 
 #define	MMU_STD_PAGESIZE	4096
-#ifdef __amd64
 #define	MMU_STD_PAGEMASK	0xFFFFFFFFFFFFF000ULL
-#else
-#define	MMU_STD_PAGEMASK	0xFFFFF000UL
-#endif
 
 /*
  * Defines for the bits in X86 and AMD64 Page Tables
@@ -131,8 +127,6 @@ extern "C" {
 #define	PT_NOCONSIST	(0x400)	/* PTE was created with HAT_LOAD_NOCONSIST */
 #define	PT_FOREIGN	(0x600)	/* MFN mapped on the hypervisor has no PFN */
 
-#ifndef _BOOT
-
 extern ulong_t getcr3(void);
 extern void setcr3(ulong_t);
 
@@ -142,12 +136,27 @@ extern void setcr3(ulong_t);
 
 extern void mmu_invlpg(caddr_t);
 
-#endif
+#define	IN_HYPERVISOR_VA(va) (__lintzero)
 
-#ifdef __xpv
-#include <sys/xen_mmu.h>
-#else
-#include <sys/pc_mmu.h>
+void reload_cr3(void);
+
+#define	pa_to_ma(pa) (pa)
+#define	ma_to_pa(ma) (ma)
+#define	pfn_to_mfn(pfn) (pfn)
+#define	mfn_to_pfn(mfn)	(mfn)
+
+extern uint64_t kpti_safe_cr3;
+
+#define	INVPCID_ADDR		(0)
+#define	INVPCID_ID		(1)
+#define	INVPCID_ALL_GLOBAL	(2)
+#define	INVPCID_ALL_NONGLOBAL	(3)
+
+extern void invpcid_insn(uint64_t, uint64_t, uintptr_t);
+extern void tr_mmu_flush_user_range(uint64_t, size_t, size_t, uint64_t);
+
+#if defined(__GNUC__)
+#include <asm/mmu.h>
 #endif
 
 /*
@@ -164,13 +173,7 @@ paddr_t make_ptable(x86pte_t *, uint_t);
 x86pte_t *find_pte(uint64_t, paddr_t *, uint_t, uint_t);
 x86pte_t *map_pte(paddr_t, uint_t);
 
-extern uint_t *shift_amt;
 extern uint_t ptes_per_table;
-extern paddr_t top_page_table;
-extern uint_t top_level;
-extern uint_t pte_size;
-extern uint_t shift_amt_pae[];
-extern uint32_t lpagesize;
 
 #ifdef __cplusplus
 }

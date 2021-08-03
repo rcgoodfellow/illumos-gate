@@ -146,11 +146,9 @@ typedef struct rootnex_sglinfo_s {
  */
 typedef struct rootnex_pgmap_s {
 	boolean_t	pm_uses_copybuf;
-#if !defined(__amd64)
 	boolean_t	pm_mapped;
 	page_t		*pm_pp;
 	caddr_t		pm_vaddr;
-#endif
 	caddr_t		pm_kaddr;
 	caddr_t		pm_cbaddr;
 } rootnex_pgmap_t;
@@ -195,10 +193,8 @@ typedef struct rootnex_trim_s {
 	uint_t			tr_last_pidx;
 	caddr_t			tr_first_cbaddr;
 	caddr_t			tr_last_cbaddr;
-#if !defined(__amd64)
 	caddr_t			tr_first_kaddr;
 	caddr_t			tr_last_kaddr;
-#endif
 } rootnex_trim_t;
 
 /*
@@ -216,9 +212,7 @@ typedef struct rootnex_window_s {
 	size_t			wd_size;
 	ddi_dma_cookie_t	*wd_first_cookie;
 	rootnex_trim_t		wd_trim;
-#if !defined(__amd64)
 	boolean_t		wd_remap_copybuf;
-#endif
 } rootnex_window_t;
 
 /* per dma handle private state */
@@ -274,10 +268,8 @@ typedef struct rootnex_dma_s {
 	caddr_t			dp_cbaddr;
 	size_t			dp_cbsize;
 	rootnex_pgmap_t		*dp_pgmap;
-#if !defined(__amd64)
 	boolean_t		dp_cb_remaping;
 	caddr_t			dp_kva;
-#endif
 
 	/*
 	 * window related state. The pointer to the window state array which may

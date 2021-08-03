@@ -39,9 +39,10 @@ extern "C" {
  */
 
 #include <sys/mach_mmu.h>
+#include <sys/bootconf.h>
 
 struct bootops;
-extern void kbm_init(struct bootops *);
+extern void kbm_init(const struct bsys_mem *);
 
 /*
  * Interface to remap the page table window, also used by HAT during init.

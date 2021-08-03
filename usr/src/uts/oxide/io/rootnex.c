@@ -68,18 +68,7 @@
 #include <sys/ddifm.h>
 #include <sys/ddi_isa.h>
 #include <sys/apic.h>
-
-#ifdef __xpv
-#include <sys/bootinfo.h>
-#include <sys/hypervisor.h>
-#include <sys/bootconf.h>
-#include <vm/kboot_mmu.h>
-#endif
-
-#if defined(__amd64) && !defined(__xpv)
 #include <sys/immu.h>
-#endif
-
 
 /*
  * enable/disable extra checking of function parameters. Useful for debugging
@@ -162,14 +151,8 @@ static rootnex_intprop_t rootnex_intprp[] = {
  * If we're dom0, we're using a real device so we need to load
  * the cookies with MFNs instead of PFNs.
  */
-#ifdef __xpv
-typedef maddr_t rootnex_addr_t;
-#define	ROOTNEX_PADDR_TO_RBASE(pa)	\
-	(DOMAIN_IS_INITDOMAIN(xen_info) ? pa_to_ma(pa) : (pa))
-#else
 typedef paddr_t rootnex_addr_t;
 #define	ROOTNEX_PADDR_TO_RBASE(pa)	(pa)
-#endif
 
 static struct cb_ops rootnex_cb_ops = {
 	nodev,		/* open */
@@ -235,7 +218,6 @@ static int rootnex_coredma_bindhdl(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_cookie_t *cookiep, uint_t *ccountp);
 static int rootnex_coredma_unbindhdl(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_handle_t handle);
-#if defined(__amd64) && !defined(__xpv)
 static void rootnex_coredma_reset_cookies(dev_info_t *dip,
     ddi_dma_handle_t handle);
 static int rootnex_coredma_get_cookies(dev_info_t *dip, ddi_dma_handle_t handle,
@@ -245,20 +227,16 @@ static int rootnex_coredma_set_cookies(dev_info_t *dip, ddi_dma_handle_t handle,
 static int rootnex_coredma_clear_cookies(dev_info_t *dip,
     ddi_dma_handle_t handle);
 static int rootnex_coredma_get_sleep_flags(ddi_dma_handle_t handle);
-#endif
 static int rootnex_coredma_sync(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_handle_t handle, off_t off, size_t len, uint_t cache_flags);
 static int rootnex_coredma_win(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_handle_t handle, uint_t win, off_t *offp, size_t *lenp,
     ddi_dma_cookie_t *cookiep, uint_t *ccountp);
 
-#if defined(__amd64) && !defined(__xpv)
 static int rootnex_coredma_hdl_setprivate(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_handle_t handle, void *v);
 static void *rootnex_coredma_hdl_getprivate(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_handle_t handle);
-#endif
-
 
 static struct bus_ops rootnex_bus_ops = {
 	BUSO_REV,
@@ -323,7 +301,6 @@ static struct modlinkage rootnex_modlinkage = {
 	NULL
 };
 
-#if defined(__amd64) && !defined(__xpv)
 static iommulib_nexops_t iommulib_nexops = {
 	IOMMU_NEXOPS_VERSION,
 	"Rootnex IOMMU ops Vers 1.1",
@@ -342,7 +319,6 @@ static iommulib_nexops_t iommulib_nexops = {
 	rootnex_coredma_hdl_setprivate,
 	rootnex_coredma_hdl_getprivate
 };
-#endif
 
 /*
  *  extern hacks
@@ -466,11 +442,7 @@ rootnex_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	case DDI_ATTACH:
 		break;
 	case DDI_RESUME:
-#if defined(__amd64) && !defined(__xpv)
 		return (immu_unquiesce());
-#else
-		return (DDI_SUCCESS);
-#endif
 	default:
 		return (DDI_FAILURE);
 	}
@@ -515,12 +487,10 @@ rootnex_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	/* Initialize rootnex event handle */
 	i_ddi_rootnex_init_events(dip);
 
-#if defined(__amd64) && !defined(__xpv)
 	e = iommulib_nexus_register(dip, &iommulib_nexops,
 	    &rootnex_state->r_iommulib_handle);
 
 	ASSERT(e == DDI_SUCCESS);
-#endif
 
 	return (DDI_SUCCESS);
 }
@@ -536,11 +506,7 @@ rootnex_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 {
 	switch (cmd) {
 	case DDI_SUSPEND:
-#if defined(__amd64) && !defined(__xpv)
 		return (immu_quiesce());
-#else
-		return (DDI_SUCCESS);
-#endif
 	default:
 		return (DDI_FAILURE);
 	}
@@ -1093,19 +1059,8 @@ rootnex_map_regspec(ddi_map_req_t *mp, caddr_t *vaddrp)
 			    (rp->regspec_bustype > 1 && rp->regspec_addr == 0) ?
 			    ((caddr_t)(uintptr_t)rp->regspec_bustype) :
 			    ((caddr_t)(uintptr_t)rp->regspec_addr);
-#ifdef __xpv
-			if (DOMAIN_IS_INITDOMAIN(xen_info)) {
-				hp->ah_pfn = xen_assign_pfn(
-				    mmu_btop((ulong_t)rp->regspec_addr &
-				    MMU_PAGEMASK));
-			} else {
-				hp->ah_pfn = mmu_btop(
-				    (ulong_t)rp->regspec_addr & MMU_PAGEMASK);
-			}
-#else
 			hp->ah_pfn = mmu_btop((ulong_t)rp->regspec_addr &
 			    MMU_PAGEMASK);
-#endif
 			hp->ah_pnum = mmu_btopr(rp->regspec_size +
 			    (ulong_t)rp->regspec_addr & MMU_PAGEOFFSET);
 		}
@@ -1155,19 +1110,7 @@ rootnex_map_regspec(ddi_map_req_t *mp, caddr_t *vaddrp)
 	}
 
 	rbase = (rootnex_addr_t)(rp->regspec_addr & MMU_PAGEMASK);
-#ifdef __xpv
-	/*
-	 * If we're dom0, we're using a real device so we need to translate
-	 * the MA to a PA.
-	 */
-	if (DOMAIN_IS_INITDOMAIN(xen_info)) {
-		pbase = pfn_to_pa(xen_assign_pfn(mmu_btop(rbase)));
-	} else {
-		pbase = rbase;
-	}
-#else
 	pbase = rbase;
-#endif
 	pgoffset = (ulong_t)rp->regspec_addr & MMU_PAGEOFFSET;
 
 	if (rp->regspec_size == 0) {
@@ -1344,20 +1287,7 @@ rootnex_map_handle(ddi_map_req_t *mp)
 	if (rp->regspec_size == 0)
 		return (DDI_ME_INVAL);
 
-#ifdef __xpv
-	/*
-	 * If we're dom0, we're using a real device so we need to translate
-	 * the MA to a PA.
-	 */
-	if (DOMAIN_IS_INITDOMAIN(xen_info)) {
-		pbase = pfn_to_pa(xen_assign_pfn(mmu_btop(rbase))) |
-		    (rbase & MMU_PAGEOFFSET);
-	} else {
-		pbase = rbase;
-	}
-#else
 	pbase = rbase;
-#endif
 
 	hp->ah_pfn = mmu_btop(pbase);
 	hp->ah_pnum = mmu_btopr(rp->regspec_size + pgoffset);
@@ -1875,7 +1805,6 @@ rootnex_dma_allochdl(dev_info_t *dip, dev_info_t *rdip, ddi_dma_attr_t *attr,
     int (*waitfp)(caddr_t), caddr_t arg, ddi_dma_handle_t *handlep)
 {
 	int retval = DDI_SUCCESS;
-#if defined(__amd64) && !defined(__xpv)
 
 	if (IOMMU_UNITIALIZED(rdip)) {
 		retval = iommulib_nex_open(dip, rdip);
@@ -1891,10 +1820,7 @@ rootnex_dma_allochdl(dev_info_t *dip, dev_info_t *rdip, ddi_dma_attr_t *attr,
 		retval = iommulib_nexdma_allochdl(dip, rdip, attr,
 		    waitfp, arg, handlep);
 	}
-#else
-	retval = rootnex_coredma_allochdl(dip, rdip, attr, waitfp, arg,
-	    handlep);
-#endif
+
 	switch (retval) {
 	case DDI_DMA_NORESOURCES:
 		if (waitfp != DDI_DMA_DONTWAIT) {
@@ -1946,12 +1872,10 @@ rootnex_dma_freehdl(dev_info_t *dip, dev_info_t *rdip, ddi_dma_handle_t handle)
 	int ret;
 
 	ndi_fmc_remove(rdip, DMA_HANDLE, handle);
-#if defined(__amd64) && !defined(__xpv)
 	if (IOMMU_USED(rdip))
 		ret = iommulib_nexdma_freehdl(dip, rdip, handle);
 	else
-#endif
-	ret = rootnex_coredma_freehdl(dip, rdip, handle);
+		ret = rootnex_coredma_freehdl(dip, rdip, handle);
 
 	if (rootnex_state->r_dvma_call_list_id)
 		ddi_run_callback(&rootnex_state->r_dvma_call_list_id);
@@ -1967,10 +1891,8 @@ rootnex_coredma_bindhdl(dev_info_t *dip, dev_info_t *rdip,
 {
 	rootnex_sglinfo_t *sinfo;
 	ddi_dma_obj_t *dmao;
-#if defined(__amd64) && !defined(__xpv)
 	struct dvmaseg *dvs;
 	ddi_dma_cookie_t *cookie;
-#endif
 	ddi_dma_attr_t *attr;
 	ddi_dma_impl_t *hp;
 	rootnex_dma_t *dma;
@@ -2030,7 +1952,6 @@ rootnex_coredma_bindhdl(dev_info_t *dip, dev_info_t *rdip,
 	/* save away the original bind info */
 	dma->dp_dma = dmareq->dmar_object;
 
-#if defined(__amd64) && !defined(__xpv)
 	if (IOMMU_USED(rdip)) {
 		dmao = &dma->dp_dvma;
 		e = iommulib_nexdma_mapobject(dip, rdip, handle, dmareq, dmao);
@@ -2066,7 +1987,6 @@ rootnex_coredma_bindhdl(dev_info_t *dip, dev_info_t *rdip,
 			return (e);
 		}
 	}
-#endif
 
 	/*
 	 * Figure out a rough estimate of what maximum number of pages
@@ -2211,19 +2131,14 @@ fast:
 	 * Clean up and return an error.
 	 */
 
-#if defined(__amd64) && !defined(__xpv)
-
 	if (dma->dp_dvma_used) {
 		(void) iommulib_nexdma_unmapobject(dip, rdip, handle,
 		    &dma->dp_dvma);
 		e = DDI_DMA_NOMAPPING;
 	} else {
-#endif
 		e = rootnex_bind_slowpath(hp, dmareq, dma, attr, &dma->dp_dma,
 		    kmflag);
-#if defined(__amd64) && !defined(__xpv)
 	}
-#endif
 	if ((e != DDI_DMA_MAPPED) && (e != DDI_DMA_PARTIAL_MAP)) {
 		if (dma->dp_need_to_free_cookie) {
 			kmem_free(dma->dp_cookies, dma->dp_cookie_size);
@@ -2284,14 +2199,13 @@ rootnex_dma_bindhdl(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_cookie_t *cookiep, uint_t *ccountp)
 {
 	int ret;
-#if defined(__amd64) && !defined(__xpv)
+
 	if (IOMMU_USED(rdip))
 		ret = iommulib_nexdma_bindhdl(dip, rdip, handle, dmareq,
 		    cookiep, ccountp);
 	else
-#endif
-	ret = rootnex_coredma_bindhdl(dip, rdip, handle, dmareq,
-	    cookiep, ccountp);
+		ret = rootnex_coredma_bindhdl(dip, rdip, handle, dmareq,
+		    cookiep, ccountp);
 
 	if (ret == DDI_DMA_NORESOURCES && dmareq->dmar_fp != DDI_DMA_DONTWAIT) {
 		ddi_set_callback(dmareq->dmar_fp, dmareq->dmar_arg,
@@ -2338,11 +2252,9 @@ rootnex_coredma_unbindhdl(dev_info_t *dip, dev_info_t *rdip,
 	rootnex_teardown_copybuf(dma);
 	rootnex_teardown_windows(dma);
 
-#if defined(__amd64) && !defined(__xpv)
 	if (IOMMU_USED(rdip) && dma->dp_dvma_used)
 		(void) iommulib_nexdma_unmapobject(dip, rdip, handle,
 		    &dma->dp_dvma);
-#endif
 
 	/*
 	 * If we had to allocate space to for the worse case sgl (it didn't
@@ -2377,20 +2289,16 @@ rootnex_dma_unbindhdl(dev_info_t *dip, dev_info_t *rdip,
 {
 	int ret;
 
-#if defined(__amd64) && !defined(__xpv)
 	if (IOMMU_USED(rdip))
 		ret = iommulib_nexdma_unbindhdl(dip, rdip, handle);
 	else
-#endif
-	ret = rootnex_coredma_unbindhdl(dip, rdip, handle);
+		ret = rootnex_coredma_unbindhdl(dip, rdip, handle);
 
 	if (rootnex_state->r_dvma_call_list_id)
 		ddi_run_callback(&rootnex_state->r_dvma_call_list_id);
 
 	return (ret);
 }
-
-#if defined(__amd64) && !defined(__xpv)
 
 static int
 rootnex_coredma_get_sleep_flags(ddi_dma_handle_t handle)
@@ -2541,8 +2449,6 @@ rootnex_coredma_clear_cookies(dev_info_t *dip, ddi_dma_handle_t handle)
 
 	return (DDI_SUCCESS);
 }
-
-#endif
 
 static struct as *
 rootnex_get_as(ddi_dma_obj_t *dmao)
@@ -4668,12 +4574,11 @@ static int
 rootnex_dma_sync(dev_info_t *dip, dev_info_t *rdip, ddi_dma_handle_t handle,
     off_t off, size_t len, uint_t cache_flags)
 {
-#if defined(__amd64) && !defined(__xpv)
 	if (IOMMU_USED(rdip)) {
 		return (iommulib_nexdma_sync(dip, rdip, handle, off, len,
 		    cache_flags));
 	}
-#endif
+
 	return (rootnex_coredma_sync(dip, rdip, handle, off, len,
 	    cache_flags));
 }
@@ -4963,18 +4868,15 @@ rootnex_dma_win(dev_info_t *dip, dev_info_t *rdip, ddi_dma_handle_t handle,
     uint_t win, off_t *offp, size_t *lenp, ddi_dma_cookie_t *cookiep,
     uint_t *ccountp)
 {
-#if defined(__amd64) && !defined(__xpv)
 	if (IOMMU_USED(rdip)) {
 		return (iommulib_nexdma_win(dip, rdip, handle, win, offp, lenp,
 		    cookiep, ccountp));
 	}
-#endif
 
 	return (rootnex_coredma_win(dip, rdip, handle, win, offp, lenp,
 	    cookiep, ccountp));
 }
 
-#if defined(__amd64) && !defined(__xpv)
 /*ARGSUSED*/
 static int
 rootnex_coredma_hdl_setprivate(dev_info_t *dip, dev_info_t *rdip,
@@ -5003,7 +4905,6 @@ rootnex_coredma_hdl_getprivate(dev_info_t *dip, dev_info_t *rdip,
 
 	return (dma->dp_iommu_private);
 }
-#endif
 
 /*
  * ************************
@@ -5156,29 +5057,5 @@ rootnex_dma_check(dev_info_t *dip, const void *handle, const void *addr,
 static int
 rootnex_quiesce(dev_info_t *dip)
 {
-#if defined(__amd64) && !defined(__xpv)
 	return (immu_quiesce());
-#else
-	return (DDI_SUCCESS);
-#endif
 }
-
-#if defined(__xpv)
-void
-immu_init(void)
-{
-	;
-}
-
-void
-immu_startup(void)
-{
-	;
-}
-/*ARGSUSED*/
-void
-immu_physmem_update(uint64_t addr, uint64_t size)
-{
-	;
-}
-#endif

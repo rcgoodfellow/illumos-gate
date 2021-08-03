@@ -46,7 +46,6 @@ extern "C" {
 typedef	struct rm_platter {
 	char		rm_code[RM_PLATTER_CODE_SIZE];
 	char		rm_cpu_halt_code[RM_PLATTER_CPU_HALT_CODE_SIZE];
-#if defined(__amd64)
 	/*
 	 * The compiler will want to 64-bit align the 64-bit rm_gdt_base
 	 * pointer, so we need to add an extra four bytes of padding here to
@@ -54,11 +53,9 @@ typedef	struct rm_platter {
 	 * ten byte GDT pseudo-descriptor.
 	 */
 	uint32_t	rm_gdt_pad;
-#endif	/* __amd64 */
 	ushort_t	rm_debug;
 	ushort_t	rm_gdt_lim;	/* stuff for lgdt */
 	user_desc_t	*rm_gdt_base;
-#if defined(__amd64)
 	/*
 	 * The compiler will want to 64-bit align the 64-bit rm_idt_base
 	 * pointer, so we need to add an extra four bytes of padding here to
@@ -66,7 +63,6 @@ typedef	struct rm_platter {
 	 * ten byte IDT pseudo-descriptor.
 	 */
 	uint32_t	rm_idt_pad;
-#endif	/* __amd64 */
 	ushort_t	rm_cpu_halted;	/* non-zero if CPU has been halted */
 	ushort_t	rm_idt_lim;	/* stuff for lidt */
 	gate_desc_t	*rm_idt_base;
@@ -74,7 +70,6 @@ typedef	struct rm_platter {
 	uint_t		rm_cpu;		/* easy way to know which CPU we are */
 	uint_t		rm_filler3;
 	uint_t		rm_cr4;		/* cr4 value on cpu0 */
-#if defined(__amd64)
 	/*
 	 * Temporary GDT for the brief transition from real mode to protected
 	 * mode before a CPU continues on into long mode.
@@ -102,7 +97,6 @@ typedef	struct rm_platter {
 	 * calculate it and store it here.
 	 */
 	uint32_t	rm_longmode64_addr;
-#endif	/* __amd64 */
 } rm_platter_t;
 
 /*
@@ -115,10 +109,8 @@ typedef	struct rm_platter {
 struct cpu_tables {
 	/* IST stacks */
 	char		ct_stack1[DEFAULTSTKSZ];	/* dblfault */
-#if !defined(__xpv)
 	char		ct_stack2[DEFAULTSTKSZ];	/* nmi */
 	char		ct_stack3[DEFAULTSTKSZ];	/* mce */
-#endif
 	tss_t		ct_tss;
 };
 

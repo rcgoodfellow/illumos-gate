@@ -39,48 +39,8 @@ extern "C" {
 #ifdef _ASM	/* The remainder of this file is only for assembly files */
 
 /* Load reg with pointer to per-CPU structure */
-#if defined(__amd64)
 #define	LOADCPU(reg)			\
 	movq	%gs:CPU_SELF, reg;
-#else
-#define	LOADCPU(reg)			\
-	movl	%gs:CPU_SELF, reg;
-#endif
-
-#if defined(__i386)
-
-#define	_HOT_PATCH_PROLOG			\
-	push	%ebp;				\
-	mov	%esp, %ebp;			\
-	push	%ebx;				\
-	push	%esi;				\
-	push	%edi
-
-#define	_HOT_PATCH(srcaddr, dstaddr, size)	\
-	movl	$srcaddr, %esi;			\
-	movl	$dstaddr, %edi;			\
-	movl	$size, %ebx;			\
-0:	pushl	$1;				\
-	/*CSTYLED*/				\
-	movzbl	(%esi), %eax;			\
-	pushl	%eax;				\
-	pushl	%edi;				\
-	call	hot_patch_kernel_text;		\
-	addl	$12, %esp;			\
-	inc	%edi;				\
-	inc	%esi;				\
-	dec	%ebx;				\
-	test	%ebx, %ebx;			\
-	jne	0b
-
-#define	_HOT_PATCH_EPILOG			\
-	pop	%edi;				\
-	pop	%esi;				\
-	pop	%ebx;				\
-	mov	%ebp, %esp;			\
-	pop	%ebp
-
-#endif	/* __i386 */
 
 #endif /* _ASM */
 

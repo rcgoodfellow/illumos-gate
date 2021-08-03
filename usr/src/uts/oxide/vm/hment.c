@@ -53,9 +53,7 @@ struct hment {
 	pfn_t		hm_pfn;		/* mapping page frame number */
 	uint16_t	hm_entry;	/* index of pte in htable */
 	uint16_t	hm_pad;		/* explicitly expose compiler padding */
-#ifdef __amd64
 	uint32_t	hm_pad2;	/* explicitly expose compiler padding */
-#endif
 };
 
 /*

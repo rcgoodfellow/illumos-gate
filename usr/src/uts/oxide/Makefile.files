@@ -37,7 +37,6 @@
 CORE_OBJS +=			\
 	boot_console.o		\
 	boot_data.o		\
-	boot_mmu.o		\
 	cbe.o			\
 	cmi.o			\
 	cmi_hw.o		\
@@ -69,8 +68,6 @@ CORE_OBJS +=			\
 	hold_page.o		\
 	hrtimers.o		\
 	htable.o		\
-	hypercall.o		\
-	hypersubr.o		\
 	i86_mmu.o		\
 	ibft.o			\
 	instr_size.o		\
@@ -119,7 +116,6 @@ CORE_OBJS +=			\
 	trap.o			\
 	turbo.o			\
 	vm_machdep.o		\
-	xpv_platform.o		\
 	x_call.o
 
 CORE_OBJS += $(SMBIOS_OBJS)

@@ -254,18 +254,6 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	 */
 	page_retire_mdboot();
 
-#if defined(__xpv)
-	/*
-	 * XXPV	Should probably think some more about how we deal
-	 *	with panicing before it's really safe to panic.
-	 *	On hypervisors, we reboot very quickly..  Perhaps panic
-	 *	should only attempt to recover by rebooting if,
-	 *	say, we were able to mount the root filesystem,
-	 *	or if we successfully launched init(1m).
-	 */
-	if (panicstr && proc_init == NULL)
-		(void) HYPERVISOR_shutdown(SHUTDOWN_poweroff);
-#endif
 	/*
 	 * stop other cpus and raise our priority.  since there is only
 	 * one active cpu after this, and our priority will be too high
@@ -393,7 +381,6 @@ void
 reset(void)
 {
 	extern	void acpi_reset_system();
-#if !defined(__xpv)
 	ushort_t *bios_memchk;
 
 	/*
@@ -427,18 +414,6 @@ reset(void)
 	}
 
 	pc_reset();
-#else
-	if (IN_XPV_PANIC()) {
-		if (khat_running && bootops == NULL) {
-			acpi_reset_system();
-		}
-
-		pc_reset();
-	}
-
-	(void) HYPERVISOR_shutdown(SHUTDOWN_reboot);
-	panic("HYPERVISOR_shutdown() failed");
-#endif
 	/*NOTREACHED*/
 }
 
@@ -574,10 +549,6 @@ static struct boot_syscalls kern_sysp = {
 	sysp_ischar,	/*	int	(*ischar)();	9  */
 };
 
-#if defined(__xpv)
-int using_kern_polledio;
-#endif
-
 void
 kadb_uses_kernel()
 {
@@ -586,9 +557,6 @@ kadb_uses_kernel()
 	 * control kadb's I/O; it only controls the kernel's prom_* I/O.
 	 */
 	sysp = &kern_sysp;
-#if defined(__xpv)
-	using_kern_polledio = 1;
-#endif
 }
 
 /*
@@ -817,15 +785,10 @@ lwp_stk_init(klwp_t *lwp, caddr_t stk)
 	 * have a well-defined initial state (present, ring 3
 	 * and of type data).
 	 */
-#if defined(__amd64)
 	if (lwp_getdatamodel(lwp) == DATAMODEL_NATIVE)
 		pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_udesc;
 	else
 		pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_u32desc;
-#elif defined(__i386)
-	pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_udesc;
-#endif	/* __i386 */
-	lwp_installctx(lwp);
 	return (stk);
 }
 
@@ -855,13 +818,8 @@ panic_idle(void)
 
 	dumpsys_helper();
 
-#ifndef __xpv
 	for (;;)
 		i86_halt();
-#else
-	for (;;)
-		;
-#endif
 }
 
 /*
@@ -936,10 +894,6 @@ panic_dump_hw(int spl)
 void *
 plat_traceback(void *fpreg)
 {
-#ifdef __xpv
-	if (IN_XPV_PANIC())
-		return (xpv_traceback(fpreg));
-#endif
 	return (fpreg);
 }
 
@@ -1002,13 +956,6 @@ tenmicrosec(void)
 			end = gethrtime();
 		}
 	} else {
-#if defined(__xpv)
-		hrtime_t newtime;
-
-		newtime = xpv_gethrtime() + 10000; /* now + 10 us */
-		while (xpv_gethrtime() < newtime)
-			SMT_PAUSE();
-#else	/* __xpv */
 		int i;
 
 		/*
@@ -1016,7 +963,6 @@ tenmicrosec(void)
 		 */
 		for (i = 0; i < microdata; i++)
 			tenmicrodata = microdata;
-#endif	/* __xpv */
 	}
 }
 
@@ -1147,17 +1093,6 @@ checked_wrmsr(uint_t msr, uint64_t value)
 int
 plat_mem_do_mmio(struct uio *uio, enum uio_rw rw)
 {
-#if defined(__xpv)
-	void *va = (void *)(uintptr_t)uio->uio_loffset;
-	off_t pageoff = uio->uio_loffset & PAGEOFFSET;
-	size_t nbytes = MIN((size_t)(PAGESIZE - pageoff),
-	    (size_t)uio->uio_iov->iov_len);
-
-	if ((rw == UIO_READ &&
-	    (va == HYPERVISOR_shared_info || va == xen_info)) ||
-	    (pfn_is_foreign(hat_getpfnum(kas.a_hat, va))))
-		return (uiomove(va, nbytes, rw, uio));
-#endif
 	return (ENOTSUP);
 }
 
@@ -1167,11 +1102,6 @@ num_phys_pages()
 	pgcnt_t npages = 0;
 	struct memlist *mp;
 
-#if defined(__xpv)
-	if (DOMAIN_IS_INITDOMAIN(xen_info))
-		return (xpv_nr_phys_pages());
-#endif /* __xpv */
-
 	for (mp = phys_install; mp != NULL; mp = mp->ml_next)
 		npages += mp->ml_size >> PAGESHIFT;
 
@@ -1179,72 +1109,24 @@ num_phys_pages()
 }
 
 /* cpu threshold for compressed dumps */
-#ifdef _LP64
 uint_t dump_plat_mincpu_default = DUMP_PLAT_X86_64_MINCPU;
-#else
-uint_t dump_plat_mincpu_default = DUMP_PLAT_X86_32_MINCPU;
-#endif
 
 int
 dump_plat_addr()
 {
-#ifdef __xpv
-	pfn_t pfn = mmu_btop(xen_info->shared_info) | PFN_IS_FOREIGN_MFN;
-	mem_vtop_t mem_vtop;
-	int cnt;
-
-	/*
-	 * On the hypervisor, we want to dump the page with shared_info on it.
-	 */
-	if (!IN_XPV_PANIC()) {
-		mem_vtop.m_as = &kas;
-		mem_vtop.m_va = HYPERVISOR_shared_info;
-		mem_vtop.m_pfn = pfn;
-		dumpvp_write(&mem_vtop, sizeof (mem_vtop_t));
-		cnt = 1;
-	} else {
-		cnt = dump_xpv_addr();
-	}
-	return (cnt);
-#else
 	return (0);
-#endif
 }
 
 void
 dump_plat_pfn()
 {
-#ifdef __xpv
-	pfn_t pfn = mmu_btop(xen_info->shared_info) | PFN_IS_FOREIGN_MFN;
-
-	if (!IN_XPV_PANIC())
-		dumpvp_write(&pfn, sizeof (pfn));
-	else
-		dump_xpv_pfn();
-#endif
 }
 
 /*ARGSUSED*/
 int
 dump_plat_data(void *dump_cbuf)
 {
-#ifdef __xpv
-	uint32_t csize;
-	int cnt;
-
-	if (!IN_XPV_PANIC()) {
-		csize = (uint32_t)compress(HYPERVISOR_shared_info, dump_cbuf,
-		    PAGESIZE);
-		dumpvp_write(&csize, sizeof (uint32_t));
-		dumpvp_write(dump_cbuf, csize);
-		cnt = 1;
-	} else {
-		cnt = dump_xpv_data(dump_cbuf);
-	}
-	return (cnt);
-#else
 	return (0);
-#endif
 }
 
 /*
@@ -1423,8 +1305,6 @@ do_hotinlines(struct module *mp)
 {
 	for (hotinline_desc_t *hid = mp->hi_calls; hid != NULL;
 	    hid = hid->hid_next) {
-#if !defined(__xpv)
 		hotinline_smap(hid);
-#endif	/* __xpv */
 	}
 }

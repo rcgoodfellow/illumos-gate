@@ -67,11 +67,6 @@
 #include <sys/bootvfs.h>
 #include <sys/tsc.h>
 #include <sys/smt.h>
-#ifdef __xpv
-#include <sys/hypervisor.h>
-#else
-#include <sys/xpv_support.h>
-#endif
 
 /*
  * some globals for patching the result of cpuid
@@ -123,13 +118,6 @@ mlsetup(struct regs *rp)
 	 */
 	cpu[0]->cpu_self = cpu[0];
 
-#if defined(__xpv)
-	/*
-	 * Point at the hypervisor's virtual cpu structure
-	 */
-	cpu[0]->cpu_m.mcpu_vcpu_info = &HYPERVISOR_shared_info->vcpu_info[0];
-#endif
-
 	/*
 	 * check if we've got special bits to clear or set
 	 * when checking cpu features
@@ -155,7 +143,6 @@ mlsetup(struct regs *rp)
 	else
 		cpuid_feature_edx_exclude = (uint32_t)prop_value;
 
-#if !defined(__xpv)
 	if (bootprop_getstr("nmi", prop_str, sizeof (prop_str)) == 0) {
 		if (strcmp(prop_str, "ignore") == 0) {
 			nmi_action = NMI_ACTION_IGNORE;
@@ -198,8 +185,6 @@ mlsetup(struct regs *rp)
 			smt_boot_disable = 1;
 	}
 
-#endif
-
 	/*
 	 * Initialize idt0, gdt0, ldt0_default, ktss0 and dftss.
 	 */
@@ -209,17 +194,12 @@ mlsetup(struct regs *rp)
 	 * lgrp_init() and possibly cpuid_pass1() need PCI config
 	 * space access
 	 */
-#if defined(__xpv)
-	if (DOMAIN_IS_INITDOMAIN(xen_info))
-		pci_cfgspace_init();
-#else
 	pci_cfgspace_init();
 	/*
 	 * Initialize the platform type from CPU 0 to ensure that
 	 * determine_platform() is only ever called once.
 	 */
 	determine_platform();
-#endif
 
 	/*
 	 * The first lightweight pass (pass0) through the cpuid data
@@ -234,67 +214,24 @@ mlsetup(struct regs *rp)
 	 */
 	cpuid_pass1(cpu[0], x86_featureset);
 
-#if !defined(__xpv)
-	if ((get_hwenv() & HW_XEN_HVM) != 0)
-		xen_hvm_init();
-
-	/*
-	 * Before we do anything with the TSCs, we need to work around
-	 * Intel erratum BT81.  On some CPUs, warm reset does not
-	 * clear the TSC.  If we are on such a CPU, we will clear TSC ourselves
-	 * here.  Other CPUs will clear it when we boot them later, and the
-	 * resulting skew will be handled by tsc_sync_master()/_slave();
-	 * note that such skew already exists and has to be handled anyway.
-	 *
-	 * We do this only on metal.  This same problem can occur with a
-	 * hypervisor that does not happen to virtualise a TSC that starts from
-	 * zero, regardless of CPU type; however, we do not expect hypervisors
-	 * that do not virtualise TSC that way to handle writes to TSC
-	 * correctly, either.
-	 */
-	if (get_hwenv() == HW_NATIVE &&
-	    cpuid_getvendor(CPU) == X86_VENDOR_Intel &&
-	    cpuid_getfamily(CPU) == 6 &&
-	    (cpuid_getmodel(CPU) == 0x2d || cpuid_getmodel(CPU) == 0x3e) &&
-	    is_x86_feature(x86_featureset, X86FSET_TSC)) {
-		(void) wrmsr(REG_TSC, 0UL);
-	}
-
 	/*
 	 * Patch the tsc_read routine with appropriate set of instructions,
 	 * depending on the processor family and architecure, to read the
 	 * time-stamp counter while ensuring no out-of-order execution.
 	 * Patch it while the kernel text is still writable.
 	 *
-	 * The Xen hypervisor does not correctly report whether rdtscp is
-	 * supported or not, so we must assume that it is not.
+	 * XXX But (a) kernel text isn't writable because our loader honours
+	 * the ELF permissions flags, and (b) we support only processors that
+	 * have rdtscp, though it is *not* architectural.  Hmm!
 	 */
-	if ((get_hwenv() & HW_XEN_HVM) == 0 &&
-	    is_x86_feature(x86_featureset, X86FSET_TSCP)) {
+	if (is_x86_feature(x86_featureset, X86FSET_TSCP)) {
 		patch_tsc_read(TSC_TSCP);
 	} else if (is_x86_feature(x86_featureset, X86FSET_LFENCE_SER)) {
 		ASSERT(is_x86_feature(x86_featureset, X86FSET_SSE2));
 		patch_tsc_read(TSC_RDTSC_LFENCE);
 	}
 
-#endif	/* !__xpv */
-
-#if defined(__i386) && !defined(__xpv)
-	/*
-	 * Some i386 processors do not implement the rdtsc instruction,
-	 * or at least they do not implement it correctly. Patch them to
-	 * return 0.
-	 */
-	if (!is_x86_feature(x86_featureset, X86FSET_TSC))
-		patch_tsc_read(TSC_NONE);
-#endif	/* __i386 && !__xpv */
-
-#if defined(__amd64) && !defined(__xpv)
 	patch_memops(cpuid_getvendor(CPU));
-#endif	/* __amd64 && !__xpv */
-
-#if !defined(__xpv)
-	/* XXPV	what, if anything, should be dorked with here under xen? */
 
 	/*
 	 * While we're thinking about the TSC, let's set up %cr4 so that
@@ -319,7 +256,6 @@ mlsetup(struct regs *rp)
 
 	if (is_x86_feature(x86_featureset, X86FSET_SMEP))
 		setcr4(getcr4() | CR4_SMEP);
-#endif /* __xpv */
 
 	/*
 	 * initialize t0
@@ -418,18 +354,8 @@ mlsetup(struct regs *rp)
 	if (bootprop_getval(PLAT_DR_OPTIONS_NAME, &prop_value) == 0) {
 		plat_dr_options = (uint64_t)prop_value;
 	}
-#if defined(__xpv)
-	/* No support of DR operations on xpv */
-	plat_dr_options = 0;
-#else	/* __xpv */
 	/* Flag PLAT_DR_FEATURE_ENABLED should only be set by DR driver. */
 	plat_dr_options &= ~PLAT_DR_FEATURE_ENABLED;
-#ifndef	__amd64
-	/* Only enable CPU/memory DR on 64 bits kernel. */
-	plat_dr_options &= ~PLAT_DR_FEATURE_MEMORY;
-	plat_dr_options &= ~PLAT_DR_FEATURE_CPU;
-#endif	/* __amd64 */
-#endif	/* __xpv */
 
 	/*
 	 * Get value of "plat_dr_physmax" boot option.

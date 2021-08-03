@@ -42,9 +42,6 @@
 #include <sys/cmn_err.h>
 #include <vm/seg_kmem.h>
 #include <vm/hat_i86.h>
-#if defined(__xpv)
-#include <sys/hypervisor.h>
-#endif
 #include <sys/bootinfo.h>
 #include <vm/kboot_mmu.h>
 #include <sys/machsystm.h>
@@ -57,9 +54,7 @@ static uintptr_t hat_kdi_page = 0;	/* vaddr for phsical page accesses */
 static uint_t use_kbm = 1;
 uint_t hat_kdi_use_pae;			/* if 0, use x86pte32_t for pte type */
 
-#if !defined(__xpv)
 static x86pte_t *hat_kdi_pte = NULL;	/* vaddr of pte for hat_kdi_page */
-#endif
 
 /*
  * Get the address for remapping physical pages during boot

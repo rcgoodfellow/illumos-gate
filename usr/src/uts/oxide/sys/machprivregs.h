@@ -54,35 +54,18 @@ extern "C" {
  * Used to re-enable interrupts in the body of exception handlers
  */
 
-#if defined(__amd64)
-
 #define	ENABLE_INTR_FLAGS		\
 	pushq	$F_ON;			\
 	popfq
 
-#elif defined(__i386)
-
-#define	ENABLE_INTR_FLAGS		\
-	pushl	$F_ON;			\
-	popfl
-
-#endif	/* __i386 */
-
 /*
  * IRET and SWAPGS
  */
-#if defined(__amd64)
 
 #define	IRET	iretq
 #define	SYSRETQ	sysretq
 #define	SYSRETL	sysretl
 #define	SWAPGS	swapgs
-
-#elif defined(__i386)
-
-#define	IRET	iret
-
-#endif	/* __i386 */
 
 #define	XPV_TRAP_POP	/* empty */
 #define	XPV_TRAP_PUSH	/* empty */
@@ -93,7 +76,6 @@ extern "C" {
  * Macros for saving the original segment registers and restoring them
  * for fast traps.
  */
-#if defined(__amd64)
 
 /*
  * Smaller versions of INTR_PUSH and INTR_POP for fast traps.
@@ -131,41 +113,16 @@ extern "C" {
 
 #define	FAST_INTR_RETURN	call x86_md_clear; jmp tr_iret_user
 
-#elif defined(__i386)
-
-#define	FAST_INTR_PUSH          \
-	cld;                    \
-	__SEGREGS_PUSH          \
-	__SEGREGS_LOAD_KERNEL
-
-#define	FAST_INTR_POP		\
-	__SEGREGS_POP
-
-#define	FAST_INTR_RETURN	iret
-
-#endif	/* __i386 */
-
 /*
  * Handling the CR0.TS bit for floating point handling.
  *
  * When the TS bit is *set*, attempts to touch the floating
  * point hardware will result in a #nm trap.
  */
-#if defined(__amd64)
-
 #define	STTS(rtmp)		\
 	movq	%cr0, rtmp;	\
 	orq	$CR0_TS, rtmp;	\
 	movq	rtmp, %cr0
-
-#elif defined(__i386)
-
-#define	STTS(rtmp)		\
-	movl	%cr0, rtmp;	\
-	orl	$CR0_TS, rtmp;	\
-	movl	rtmp, %cr0
-
-#endif	/* __i386 */
 
 #define	CLTS			\
 	clts

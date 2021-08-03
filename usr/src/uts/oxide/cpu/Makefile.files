@@ -21,27 +21,10 @@
 # Use is subject to license terms.
 #
 
-CPU_AO_OBJS = \
-	ao_cpu.o \
-	ao_main.o \
-	ao_mca.o \
-	ao_mca_disp.o \
-	ao_poll.o
-
 CPU_GCPU_OBJS = \
 	gcpu_main.o \
 	gcpu_mca.o \
 	gcpu_poll_subr.o
 
-CPU_GCPU_NTV_OBJS = \
-	gcpu_poll_ntv.o
-
-CPU_GCPU_XPV_OBJS = \
-	gcpu_mca_xpv.o \
-	gcpu_poll_xpv.o
-
 CPU_AUTHAMD_OBJS = \
 	authamd_main.o
-
-CPU_GENINTEL_OBJS = \
-	gintel_main.o

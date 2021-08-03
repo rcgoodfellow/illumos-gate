@@ -247,9 +247,11 @@ extern int bootprop_getstr(const char *, char *, size_t);
 
 /*
  * Back door to fakebop.c to get physical memory allocated.
- * 64 bit data types are fixed for 32 bit PAE use.
+ * 64 bit data types are fixed for 32 bit PAE use.  Likewise
+ * for virtual address space.
  */
 extern paddr_t do_bop_phys_alloc(uint64_t, uint64_t);
+extern uintptr_t alloc_vaddr(size_t, paddr_t);
 
 extern int do_bsys_getproplen(bootops_t *, const char *);
 extern int do_bsys_getprop(bootops_t *, const char *, void *);

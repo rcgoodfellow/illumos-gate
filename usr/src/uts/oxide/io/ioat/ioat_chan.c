@@ -44,10 +44,6 @@
 #include <vm/hat.h>
 #include <vm/as.h>
 #include <sys/mach_mmu.h>
-#ifdef __xpv
-#include <sys/hypervisor.h>
-#endif
-
 #include <sys/ioat.h>
 
 
@@ -1031,8 +1027,8 @@ ioat_cmd_post(void *private, dcopy_cmd_t cmd)
 	size = cmd->dp.copy.cc_size;
 	priv->ip_start = ring->cr_desc_next;
 	while (size > 0) {
-		src_paddr = pa_to_ma(src_addr);
-		dest_paddr = pa_to_ma(dest_addr);
+		src_paddr = src_addr;
+		dest_paddr = dest_addr;
 
 		/* adjust for any offset into the page */
 		if ((src_addr & PAGEOFFSET) == 0) {

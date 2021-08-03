@@ -645,12 +645,13 @@ bop_idt_init(void)
 	wr_idtr(&bop_idt_info);
 }
 
+/*ARGSUSED*/
 static void
 build_memlists(paddr_t apob_phys)
 {
 	/* XXX obvs */
-	first_memlist.ml_address = 0;
-	first_memlist.ml_size = 0x70000000;
+	first_memlist.ml_address = 0UL;
+	first_memlist.ml_size = 0xB0000000UL;
 	first_memlist.ml_next = NULL;
 	first_memlist.ml_prev = NULL;
 
@@ -732,6 +733,10 @@ _start(const bt_discovery_t *btdp)
 	 */
 	memory_init();
 
+	DBG_MSG("Initializing boot time memory management...");
+	kbm_init(&bm);
+	DBG_MSG("done\n");
+
 	/*
 	 * Fill in the bootops vector; all of this can now work.
 	 */
@@ -748,10 +753,6 @@ _start(const bt_discovery_t *btdp)
 	 * BOP_EALLOC() is no longer needed
 	 */
 	bootop.bsys_ealloc = do_bsys_ealloc;
-
-	DBG_MSG("Initializing boot time memory management...");
-	kbm_init(&bootop);
-	DBG_MSG("done\n");
 
 	/*
 	 * Install an IDT to catch early pagefaults (shouldn't have any).

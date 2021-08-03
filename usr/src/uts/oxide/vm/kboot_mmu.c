@@ -40,15 +40,25 @@
 #include <sys/machsystm.h>
 #include <sys/promif.h>
 #include <sys/kobj.h>
+#include <sys/mach_mmu.h>
 #include <vm/kboot_mmu.h>
 #include <vm/hat_pte.h>
 #include <vm/hat_i86.h>
 #include <vm/seg_kmem.h>
 
+static uint_t shift_amt_pae[] = {12, 21, 30, 39};
+static uint_t *shift_amt = shift_amt_pae;
+uint_t ptes_per_table = 512;		/* consumed by shm */
+static uint_t pte_size = 8;
+static uint32_t lpagesize = TWO_MEG;
+static paddr_t top_page_table = 0;
+static uint_t top_level = 3;
+
 extern uint_t kbm_debug;
 #define	DBG_MSG(s)	{ if (kbm_debug) bop_printf(NULL, "%s", s); }
 #define	DBG(x)		{ if (kbm_debug)			\
-	bop_printf(NULL, __FILE__ "%s is %" PRIx64 "\n", #x, (uint64_t)(x));	\
+	bop_printf(NULL, __FILE__ ": %s is %" PRIx64 "\n", \
+	    #x, (uint64_t)(x));	\
 	}
 
 /*
@@ -65,33 +75,39 @@ uint_t kbm_nucleus_size = 0;
 #define	BOOT_MASK(l)	(~BOOT_OFFSET(l))
 
 /*
- * Initialize memory management parameters for boot time page table management
+ * When we get here, %cr3 points to the top-level pagetables established by
+ * the bootloader.  Our first goal is to create new pagetables at the top of
+ * memory, copying the entries we actually need.  The loader has helpfully
+ * marked the entries corresponding to our own segments by setting the
+ * architecturally-defined software-available bit 9 in each corresponding PTE.
+ * We clear this bit when building the new pagetable.  Additionally, we create
+ * PTEs for identity-mapping the UART used by the earlyboot console device.
+ * This is a bit hackish and it would be nice to make it cleaner, but we're
+ * really just trying to get through this so that segmap etc can be used to
+ * do this properly.
+ *
+ * Once we've built the new pagetable, we switch to it.  This has the effect of
+ * unmapping the loader and freeing up all memory other than the kernel itself.
+ * Importantly, this also means that all our boot-time properties, as well as
+ * things like the ramdisk, modules, etc. that they may point to, will be
+ * unmapped.  We'll map them in later as we need them.
  */
 void
-kbm_init(bootops_t *bops)
+kbm_init(const struct bsys_mem *memlists)
 {
-	/*
-	 * Configure mmu information.  XXX Most of this file should move to
-	 * intel, and we can share it with i86pc by setting up these parameters.
-	 */
+	ulong_t loader_pt_base = getcr3();
+
 	kbm_nucleus_size = FOUR_MEG;
-	window = BOP_ALLOC(bops, NULL, MMU_PAGESIZE, MMU_PAGESIZE);
-	DBG(window);
-	pte_to_window = find_pte((uintptr_t)window, NULL, 0, 0);
-	DBG(pte_to_window);
-
-	shift_amt = shift_amt_pae;
-	ptes_per_table = 512;
-	pte_size = 8;
-	lpagesize = TWO_MEG;
-	top_level = 3;
-
 	/*
 	 * XXX For now we just grab the existing table the loader set up, but
 	 * we may want to create our own from scratch and then switch to it.
  	 */
 	top_page_table = getcr3();
 	DBG(top_page_table);
+	window = (caddr_t)alloc_vaddr(MMU_PAGESIZE, MMU_PAGESIZE);
+	DBG(window);
+	pte_to_window = find_pte((uintptr_t)window, NULL, 0, 0);
+	DBG(pte_to_window);
 }
 
 /*
@@ -125,7 +141,7 @@ kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
 	if (khat_running)
 		panic("kbm_map() called too late");
 
-	pteval = pa_to_ma(pa) | PT_NOCONSIST | PT_VALID | PT_WRITABLE;
+	pteval = pa | PT_NOCONSIST | PT_VALID | PT_WRITABLE;
 	if (level >= 1)
 		pteval |= PT_PAGESIZE;
 	if (is_kernel)
@@ -256,7 +272,7 @@ kbm_remap(uintptr_t va, pfn_t pfn)
 	x86pte_t *ptep;
 	level_t	level = 0;
 	uint_t  probe_only = 1;
-	x86pte_t pte_val = pa_to_ma(pfn_to_pa(pfn)) | PT_WRITABLE |
+	x86pte_t pte_val = pfn_to_pa(pfn) | PT_WRITABLE |
 	    PT_NOCONSIST | PT_VALID;
 	x86pte_t old_pte;
 
@@ -270,9 +286,9 @@ kbm_remap(uintptr_t va, pfn_t pfn)
 	*((x86pte_t *)ptep) = pte_val;
 	mmu_invlpg((caddr_t)va);
 
-	if (!(old_pte & PT_VALID) || ma_to_pa(old_pte) == -1)
+	if (!(old_pte & PT_VALID) || old_pte == -1)
 		return (PFN_INVALID);
-	return (mmu_btop(ma_to_pa(old_pte)));
+	return (mmu_btop(old_pte));
 }
 
 
@@ -282,8 +298,7 @@ kbm_remap(uintptr_t va, pfn_t pfn)
 void
 kbm_read_only(uintptr_t va, paddr_t pa)
 {
-	x86pte_t pte_val = pa_to_ma(pa) |
-	    PT_NOCONSIST | PT_REF | PT_MOD | PT_VALID;
+	x86pte_t pte_val = pa | PT_NOCONSIST | PT_REF | PT_MOD | PT_VALID;
 
 	x86pte_t *ptep;
 	level_t	level = 0;
@@ -349,8 +364,7 @@ make_ptable(x86pte_t *pteval, uint_t level)
 	table_ptr = kbm_remap_window(new_table, 1);
 	bzero(table_ptr, MMU_PAGESIZE);
 
-	*pteval = pa_to_ma(new_table) |
-	    PT_VALID | PT_REF | PT_USER | PT_WRITABLE;
+	*pteval = new_table | PT_VALID | PT_REF | PT_USER | PT_WRITABLE;
 
 	return (new_table);
 }
@@ -360,4 +374,64 @@ map_pte(paddr_t table, uint_t index)
 {
 	void *table_ptr = kbm_remap_window(table, 0);
 	return ((x86pte_t *)((caddr_t)table_ptr + index * pte_size));
+}
+
+/*
+ * Return the index corresponding to a virt address at a given page table level.
+ */
+static uint_t
+vatoindex(uint64_t va, uint_t level)
+{
+	return ((va >> shift_amt[level]) & (ptes_per_table - 1));
+}
+
+/*
+ * Return a pointer to the page table entry that maps a virtual address.
+ * If there is no page table and probe_only is not set, one is created.
+ */
+x86pte_t *
+find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
+{
+	uint_t l;
+	uint_t index;
+	paddr_t table;
+
+	if (pa)
+		*pa = 0;
+
+	/*
+	 * Walk down the page tables creating any needed intermediate tables.
+	 */
+	table = top_page_table;
+	for (l = top_level; l != level; --l) {
+		uint64_t pteval;
+		paddr_t new_table;
+
+		index = vatoindex(va, l);
+		pteval = get_pteval(table, index);
+
+		/*
+		 * Life is easy if we find the pagetable.  We just use it.
+		 */
+		if (pteval & PT_VALID) {
+			table = pteval & MMU_PAGEMASK;
+			continue;
+		}
+
+		if (probe_only)
+			return (NULL);
+
+		new_table = make_ptable(&pteval, l);
+		set_pteval(table, index, l, pteval);
+
+		table = new_table;
+	}
+
+	/*
+	 * Return a pointer into the current pagetable.
+	 */
+	index = vatoindex(va, l);
+	if (pa)
+		*pa = table + index * pte_size;
+	return (map_pte(table, index));
 }

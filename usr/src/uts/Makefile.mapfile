@@ -39,5 +39,7 @@ LDFLAGS += -z defs $(MAPFILES:%=-M $(MAPBASE)/%.mapfile) -M $(DTRACE_MAPFILE)
 #
 DTRACE_AWK_FILE = $(MAPBASE)/dtrace.mapfile.awk
 
+CLEANFILES += $(DTRACE_MAPFILE)
+
 $(OBJS_DIR)/dtrace.mapfile: $(OBJECTS) $(DTRACE_AWK_FILE)
 	$(NM) -u $(OBJECTS) | $(AWK) -f $(DTRACE_AWK_FILE) > $@

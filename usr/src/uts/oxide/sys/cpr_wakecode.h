@@ -67,20 +67,17 @@ typedef	struct wc_cpu {
 	uint64_t wc_rsi;
 	uint64_t wc_rsp;
 
-#if defined(__amd64)
 	/*
 	 * The compiler will want to 64-bit align the 64-bit rm_gdt_base
 	 * pointer, so we need to add an extra four bytes of padding here to
 	 * make sure rm_gdt_lim and rm_gdt_base will align to create a proper
 	 * ten byte GDT pseudo-descriptor.
 	 */
-uint32_t wc_gdt_pad1;
-#endif
+	uint32_t wc_gdt_pad1;
 	ushort_t wc_gdt_pad2;
 	ushort_t wc_gdt_limit;
 	user_desc_t *wc_gdt_base;
 
-#if defined(__amd64)
 	/*
 	 * The compiler will want to 64-bit align the 64-bit rm_idt_base
 	 * pointer, so we need to add an extra four bytes of padding here to
@@ -88,20 +85,13 @@ uint32_t wc_gdt_pad1;
 	 * ten byte IDT pseudo-descriptor.
 	 */
 uint32_t wc_idt_pad1;
-#endif
 	ushort_t wc_idt_pad2;
 	ushort_t wc_idt_limit;
 	user_desc_t *wc_idt_base;
 
-#if defined(__amd64)
 	uint64_t wc_tr;
 	uint64_t wc_ldt;
 	uint64_t wc_eflags;
-#else
-	uint32_t wc_tr;
-	uint32_t wc_ldt;
-	uint32_t wc_eflags;
-#endif
 
 	uint32_t wc_ebx;
 	uint32_t wc_edi;

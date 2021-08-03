@@ -63,11 +63,7 @@ extern "C" {
  * software bits and the global/user bit which are set/cleared
  * capriciously (by the hypervisor!)
  */
-#if defined(__amd64) && defined(__xpv)
-#define	PT_IGNORE	((0x7fful << 52) | PT_GLOBAL | PT_USER)
-#else
 #define	PT_IGNORE	(0)
-#endif
 #define	PTE_EQUIV(a, b)	 (((a) | (PT_IGNORE | PT_REF | PT_MOD)) == \
 	((b) | (PT_IGNORE | PT_REF | PT_MOD)))
 
@@ -76,11 +72,7 @@ extern "C" {
  */
 #define	PTE2MFN(p, l)	\
 	mmu_btop(PTE_GET((p), PTE_IS_LGPG((p), (l)) ? PT_PADDR_LGPG : PT_PADDR))
-#ifdef __xpv
-#define	PTE2PFN(p, l) pte2pfn(p, l)
-#else
 #define	PTE2PFN(p, l) PTE2MFN(p, l)
-#endif
 
 #define	PT_NX		(0x8000000000000000ull)
 #define	PT_PADDR	(0x000ffffffffff000ull)
@@ -89,30 +81,10 @@ extern "C" {
 /*
  * Macros to create a PTP or PTE from the pfn and level
  */
-#ifdef __xpv
-
-/*
- * we use the highest order bit in physical address pfns to mark foreign mfns
- */
-#ifdef _LP64
-#define	PFN_IS_FOREIGN_MFN (1ul << 51)
-#else
-#define	PFN_IS_FOREIGN_MFN (1ul << 31)
-#endif
-
-#define	MAKEPTP(pfn, l)	\
-	(pa_to_ma(pfn_to_pa(pfn)) | mmu.ptp_bits[(l) + 1])
-#define	MAKEPTE(pfn, l) \
-	((pfn & PFN_IS_FOREIGN_MFN) ? \
-	((pfn_to_pa(pfn & ~PFN_IS_FOREIGN_MFN) | mmu.pte_bits[l]) | \
-	PT_FOREIGN | PT_REF | PT_MOD) : \
-	(pa_to_ma(pfn_to_pa(pfn)) | mmu.pte_bits[l]))
-#else
 #define	MAKEPTP(pfn, l)	\
 	(pfn_to_pa(pfn) | mmu.ptp_bits[(l) + 1])
 #define	MAKEPTE(pfn, l)	\
 	(pfn_to_pa(pfn) | mmu.pte_bits[l])
-#endif
 
 /*
  * The idea of "level" refers to the level where the page table is used in the
@@ -245,8 +217,6 @@ struct hat_mmu_info {
  * In the 64 bit kernel PTE loads are atomic, but need atomic_cas_64 on 32
  * bit kernel.
  */
-#if defined(__amd64)
-
 #ifdef lint
 #define	IN_VA_HOLE(va)	(__lintzero)
 #else
@@ -257,24 +227,6 @@ struct hat_mmu_info {
 #define	GET_PTE(ptr)		(*(x86pte_t *)(ptr))
 #define	SET_PTE(ptr, pte)	(*(x86pte_t *)(ptr) = pte)
 #define	CAS_PTE(ptr, x, y)	atomic_cas_64(ptr, x, y)
-
-#elif defined(__i386)
-
-#define	IN_VA_HOLE(va)	(__lintzero)
-
-#define	FMT_PTE "0x%llx"
-
-/* on 32 bit kernels, 64 bit loads aren't atomic, use get_pte64() */
-extern x86pte_t get_pte64(x86pte_t *ptr);
-#define	GET_PTE(ptr)	(mmu.pae_hat ? get_pte64(ptr) : *(x86pte32_t *)(ptr))
-#define	SET_PTE(ptr, pte)						\
-	((mmu.pae_hat ? ((x86pte32_t *)(ptr))[1] = (pte >> 32) : 0),	\
-	*(x86pte32_t *)(ptr) = pte)
-#define	CAS_PTE(ptr, x, y)			\
-	(mmu.pae_hat ? atomic_cas_64(ptr, x, y) :	\
-	atomic_cas_32((uint32_t *)(ptr), (uint32_t)(x), (uint32_t)(y)))
-
-#endif	/* __i386 */
 
 /*
  * Return a pointer to the pte entry at the given index within a page table.
@@ -293,10 +245,6 @@ extern x86pte_t get_pte64(x86pte_t *ptr);
  * From pfn to bytes, careful not to lose bits on PAE.
  */
 #define	pfn_to_pa(pfn) (mmu_ptob((paddr_t)(pfn)))
-
-#ifdef __xpv
-extern pfn_t pte2pfn(x86pte_t, level_t);
-#endif
 
 extern struct hat_mmu_info mmu;
 

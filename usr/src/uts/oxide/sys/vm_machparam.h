@@ -33,7 +33,7 @@ extern "C" {
 #endif
 
 /*
- * Machine dependent constants for PC.
+ * Machine dependent constants for oxide.
  */
 
 /*
@@ -48,7 +48,6 @@ extern "C" {
  * the page directory entry which also maps the initial text and data,
  * and makes the default slightly bigger than the 8MB on SPARC.
  */
-#ifdef __amd64
 /*
  * On amd64, the stack grows down from just below KERNELBASE (see the
  * definition of USERLIMIT in i86pc/sys/machparam.h). Theoretically,
@@ -63,9 +62,6 @@ extern "C" {
  * For 32bit processes, the stack is below the text segment.
  */
 #define	MAXSSIZ		(32ULL * 1024ULL * 1024ULL * 1024ULL * 1024ULL)
-#else
-#define	MAXSSIZ		(USRSTACK - 1024*1024)
-#endif /* __amd64 */
 #define	DFLSSIZ		(8*1024*1024 + ((USRSTACK) & 0x3FFFFF))
 
 /*
@@ -90,12 +86,7 @@ extern "C" {
  * The virtual address space to be used by the seg_map segment
  * driver for fast kernel mappings.
  */
-#if defined(__i386)
-#define	SEGMAPDEFAULT	(16 * 1024 * 1024)
-#define	SEGMAPMAX	(128 * 1024 * 1024)
-#else
 #define	SEGMAPDEFAULT	(64 * 1024 * 1024)
-#endif
 
 /*
  * The time for a process to be blocked before being very swappable.

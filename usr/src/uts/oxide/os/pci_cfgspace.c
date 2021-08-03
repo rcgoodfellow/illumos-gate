@@ -36,15 +36,8 @@
 #include <sys/pci_cfgspace.h>
 #include <sys/pci_cfgspace_impl.h>
 #include <sys/pci_cfgacc.h>
-#if defined(__xpv)
-#include <sys/hypervisor.h>
-#endif
 
-#if defined(__xpv)
-int pci_max_nbus = 0xFE;
-#else
 int pci_max_nbus = 0xFF;
-#endif
 int pci_bios_cfg_type = PCI_MECHANISM_UNKNOWN;
 int pci_bios_maxbus;
 int pci_bios_mech;
@@ -93,10 +86,8 @@ extern void (*pci_cfgacc_acc_p)(pci_cfgacc_req_t *req);
  */
 static int pci_check(void);
 
-#if !defined(__xpv)
 static int pci_check_bios(void);
 static int pci_get_cfg_type(void);
-#endif
 
 /* for legacy io-based config space access */
 kmutex_t pcicfg_mutex;
@@ -198,8 +189,6 @@ pci_check(void)
 	return (TRUE);
 }
 
-#if !defined(__xpv)
-
 static int
 pci_check_bios(void)
 {
@@ -290,5 +279,3 @@ pci_get_cfg_type(void)
 		return (PCI_MECHANISM_NONE);
 	}
 }
-
-#endif	/* __xpv */
