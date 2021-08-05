@@ -162,7 +162,7 @@ extern char stubs_end[];
  *	D_LOADING	- display information about each module as it
  *			  is loaded.
  */
-int kobj_debug = 0;
+int kobj_debug = D_DEBUG | D_LOADING;
 
 #define	KOBJ_MARK(s)	if (kobj_debug & D_DEBUG)	\
 	(_kobj_printf(ops, "%d", __LINE__), _kobj_printf(ops, ": %s\n", s))
@@ -679,7 +679,11 @@ attr_val(val_t *bootaux)
 			ASSERT(phdr->p_vaddr == 0);
 #endif
 		} else {
+#ifdef	oxide		/* XXX we set this properly so can't use PF_W */
+			if (phdr->p_vaddr == 0xFFFFFFFFFBC00000UL) {
+#else
 			if (phdr->p_flags & PF_W) {
+#endif
 				_data = (caddr_t)phdr->p_vaddr;
 				_edata = _data + phdr->p_memsz;
 			} else {

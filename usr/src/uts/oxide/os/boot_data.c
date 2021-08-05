@@ -36,10 +36,28 @@ extern "C" {
 
 static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
 static const char FAKE_BOARD_IDENT[] = "FAKE-IDENT";
-static const uint32_t KBM_DEBUG_VAL = 1U;
+static const uint32_t KBM_DEBUG_VAL = 0U;
+static const uint64_t RAMDISK_START_VAL = 0x101000000UL;
+static const uint64_t RAMDISK_END_VAL = 0x101d00000UL;
+
+static const bt_prop_t ramdisk_end_prop = {
+	.btp_next = NULL,
+	.btp_name = "ramdisk_end",
+	.btp_vlen = sizeof (uint64_t),
+	.btp_value = &RAMDISK_END_VAL,
+	.btp_typeflags = DDI_PROP_TYPE_INT64
+};
+
+static const bt_prop_t ramdisk_start_prop = {
+	.btp_next = &ramdisk_end_prop,
+	.btp_name = "ramdisk_start",
+	.btp_vlen = sizeof (uint64_t),
+	.btp_value = &RAMDISK_START_VAL,
+	.btp_typeflags = DDI_PROP_TYPE_INT64
+};
 
 static const bt_prop_t kbm_debug_prop = {
-	.btp_next = NULL,
+	.btp_next = &ramdisk_start_prop,
 	.btp_name = "kbm_debug",
 	.btp_vlen = sizeof (uint32_t),
 	.btp_value = &KBM_DEBUG_VAL,
@@ -47,7 +65,11 @@ static const bt_prop_t kbm_debug_prop = {
 };
 
 static const bt_prop_t board_ident_prop = {
+#if 0
 	.btp_next = &kbm_debug_prop,
+#else
+	.btp_next = &ramdisk_start_prop,
+#endif
 	.btp_name = BTPROP_NAME_BOARD_IDENT,
 	.btp_vlen = sizeof (FAKE_BOARD_IDENT),
 	.btp_value = FAKE_BOARD_IDENT,
@@ -79,8 +101,16 @@ static const bt_prop_t fstype_prop = {
 	.btp_typeflags = DDI_PROP_TYPE_STRING
 };
 
-static const bt_prop_t impl_arch_prop = {
+static const bt_prop_t whoami_prop = {
 	.btp_next = &fstype_prop,
+	.btp_name = "whoami",
+	.btp_vlen = sizeof ("/platform/oxide/kernel/amd64/unix"),
+	.btp_value = "/platform/oxide/kernel/amd64/unix",
+	.btp_typeflags = DDI_PROP_TYPE_STRING
+};
+
+static const bt_prop_t impl_arch_prop = {
+	.btp_next = &whoami_prop,
 	.btp_name = BTPROP_NAME_IMPL_ARCH,
 	.btp_vlen = sizeof ("oxide"),
 	.btp_value = "oxide",

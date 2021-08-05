@@ -254,26 +254,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/viona/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-#
-# Stuff to build fb_swtch.o for the kernel.
-#
-MAPFILE_FBSWTCH	= $(UTSBASE)/i86pc/conf/Mapfile.fb_swtch
-$(OBJS_DIR)/fb_swtch.o:    $(UTSBASE)/i86pc/ml/fb_swtch_src.s
-	$(COMPILE.s) -o $(OBJS_DIR)/fb_swtch_src.o \
-		$(UTSBASE)/i86pc/ml/fb_swtch_src.s
-	$(LD) -dn -M $(MAPFILE_FBSWTCH)  \
-		-o $(OBJS_DIR)/fb_swtch_src $(OBJS_DIR)/fb_swtch_src.o
-	@echo "  .data"				> $(OBJS_DIR)/fb_swtch.s
-	@echo "  .globl fb_swtch_image"		>> $(OBJS_DIR)/fb_swtch.s
-	@echo "fb_swtch_image:"			>> $(OBJS_DIR)/fb_swtch.s
-	$(ELFEXTRACT) $(OBJS_DIR)/fb_swtch_src	>> $(OBJS_DIR)/fb_swtch.s
-	@echo "  .align 4"			>> $(OBJS_DIR)/fb_swtch.s
-	@echo "  .globl fb_swtch_size"		>> $(OBJS_DIR)/fb_swtch.s
-	@echo "fb_swtch_size:"			>> $(OBJS_DIR)/fb_swtch.s
-	@echo "  .long . - fb_swtch_image"	>> $(OBJS_DIR)/fb_swtch.s
-	$(COMPILE.s) -o $@ $(OBJS_DIR)/fb_swtch.s
-
-
 # ridiculous contortions ---
 ATOMIC_SUBDIR_32	= i386
 ATOMIC_SUBDIR_64	= amd64

@@ -67,7 +67,7 @@ extern uint_t kbm_debug;
 static caddr_t window;
 static x86pte_t *pte_to_window;
 
-uint_t kbm_nucleus_size = 0;
+uint_t kbm_nucleus_size = FOUR_MEG;
 
 #define	BOOT_SHIFT(l)	(shift_amt[l])
 #define	BOOT_SZ(l)	((size_t)1 << BOOT_SHIFT(l))
@@ -97,7 +97,6 @@ kbm_init(const struct bsys_mem *memlists)
 {
 	ulong_t loader_pt_base = getcr3();
 
-	kbm_nucleus_size = FOUR_MEG;
 	/*
 	 * XXX For now we just grab the existing table the loader set up, but
 	 * we may want to create our own from scratch and then switch to it.
@@ -106,7 +105,7 @@ kbm_init(const struct bsys_mem *memlists)
 	DBG(top_page_table);
 	window = (caddr_t)alloc_vaddr(MMU_PAGESIZE, MMU_PAGESIZE);
 	DBG(window);
-	pte_to_window = find_pte((uintptr_t)window, NULL, 0, 0);
+	pte_to_window = (x86pte_t *)(uintptr_t)0x75ff7008;	/* XXXBOOT */
 	DBG(pte_to_window);
 }
 
@@ -140,6 +139,10 @@ kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
 
 	if (khat_running)
 		panic("kbm_map() called too late");
+
+	if (kbm_debug)
+		bop_printf(NULL, "kbm_map(%lx, %lx, %x, %x)\n",
+		    va, pa, level, is_kernel);
 
 	pteval = pa | PT_NOCONSIST | PT_VALID | PT_WRITABLE;
 	if (level >= 1)
@@ -395,6 +398,7 @@ find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
 	uint_t l;
 	uint_t index;
 	paddr_t table;
+	x86pte_t *pp;
 
 	if (pa)
 		*pa = 0;
@@ -433,5 +437,86 @@ find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
 	index = vatoindex(va, l);
 	if (pa)
 		*pa = table + index * pte_size;
-	return (map_pte(table, index));
+	pp = map_pte(table, index);
+
+	return (pp);
 }
+
+#ifdef DEBUG
+/*
+ * dump out the contents of page tables...
+ */
+void
+dump_tables(void)
+{
+	uint_t save_index[4];	/* for recursion */
+	char *save_table[4];	/* for recursion */
+	uint_t	l;
+	uint64_t va;
+	uint64_t pgsize;
+	int index;
+	int i;
+	x86pte_t pteval;
+	char *table;
+	static char *tablist = "\t\t\t";
+	char *tabs = tablist + 3 - top_level;
+	uint64_t pa, pa1;
+
+	bop_printf(NULL, "Pagetables:\n");
+	table = (char *)(uintptr_t)top_page_table;
+	l = top_level;
+	va = 0;
+	for (index = 0; index < ptes_per_table; ++index) {
+		pgsize = 1UL << shift_amt[l];
+		pteval = ((x86pte_t *)table)[index];
+		if (pteval == 0)
+			goto next_entry;
+
+		bop_printf(NULL, "%s %p[0x%x] = %" PRIx64 ", va=%" PRIx64,
+		    tabs + l, (void *)table, index, (uint64_t)pteval, va);
+		pa = pteval & MMU_PAGEMASK;
+		bop_printf(NULL, " physaddr=%lx\n", pa);
+
+		/*
+		 * Don't try to walk hypervisor private pagetables
+		 */
+		if ((l > 2 || (l > 0 && (pteval & PT_PAGESIZE) == 0))) {
+			save_table[l] = table;
+			save_index[l] = index;
+			--l;
+			index = -1;
+			table = (char *)(uintptr_t)(pteval & MMU_PAGEMASK);
+			goto recursion;
+		}
+
+		/*
+		 * shorten dump for consecutive mappings
+		 */
+		for (i = 1; index + i < ptes_per_table; ++i) {
+			pteval = ((x86pte_t *)table)[index + i];
+			if (pteval == 0)
+				break;
+			pa1 = pteval & MMU_PAGEMASK;
+			if (pa1 != pa + i * pgsize)
+				break;
+		}
+		if (i > 2) {
+			bop_printf(NULL, "%s...\n", tabs + l);
+			va += pgsize * (i - 2);
+			index += i - 2;
+		}
+next_entry:
+		va += pgsize;
+		if (l == 3 && index == 255)	/* VA hole */
+			va = 0xffff800000000000UL;
+recursion:
+		;
+	}
+	if (l < top_level) {
+		++l;
+		index = save_index[l];
+		table = save_table[l];
+		goto recursion;
+	}
+}
+#endif

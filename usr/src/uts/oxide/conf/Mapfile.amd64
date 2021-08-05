@@ -23,23 +23,8 @@
 
 $mapfile_version 2
 
-#
-# this is the 32 bit 1:1 mapped code to which grub jumps.
-#
-LOAD_SEGMENT dboot {
-	FLAGS = READ WRITE EXECUTE;
-	NOHDR;
-	PADDR = 0xC00000;
-	VADDR = 0xC00000;
-	ASSIGN_SECTION {
-		TYPE = PROGBITS;
-		FLAGS = ALLOC WRITE;
-		FILE_BASENAME = dboot.o;
-	};
-};
-
 LOAD_SEGMENT text {
-	FLAGS =READ EXECUTE;
+	FLAGS =READ WRITE EXECUTE;
 	NOHDR;
 	PADDR = 0x400000;
 	VADDR = 0xFFFFFFFFFB800000;

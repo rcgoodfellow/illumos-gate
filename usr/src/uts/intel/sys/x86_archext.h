@@ -979,6 +979,9 @@ extern "C" {
 #define	X86_CHIPREV_HYGON_18_DN_A1 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_HYGON, 0x18, 0x0001)
 
+#define	X86_CHIPREV_AMD_19_GN_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0001)
+
 /*
  * Various socket/package types, extended as the need to distinguish
  * a new type arises.  The top 8 byte identfies the vendor and the

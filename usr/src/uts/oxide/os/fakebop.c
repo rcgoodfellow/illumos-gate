@@ -197,10 +197,20 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 		total_bop_alloc_kernel += size;
 	}
 
+	if (kbm_debug && is_kernel) {
+		extern void dump_tables(void);
+		bop_printf(NULL, "--- Before kernel allocation ---\n");
+		dump_tables();
+	}
+
 	/*
 	 * allocate the physical memory
 	 */
 	pa = do_bop_phys_alloc(size, a);
+
+	if (kbm_debug)
+		bop_printf(NULL, "bsys_alloc: alloc sz %lx pa %lx for va %p...",
+		    size, pa, virthint);
 
 	/*
 	 * Add the mappings to the page tables, try large pages first.
@@ -209,7 +219,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	s = size;
 	level = 1;
 	pgsize = TWO_MEG;
-	if (a == pgsize) {
+	if ((a & ((1UL << 21) - 1)) == 0) { /* XXX shift_amt */
 		while (IS_P2ALIGNED(pa, pgsize) && IS_P2ALIGNED(va, pgsize) &&
 		    s >= pgsize) {
 			kbm_map(va, pa, level, is_kernel);
@@ -230,6 +240,17 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 		pa += pgsize;
 		s -= pgsize;
 	}
+
+	if (kbm_debug)
+		bop_printf(NULL, "done (%p -> %lx @ %lx)\n",
+		    virthint, size, pa);
+
+	if (kbm_debug && is_kernel) {
+		extern void dump_tables(void);
+		bop_printf(NULL, "--- After kernel allocation ---\n");
+		dump_tables();
+	}
+
 	return (virthint);
 }
 
@@ -649,7 +670,7 @@ bop_idt_init(void)
 static void
 build_memlists(paddr_t apob_phys)
 {
-	/* XXX obvs */
+	/* XXXBOOT obvs, replace this with something that reads APOB or UMC */
 	first_memlist.ml_address = 0UL;
 	first_memlist.ml_size = 0xB0000000UL;
 	first_memlist.ml_next = NULL;

@@ -1284,8 +1284,9 @@
 #include <sys/kobj.h>
 #include <sys/asm_misc.h>
 #include <sys/ontrap.h>
+#include <sys/promif.h>
 
-uint_t x86_vendor = X86_VENDOR_IntelClone;
+uint_t x86_vendor = X86_VENDOR_AMD;
 uint_t x86_type = X86_TYPE_OTHER;
 uint_t x86_clflush_size = 0;
 
@@ -1496,7 +1497,7 @@ static int platform_type = -1;
  * Variable to patch if hypervisor platform detection needs to be
  * disabled (e.g. platform_type will always be HW_NATIVE if this is 0).
  */
-int enable_platform_detection = 1;
+int enable_platform_detection = 0; /* XXXBOOT */
 
 /*
  * monitor/mwait info.
@@ -3162,7 +3163,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	uint32_t mask_ecx, mask_edx;
 	struct cpuid_info *cpi;
 	struct cpuid_regs *cp;
-	int xcpuid;
 	extern int idle_cpu_prefer_mwait;
 
 	/*
@@ -3212,29 +3212,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	if (cpi->cpi_family == 0xf)
 		cpi->cpi_family += CPI_FAMILY_XTD(cpi);
 
-	/*
-	 * Beware: AMD uses "extended model" iff base *FAMILY* == 0xf.
-	 * Intel, and presumably everyone else, uses model == 0xf, as
-	 * one would expect (max value means possible overflow).  Sigh.
-	 */
-
-	switch (cpi->cpi_vendor) {
-	case X86_VENDOR_Intel:
-		if (IS_EXTENDED_MODEL_INTEL(cpi))
-			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
-		break;
-	case X86_VENDOR_AMD:
-		if (CPI_FAMILY(cpi) == 0xf)
-			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
-		break;
-	case X86_VENDOR_HYGON:
+	if (cpi->cpi_model == 0xf)
 		cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
-		break;
-	default:
-		if (cpi->cpi_model == 0xf)
-			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
-		break;
-	}
 
 	cpi->cpi_step = CPI_STEP(cpi);
 	cpi->cpi_brandid = CPI_BRANDID(cpi);
@@ -3250,168 +3229,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 
 	cpi->cpi_pabits = cpi->cpi_vabits = 32;
 
-	switch (cpi->cpi_vendor) {
-	case X86_VENDOR_Intel:
-		if (cpi->cpi_family == 5)
-			x86_type = X86_TYPE_P5;
-		else if (IS_LEGACY_P6(cpi)) {
-			x86_type = X86_TYPE_P6;
-			pentiumpro_bug4046376 = 1;
-			/*
-			 * Clear the SEP bit when it was set erroneously
-			 */
-			if (cpi->cpi_model < 3 && cpi->cpi_step < 3)
-				cp->cp_edx &= ~CPUID_INTC_EDX_SEP;
-		} else if (IS_NEW_F6(cpi) || cpi->cpi_family == 0xf) {
-			x86_type = X86_TYPE_P4;
-			/*
-			 * We don't currently depend on any of the %ecx
-			 * features until Prescott, so we'll only check
-			 * this from P4 onwards.  We might want to revisit
-			 * that idea later.
-			 */
-			mask_ecx = 0xffffffff;
-		} else if (cpi->cpi_family > 0xf)
-			mask_ecx = 0xffffffff;
-		/*
-		 * We don't support MONITOR/MWAIT if leaf 5 is not available
-		 * to obtain the monitor linesize.
-		 */
-		if (cpi->cpi_maxeax < 5)
-			mask_ecx &= ~CPUID_INTC_ECX_MON;
-		break;
-	case X86_VENDOR_IntelClone:
-	default:
-		break;
-	case X86_VENDOR_AMD:
-#if defined(OPTERON_ERRATUM_108)
-		if (cpi->cpi_family == 0xf && cpi->cpi_model == 0xe) {
-			cp->cp_eax = (0xf0f & cp->cp_eax) | 0xc0;
-			cpi->cpi_model = 0xc;
-		} else
-#endif
-		if (cpi->cpi_family == 5) {
-			/*
-			 * AMD K5 and K6
-			 *
-			 * These CPUs have an incomplete implementation
-			 * of MCA/MCE which we mask away.
-			 */
-			mask_edx &= ~(CPUID_INTC_EDX_MCE | CPUID_INTC_EDX_MCA);
-
-			/*
-			 * Model 0 uses the wrong (APIC) bit
-			 * to indicate PGE.  Fix it here.
-			 */
-			if (cpi->cpi_model == 0) {
-				if (cp->cp_edx & 0x200) {
-					cp->cp_edx &= ~0x200;
-					cp->cp_edx |= CPUID_INTC_EDX_PGE;
-				}
-			}
-
-			/*
-			 * Early models had problems w/ MMX; disable.
-			 */
-			if (cpi->cpi_model < 6)
-				mask_edx &= ~CPUID_INTC_EDX_MMX;
-		}
-
-		/*
-		 * For newer families, SSE3 and CX16, at least, are valid;
-		 * enable all
-		 */
-		if (cpi->cpi_family >= 0xf)
-			mask_ecx = 0xffffffff;
-		/*
-		 * We don't support MONITOR/MWAIT if leaf 5 is not available
-		 * to obtain the monitor linesize.
-		 */
-		if (cpi->cpi_maxeax < 5)
-			mask_ecx &= ~CPUID_INTC_ECX_MON;
-
-		/*
-		 * AMD has not historically used MWAIT in the CPU's idle loop.
-		 * Pre-family-10h Opterons do not have the MWAIT instruction. We
-		 * know for certain that in at least family 17h, per AMD, mwait
-		 * is preferred. Families in-between are less certain.
-		 */
-		if (cpi->cpi_family < 0x17) {
-			idle_cpu_prefer_mwait = 0;
-		}
-
-		break;
-	case X86_VENDOR_HYGON:
-		/* Enable all for Hygon Dhyana CPU */
-		mask_ecx = 0xffffffff;
-		break;
-	case X86_VENDOR_TM:
-		/*
-		 * workaround the NT workaround in CMS 4.1
-		 */
-		if (cpi->cpi_family == 5 && cpi->cpi_model == 4 &&
-		    (cpi->cpi_step == 2 || cpi->cpi_step == 3))
-			cp->cp_edx |= CPUID_INTC_EDX_CX8;
-		break;
-	case X86_VENDOR_Centaur:
-		/*
-		 * workaround the NT workarounds again
-		 */
-		if (cpi->cpi_family == 6)
-			cp->cp_edx |= CPUID_INTC_EDX_CX8;
-		break;
-	case X86_VENDOR_Cyrix:
-		/*
-		 * We rely heavily on the probing in locore
-		 * to actually figure out what parts, if any,
-		 * of the Cyrix cpuid instruction to believe.
-		 */
-		switch (x86_type) {
-		case X86_TYPE_CYRIX_486:
-			mask_edx = 0;
-			break;
-		case X86_TYPE_CYRIX_6x86:
-			mask_edx = 0;
-			break;
-		case X86_TYPE_CYRIX_6x86L:
-			mask_edx =
-			    CPUID_INTC_EDX_DE |
-			    CPUID_INTC_EDX_CX8;
-			break;
-		case X86_TYPE_CYRIX_6x86MX:
-			mask_edx =
-			    CPUID_INTC_EDX_DE |
-			    CPUID_INTC_EDX_MSR |
-			    CPUID_INTC_EDX_CX8 |
-			    CPUID_INTC_EDX_PGE |
-			    CPUID_INTC_EDX_CMOV |
-			    CPUID_INTC_EDX_MMX;
-			break;
-		case X86_TYPE_CYRIX_GXm:
-			mask_edx =
-			    CPUID_INTC_EDX_MSR |
-			    CPUID_INTC_EDX_CX8 |
-			    CPUID_INTC_EDX_CMOV |
-			    CPUID_INTC_EDX_MMX;
-			break;
-		case X86_TYPE_CYRIX_MediaGX:
-			break;
-		case X86_TYPE_CYRIX_MII:
-		case X86_TYPE_VIA_CYRIX_III:
-			mask_edx =
-			    CPUID_INTC_EDX_DE |
-			    CPUID_INTC_EDX_TSC |
-			    CPUID_INTC_EDX_MSR |
-			    CPUID_INTC_EDX_CX8 |
-			    CPUID_INTC_EDX_PGE |
-			    CPUID_INTC_EDX_CMOV |
-			    CPUID_INTC_EDX_MMX;
-			break;
-		default:
-			break;
-		}
-		break;
-	}
+	mask_ecx = 0xffffffff;
 
 	if (xsave_force_disable) {
 		mask_ecx &= ~CPUID_INTC_ECX_XSAVE;
@@ -3428,13 +3246,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 */
 	cp->cp_edx &= mask_edx;
 	cp->cp_ecx &= mask_ecx;
-
-	/*
-	 * apply any platform restrictions (we don't call this
-	 * immediately after __cpuid_insn here, because we need the
-	 * workarounds applied above first)
-	 */
-	platform_cpuid_mangle(cpi->cpi_vendor, 1, cp);
 
 	/*
 	 * In addition to ecx and edx, Intel and AMD are storing a bunch of
@@ -3636,63 +3447,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 					add_x86_feature(featureset,
 					    X86FSET_VPCLMULQDQ);
 			}
-
-			if (cpi->cpi_vendor == X86_VENDOR_Intel &&
-			    (cpi->cpi_std[7].cp_ebx &
-			    CPUID_INTC_EBX_7_0_AVX512F) != 0) {
-				add_x86_feature(featureset, X86FSET_AVX512F);
-
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512DQ)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512DQ);
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512IFMA)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512FMA);
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512PF)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512PF);
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512ER)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512ER);
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512CD)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512CD);
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512BW)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512BW);
-				if (cpi->cpi_std[7].cp_ebx &
-				    CPUID_INTC_EBX_7_0_AVX512VL)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512VL);
-
-				if (cpi->cpi_std[7].cp_ecx &
-				    CPUID_INTC_ECX_7_0_AVX512VBMI)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512VBMI);
-				if (cpi->cpi_std[7].cp_ecx &
-				    CPUID_INTC_ECX_7_0_AVX512VNNI)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512VNNI);
-				if (cpi->cpi_std[7].cp_ecx &
-				    CPUID_INTC_ECX_7_0_AVX512VPOPCDQ)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512VPOPCDQ);
-
-				if (cpi->cpi_std[7].cp_edx &
-				    CPUID_INTC_EDX_7_0_AVX5124NNIW)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512NNIW);
-				if (cpi->cpi_std[7].cp_edx &
-				    CPUID_INTC_EDX_7_0_AVX5124FMAPS)
-					add_x86_feature(featureset,
-					    X86FSET_AVX512FMAPS);
-			}
 		}
 	}
 
@@ -3768,234 +3522,134 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 * Work on the "extended" feature information, doing
 	 * some basic initialization for cpuid_pass2()
 	 */
-	xcpuid = 0;
-	switch (cpi->cpi_vendor) {
-	case X86_VENDOR_Intel:
-		/*
-		 * On KVM we know we will have proper support for extended
-		 * cpuid.
-		 */
-		if (IS_NEW_F6(cpi) || cpi->cpi_family >= 0xf ||
-		    (get_hwenv() == HW_KVM && cpi->cpi_family == 6 &&
-		    (cpi->cpi_model == 6 || cpi->cpi_model == 2)))
-			xcpuid++;
-		break;
-	case X86_VENDOR_AMD:
-		if (cpi->cpi_family > 5 ||
-		    (cpi->cpi_family == 5 && cpi->cpi_model >= 1))
-			xcpuid++;
-		break;
-	case X86_VENDOR_Cyrix:
-		/*
-		 * Only these Cyrix CPUs are -known- to support
-		 * extended cpuid operations.
-		 */
-		if (x86_type == X86_TYPE_VIA_CYRIX_III ||
-		    x86_type == X86_TYPE_CYRIX_GXm)
-			xcpuid++;
-		break;
-	case X86_VENDOR_HYGON:
-	case X86_VENDOR_Centaur:
-	case X86_VENDOR_TM:
-	default:
-		xcpuid++;
-		break;
-	}
-
-	if (xcpuid) {
-		cp = &cpi->cpi_extd[0];
-		cp->cp_eax = CPUID_LEAF_EXT_0;
-		cpi->cpi_xmaxeax = __cpuid_insn(cp);
-	}
+	cp = &cpi->cpi_extd[0];
+	cp->cp_eax = CPUID_LEAF_EXT_0;
+	cpi->cpi_xmaxeax = __cpuid_insn(cp);
 
 	if (cpi->cpi_xmaxeax & CPUID_LEAF_EXT_0) {
 
 		if (cpi->cpi_xmaxeax > CPI_XMAXEAX_MAX)
 			cpi->cpi_xmaxeax = CPI_XMAXEAX_MAX;
 
-		switch (cpi->cpi_vendor) {
-		case X86_VENDOR_Intel:
-		case X86_VENDOR_AMD:
-		case X86_VENDOR_HYGON:
-			if (cpi->cpi_xmaxeax < 0x80000001)
-				break;
-			cp = &cpi->cpi_extd[1];
-			cp->cp_eax = 0x80000001;
-			(void) __cpuid_insn(cp);
+		cp = &cpi->cpi_extd[1];
+		cp->cp_eax = 0x80000001;
+		(void) __cpuid_insn(cp);
 
-			if (cpi->cpi_vendor == X86_VENDOR_AMD &&
-			    cpi->cpi_family == 5 &&
-			    cpi->cpi_model == 6 &&
-			    cpi->cpi_step == 6) {
-				/*
-				 * K6 model 6 uses bit 10 to indicate SYSC
-				 * Later models use bit 11. Fix it here.
-				 */
-				if (cp->cp_edx & 0x400) {
-					cp->cp_edx &= ~0x400;
-					cp->cp_edx |= CPUID_AMD_EDX_SYSC;
-				}
-			}
+		platform_cpuid_mangle(cpi->cpi_vendor, 0x80000001, cp);
 
-			platform_cpuid_mangle(cpi->cpi_vendor, 0x80000001, cp);
-
-			/*
-			 * Compute the additions to the kernel's feature word.
-			 */
-			if (cp->cp_edx & CPUID_AMD_EDX_NX) {
-				add_x86_feature(featureset, X86FSET_NX);
-			}
-
-			/*
-			 * Regardless whether or not we boot 64-bit,
-			 * we should have a way to identify whether
-			 * the CPU is capable of running 64-bit.
-			 */
-			if (cp->cp_edx & CPUID_AMD_EDX_LM) {
-				add_x86_feature(featureset, X86FSET_64);
-			}
-
-			/* 1 GB large page - enable only for 64 bit kernel */
-			if (cp->cp_edx & CPUID_AMD_EDX_1GPG) {
-				add_x86_feature(featureset, X86FSET_1GPG);
-			}
-
-			if ((cpi->cpi_vendor == X86_VENDOR_AMD ||
-			    cpi->cpi_vendor == X86_VENDOR_HYGON) &&
-			    (cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_FXSR) &&
-			    (cp->cp_ecx & CPUID_AMD_ECX_SSE4A)) {
-				add_x86_feature(featureset, X86FSET_SSE4A);
-			}
-
-			/*
-			 * It's really tricky to support syscall/sysret in
-			 * the i386 kernel; we rely on sysenter/sysexit
-			 * instead.  In the amd64 kernel, things are -way-
-			 * better.
-			 */
-			if (cp->cp_edx & CPUID_AMD_EDX_SYSC) {
-				add_x86_feature(featureset, X86FSET_ASYSC);
-			}
-
-			/*
-			 * While we're thinking about system calls, note
-			 * that AMD processors don't support sysenter
-			 * in long mode at all, so don't try to program them.
-			 */
-			if (x86_vendor == X86_VENDOR_AMD ||
-			    x86_vendor == X86_VENDOR_HYGON) {
-				remove_x86_feature(featureset, X86FSET_SEP);
-			}
-
-			if (cp->cp_edx & CPUID_AMD_EDX_TSCP) {
-				add_x86_feature(featureset, X86FSET_TSCP);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_SVM) {
-				add_x86_feature(featureset, X86FSET_SVM);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_TOPOEXT) {
-				add_x86_feature(featureset, X86FSET_TOPOEXT);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_PCEC) {
-				add_x86_feature(featureset, X86FSET_AMD_PCEC);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_XOP) {
-				add_x86_feature(featureset, X86FSET_XOP);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_FMA4) {
-				add_x86_feature(featureset, X86FSET_FMA4);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_TBM) {
-				add_x86_feature(featureset, X86FSET_TBM);
-			}
-
-			if (cp->cp_ecx & CPUID_AMD_ECX_MONITORX) {
-				add_x86_feature(featureset, X86FSET_MONITORX);
-			}
-			break;
-		default:
-			break;
+		/*
+		 * Compute the additions to the kernel's feature word.
+		 */
+		if (cp->cp_edx & CPUID_AMD_EDX_NX) {
+			add_x86_feature(featureset, X86FSET_NX);
 		}
 
 		/*
-		 * Get CPUID data about processor cores and hyperthreads.
+		 * Regardless whether or not we boot 64-bit,
+		 * we should have a way to identify whether
+		 * the CPU is capable of running 64-bit.
 		 */
-		switch (cpi->cpi_vendor) {
-		case X86_VENDOR_Intel:
-			if (cpi->cpi_maxeax >= 4) {
-				cp = &cpi->cpi_std[4];
-				cp->cp_eax = 4;
-				cp->cp_ecx = 0;
-				(void) __cpuid_insn(cp);
-				platform_cpuid_mangle(cpi->cpi_vendor, 4, cp);
-			}
-			/*FALLTHROUGH*/
-		case X86_VENDOR_AMD:
-		case X86_VENDOR_HYGON:
-			if (cpi->cpi_xmaxeax < CPUID_LEAF_EXT_8)
-				break;
-			cp = &cpi->cpi_extd[8];
-			cp->cp_eax = CPUID_LEAF_EXT_8;
-			(void) __cpuid_insn(cp);
-			platform_cpuid_mangle(cpi->cpi_vendor, CPUID_LEAF_EXT_8,
-			    cp);
+		if (cp->cp_edx & CPUID_AMD_EDX_LM) {
+			add_x86_feature(featureset, X86FSET_64);
+		}
 
-			/*
-			 * AMD uses ebx for some extended functions.
-			 */
-			if (cpi->cpi_vendor == X86_VENDOR_AMD ||
-			    cpi->cpi_vendor == X86_VENDOR_HYGON) {
-				/*
-				 * While we're here, check for the AMD "Error
-				 * Pointer Zero/Restore" feature. This can be
-				 * used to setup the FP save handlers
-				 * appropriately.
-				 */
-				if (cp->cp_ebx & CPUID_AMD_EBX_ERR_PTR_ZERO) {
-					cpi->cpi_fp_amd_save = 0;
-				} else {
-					cpi->cpi_fp_amd_save = 1;
-				}
+		/* 1 GB large page - enable only for 64 bit kernel */
+		if (cp->cp_edx & CPUID_AMD_EDX_1GPG) {
+			add_x86_feature(featureset, X86FSET_1GPG);
+		}
 
-				if (cp->cp_ebx & CPUID_AMD_EBX_CLZERO) {
-					add_x86_feature(featureset,
-					    X86FSET_CLZERO);
-				}
-			}
-
-			/*
-			 * Virtual and physical address limits from
-			 * cpuid override previously guessed values.
-			 */
-			cpi->cpi_pabits = BITX(cp->cp_eax, 7, 0);
-			cpi->cpi_vabits = BITX(cp->cp_eax, 15, 8);
-			break;
-		default:
-			break;
+		if ((cpi->cpi_vendor == X86_VENDOR_AMD ||
+		    cpi->cpi_vendor == X86_VENDOR_HYGON) &&
+		    (cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_FXSR) &&
+		    (cp->cp_ecx & CPUID_AMD_ECX_SSE4A)) {
+			add_x86_feature(featureset, X86FSET_SSE4A);
 		}
 
 		/*
-		 * Get CPUID data about TSC Invariance in Deep C-State.
+		 * It's really tricky to support syscall/sysret in
+		 * the i386 kernel; we rely on sysenter/sysexit
+		 * instead.  In the amd64 kernel, things are -way-
+		 * better.
 		 */
-		switch (cpi->cpi_vendor) {
-		case X86_VENDOR_Intel:
-		case X86_VENDOR_AMD:
-		case X86_VENDOR_HYGON:
-			if (cpi->cpi_maxeax >= 7) {
-				cp = &cpi->cpi_extd[7];
-				cp->cp_eax = 0x80000007;
-				cp->cp_ecx = 0;
-				(void) __cpuid_insn(cp);
-			}
-			break;
-		default:
-			break;
+		if (cp->cp_edx & CPUID_AMD_EDX_SYSC) {
+			add_x86_feature(featureset, X86FSET_ASYSC);
+		}
+
+		/*
+		 * While we're thinking about system calls, note
+		 * that AMD processors don't support sysenter
+		 * in long mode at all, so don't try to program them.
+		 */
+		remove_x86_feature(featureset, X86FSET_SEP);
+
+		if (cp->cp_edx & CPUID_AMD_EDX_TSCP) {
+			add_x86_feature(featureset, X86FSET_TSCP);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_SVM) {
+			add_x86_feature(featureset, X86FSET_SVM);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_TOPOEXT) {
+			add_x86_feature(featureset, X86FSET_TOPOEXT);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_PCEC) {
+			add_x86_feature(featureset, X86FSET_AMD_PCEC);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_XOP) {
+			add_x86_feature(featureset, X86FSET_XOP);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_FMA4) {
+			add_x86_feature(featureset, X86FSET_FMA4);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_TBM) {
+			add_x86_feature(featureset, X86FSET_TBM);
+		}
+
+		if (cp->cp_ecx & CPUID_AMD_ECX_MONITORX) {
+			add_x86_feature(featureset, X86FSET_MONITORX);
+		}
+
+		cp = &cpi->cpi_extd[8];
+		cp->cp_eax = CPUID_LEAF_EXT_8;
+		(void) __cpuid_insn(cp);
+
+		/*
+		 * AMD uses ebx for some extended functions.
+		 */
+		/*
+		 * While we're here, check for the AMD "Error
+		 * Pointer Zero/Restore" feature. This can be
+		 * used to setup the FP save handlers
+		 * appropriately.
+		 */
+		if (cp->cp_ebx & CPUID_AMD_EBX_ERR_PTR_ZERO) {
+			cpi->cpi_fp_amd_save = 0;
+		} else {
+			cpi->cpi_fp_amd_save = 1;
+		}
+
+		if (cp->cp_ebx & CPUID_AMD_EBX_CLZERO) {
+			add_x86_feature(featureset,
+			    X86FSET_CLZERO);
+		}
+
+		/*
+		 * Virtual and physical address limits from
+		 * cpuid override previously guessed values.
+		 */
+		cpi->cpi_pabits = BITX(cp->cp_eax, 7, 0);
+		cpi->cpi_vabits = BITX(cp->cp_eax, 15, 8);
+
+		if (cpi->cpi_maxeax >= 7) {
+			cp = &cpi->cpi_extd[7];
+			cp->cp_eax = 0x80000007;
+			cp->cp_ecx = 0;
+			(void) __cpuid_insn(cp);
 		}
 	}
 
@@ -4017,67 +3671,52 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	cpi->cpi_socket = _cpuid_skt(cpi->cpi_vendor, cpi->cpi_family,
 	    cpi->cpi_model, cpi->cpi_step);
 
-	if (cpi->cpi_vendor == X86_VENDOR_AMD ||
-	    cpi->cpi_vendor == X86_VENDOR_HYGON) {
-		if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8 &&
-		    cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_ERR_PTR_ZERO) {
-			/* Special handling for AMD FP not necessary. */
-			cpi->cpi_fp_amd_save = 0;
-		} else {
-			cpi->cpi_fp_amd_save = 1;
-		}
+	if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8 &&
+	    cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_ERR_PTR_ZERO) {
+		/* Special handling for AMD FP not necessary. */
+		cpi->cpi_fp_amd_save = 0;
+	} else {
+		cpi->cpi_fp_amd_save = 1;
 	}
 
 	/*
 	 * Check (and potentially set) if lfence is serializing.
 	 * This is useful for accurate rdtsc measurements and AMD retpolines.
 	 */
-	if ((cpi->cpi_vendor == X86_VENDOR_AMD ||
-	    cpi->cpi_vendor == X86_VENDOR_HYGON) &&
-	    is_x86_feature(featureset, X86FSET_SSE2)) {
-		/*
-		 * The AMD white paper Software Techniques For Managing
-		 * Speculation on AMD Processors details circumstances for when
-		 * lfence instructions are serializing.
-		 *
-		 * On family 0xf and 0x11, it is inherently so.  On family 0x10
-		 * and later (excluding 0x11), a bit in the DE_CFG MSR
-		 * determines the lfence behavior.  Per that whitepaper, AMD has
-		 * committed to supporting that MSR on all later CPUs.
-		 */
-		if (cpi->cpi_family == 0xf || cpi->cpi_family == 0x11) {
-			add_x86_feature(featureset, X86FSET_LFENCE_SER);
-		} else if (cpi->cpi_family >= 0x10) {
-			uint64_t val = 0;
+	/*
+	 * The AMD white paper Software Techniques For Managing
+	 * Speculation on AMD Processors details circumstances for when
+	 * lfence instructions are serializing.
+	 *
+	 * On family 0xf and 0x11, it is inherently so.  On family 0x10
+	 * and later (excluding 0x11), a bit in the DE_CFG MSR
+	 * determines the lfence behavior.  Per that whitepaper, AMD has
+	 * committed to supporting that MSR on all later CPUs.
+	 */
+	uint64_t val = 0;
 
-			/*
-			 * Be careful when attempting to enable the bit, and
-			 * verify that it was actually set in case we are
-			 * running in a hypervisor which is less than faithful
-			 * about its emulation of this feature.
-			 */
-			on_trap_data_t otd;
-			if (!on_trap(&otd, OT_DATA_ACCESS)) {
-				val = rdmsr(MSR_AMD_DE_CFG);
-				val |= AMD_DE_CFG_LFENCE_DISPATCH;
-				wrmsr(MSR_AMD_DE_CFG, val);
-				val = rdmsr(MSR_AMD_DE_CFG);
-			}
-			no_trap();
+#if 0	/* XXXBOOT why does on_trap() blow up?! */
+	/*
+	 * Be careful when attempting to enable the bit, and
+	 * verify that it was actually set in case we are
+	 * running in a hypervisor which is less than faithful
+	 * about its emulation of this feature.
+	 */
+	on_trap_data_t otd;
+	if (!on_trap(&otd, OT_DATA_ACCESS)) {
+#endif
+		val = rdmsr(MSR_AMD_DE_CFG);
+		val |= AMD_DE_CFG_LFENCE_DISPATCH;
+		wrmsr(MSR_AMD_DE_CFG, val);
+		val = rdmsr(MSR_AMD_DE_CFG);
+#if 0
+	}
+	no_trap();
+#endif
 
-			if ((val & AMD_DE_CFG_LFENCE_DISPATCH) != 0) {
-				add_x86_feature(featureset, X86FSET_LFENCE_SER);
-			}
-		}
-	} else if (cpi->cpi_vendor == X86_VENDOR_Intel &&
-	    is_x86_feature(featureset, X86FSET_SSE2)) {
-		/*
-		 * Documentation and other OSes indicate that lfence is always
-		 * serializing on Intel CPUs.
-		 */
+	if ((val & AMD_DE_CFG_LFENCE_DISPATCH) != 0) {
 		add_x86_feature(featureset, X86FSET_LFENCE_SER);
 	}
-
 
 	/*
 	 * Check the processor leaves that are used for security features.

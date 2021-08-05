@@ -2605,10 +2605,12 @@ impl_bus_initialprobe(void)
 		panic("failed to load misc/pci_autoconfig");
 	}
 
+#if 0	/* XXXBOOT likely just delete */
 	(void) modload("misc", "acpidev");
 
 	if (modload("drv", "isa") < 0)
 		panic("failed to load drv/isa");
+#endif
 
 	probe = bus_probes;
 	while (probe) {
