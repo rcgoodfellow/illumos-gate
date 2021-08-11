@@ -44,7 +44,7 @@ bcons_init(void)
 static void
 _doputchar(int c)
 {
-	dw_apb_uart_tx_nb(dw_apb_uart_hdl, (uint8_t *)(&c), 1);
+	dw_apb_uart_tx(dw_apb_uart_hdl, (uint8_t *)(&c), 1);
 }
 
 void
