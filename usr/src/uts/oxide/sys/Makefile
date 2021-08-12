@@ -55,7 +55,6 @@ HDRS=  \
 	machsystm.h	\
 	machthread.h	\
 	memnode.h	\
-	pc_mmu.h	\
 	psm.h		\
 	psm_defs.h	\
 	psm_modctl.h	\
