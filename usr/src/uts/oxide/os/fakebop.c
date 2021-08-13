@@ -89,7 +89,7 @@ static const bt_prop_t *bt_props;
 /*
  * Next available virtual address to allocate.  Do not allocate page 0.
  */
-static uintptr_t next_virt = (uintptr_t)MMU_PAGESIZE;
+static uintptr_t next_virt = (uintptr_t)MMU_PAGESIZE * 2;
 static paddr_t next_phys = 0;	/* next available physical address */
 static paddr_t high_phys = -(paddr_t)1;	/* lowest allocated address */
 struct memlist first_memlist;
@@ -557,6 +557,12 @@ typedef struct bop_frame {
 	long arg[1];
 } bop_frame_t;
 
+static boolean_t
+weakish_is_null(void *p)
+{
+	return (p == NULL);
+}
+
 /* XXX shareable */
 void
 bop_traceback(bop_frame_t *frame)
@@ -565,14 +571,20 @@ bop_traceback(bop_frame_t *frame)
 	int cnt;
 	char *ksym;
 	ulong_t off;
+	extern kmutex_t mod_lock;
 
 	bop_printf(NULL, "Stack traceback:\n");
 	for (cnt = 0; cnt < 30; ++cnt) {	/* up to 30 frames */
 		pc = frame->retaddr;
 		if (pc == 0)
 			break;
-		ksym = kobj_getsymname(pc, &off);
-		if (ksym)
+
+		if (weakish_is_null(&mod_lock))
+			ksym = NULL;
+		else
+			ksym = kobj_getsymname(pc, &off);
+
+		if (ksym != NULL)
 			bop_printf(NULL, "  %s+%lx", ksym, off);
 		else
 			bop_printf(NULL, "  0x%lx", pc);

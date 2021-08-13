@@ -191,6 +191,63 @@ mlsetup(struct regs *rp)
 	init_desctbls();
 
 	/*
+	 * initialize t0
+	 */
+	t0.t_stk = (caddr_t)rp - MINFRAME;
+	t0.t_stkbase = t0stack;
+	t0.t_pri = maxclsyspri - 3;
+	t0.t_schedflag = TS_LOAD | TS_DONT_SWAP;
+	t0.t_procp = &p0;
+	t0.t_plockp = &p0lock.pl_lock;
+	t0.t_lwp = &lwp0;
+	t0.t_forw = &t0;
+	t0.t_back = &t0;
+	t0.t_next = &t0;
+	t0.t_prev = &t0;
+	t0.t_cpu = cpu[0];
+	t0.t_disp_queue = &cpu0_disp;
+	t0.t_bind_cpu = PBIND_NONE;
+	t0.t_bind_pset = PS_NONE;
+	t0.t_bindflag = (uchar_t)default_binding_mode;
+	t0.t_cpupart = &cp_default;
+	t0.t_clfuncs = &sys_classfuncs.thread;
+	t0.t_copyops = NULL;
+	THREAD_ONPROC(&t0, CPU);
+
+	lwp0.lwp_thread = &t0;
+	lwp0.lwp_regs = (void *)rp;
+	lwp0.lwp_procp = &p0;
+	t0.t_tid = p0.p_lwpcnt = p0.p_lwprcnt = p0.p_lwpid = 1;
+
+	p0.p_exec = NULL;
+	p0.p_stat = SRUN;
+	p0.p_flag = SSYS;
+	p0.p_tlist = &t0;
+	p0.p_stksize = 2*PAGESIZE;
+	p0.p_stkpageszc = 0;
+	p0.p_as = &kas;
+	p0.p_lockp = &p0lock;
+	p0.p_brkpageszc = 0;
+	p0.p_t1_lgrpid = LGRP_NONE;
+	p0.p_tr_lgrpid = LGRP_NONE;
+	psecflags_default(&p0.p_secflags);
+
+	sigorset(&p0.p_ignore, &ignoredefault);
+
+	CPU->cpu_thread = &t0;
+	bzero(&cpu0_disp, sizeof (disp_t));
+	CPU->cpu_disp = &cpu0_disp;
+	CPU->cpu_disp->disp_cpu = CPU;
+	CPU->cpu_dispthread = &t0;
+	CPU->cpu_idle_thread = &t0;
+	CPU->cpu_flags = CPU_READY | CPU_RUNNING | CPU_EXISTS | CPU_ENABLE;
+	CPU->cpu_dispatch_pri = t0.t_pri;
+
+	CPU->cpu_id = 0;
+
+	CPU->cpu_pri = 12;		/* initial PIL for the boot CPU */
+
+	/*
 	 * lgrp_init() and possibly cpuid_pass1() need PCI config
 	 * space access
 	 */
@@ -259,63 +316,6 @@ mlsetup(struct regs *rp)
 
 	if (is_x86_feature(x86_featureset, X86FSET_SMEP))
 		setcr4(getcr4() | CR4_SMEP);
-
-	/*
-	 * initialize t0
-	 */
-	t0.t_stk = (caddr_t)rp - MINFRAME;
-	t0.t_stkbase = t0stack;
-	t0.t_pri = maxclsyspri - 3;
-	t0.t_schedflag = TS_LOAD | TS_DONT_SWAP;
-	t0.t_procp = &p0;
-	t0.t_plockp = &p0lock.pl_lock;
-	t0.t_lwp = &lwp0;
-	t0.t_forw = &t0;
-	t0.t_back = &t0;
-	t0.t_next = &t0;
-	t0.t_prev = &t0;
-	t0.t_cpu = cpu[0];
-	t0.t_disp_queue = &cpu0_disp;
-	t0.t_bind_cpu = PBIND_NONE;
-	t0.t_bind_pset = PS_NONE;
-	t0.t_bindflag = (uchar_t)default_binding_mode;
-	t0.t_cpupart = &cp_default;
-	t0.t_clfuncs = &sys_classfuncs.thread;
-	t0.t_copyops = NULL;
-	THREAD_ONPROC(&t0, CPU);
-
-	lwp0.lwp_thread = &t0;
-	lwp0.lwp_regs = (void *)rp;
-	lwp0.lwp_procp = &p0;
-	t0.t_tid = p0.p_lwpcnt = p0.p_lwprcnt = p0.p_lwpid = 1;
-
-	p0.p_exec = NULL;
-	p0.p_stat = SRUN;
-	p0.p_flag = SSYS;
-	p0.p_tlist = &t0;
-	p0.p_stksize = 2*PAGESIZE;
-	p0.p_stkpageszc = 0;
-	p0.p_as = &kas;
-	p0.p_lockp = &p0lock;
-	p0.p_brkpageszc = 0;
-	p0.p_t1_lgrpid = LGRP_NONE;
-	p0.p_tr_lgrpid = LGRP_NONE;
-	psecflags_default(&p0.p_secflags);
-
-	sigorset(&p0.p_ignore, &ignoredefault);
-
-	CPU->cpu_thread = &t0;
-	bzero(&cpu0_disp, sizeof (disp_t));
-	CPU->cpu_disp = &cpu0_disp;
-	CPU->cpu_disp->disp_cpu = CPU;
-	CPU->cpu_dispthread = &t0;
-	CPU->cpu_idle_thread = &t0;
-	CPU->cpu_flags = CPU_READY | CPU_RUNNING | CPU_EXISTS | CPU_ENABLE;
-	CPU->cpu_dispatch_pri = t0.t_pri;
-
-	CPU->cpu_id = 0;
-
-	CPU->cpu_pri = 12;		/* initial PIL for the boot CPU */
 
 	/*
 	 * Initialize thread/cpu microstate accounting

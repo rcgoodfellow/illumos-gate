@@ -123,7 +123,7 @@ extern "C" {
 
 /*
  * VMWare works best if we don't use the top 64Meg of memory for amd64.
- * Set KERNEL_TEXT to top_o_memory - 64Meg - 8 Meg for 8Meg of nucleus pages.
+ * Set KERNEL_TEXT to top_o_memory - 64Meg - 4 Meg for 4Meg of nucleus pages.
  */
 #define	PROMSTART	ADDRESS_C(0xffc00000)
 
@@ -133,7 +133,7 @@ extern "C" {
 #define	SEGDEBUGBASE	ADDRESS_C(0xffffffffff800000)
 #define	SEGDEBUGSIZE	ADDRESS_C(0x400000)
 
-#define	KERNEL_TEXT	UINT64_C(0xfffffffffb800000)
+#define	KERNEL_TEXT	UINT64_C(0xfffffffffbc00000)
 
 /*
  * Reserve pages just below KERNEL_TEXT for the GDT, IDT, LDT, TSS and debug

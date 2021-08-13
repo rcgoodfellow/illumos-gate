@@ -2753,9 +2753,7 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
 	x86_spectrev2_mitigation_t v2mit;
 
-	if ((cpi->cpi_vendor == X86_VENDOR_AMD ||
-	    cpi->cpi_vendor == X86_VENDOR_HYGON) &&
-	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
+	if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_IBPB)
 			add_x86_feature(featureset, X86FSET_IBPB);
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_IBRS)
@@ -2779,80 +2777,6 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 		    (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_IBRS_ALL)) {
 			add_x86_feature(featureset, X86FSET_IBRS_ALL);
 		}
-
-	} else if (cpi->cpi_vendor == X86_VENDOR_Intel &&
-	    cpi->cpi_maxeax >= 7) {
-		struct cpuid_regs *ecp;
-		ecp = &cpi->cpi_std[7];
-
-		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_MD_CLEAR) {
-			add_x86_feature(featureset, X86FSET_MD_CLEAR);
-		}
-
-		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_SPEC_CTRL) {
-			add_x86_feature(featureset, X86FSET_IBRS);
-			add_x86_feature(featureset, X86FSET_IBPB);
-		}
-
-		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_STIBP) {
-			add_x86_feature(featureset, X86FSET_STIBP);
-		}
-
-		/*
-		 * Don't read the arch caps MSR on xpv where we lack the
-		 * on_trap().  XXX Can this check otherwise ever fail?
-		 */
-		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_ARCH_CAPS) {
-			on_trap_data_t otd;
-
-			/*
-			 * Be paranoid and assume we'll get a #GP.
-			 */
-			if (!on_trap(&otd, OT_DATA_ACCESS)) {
-				uint64_t reg;
-
-				reg = rdmsr(MSR_IA32_ARCH_CAPABILITIES);
-				if (reg & IA32_ARCH_CAP_RDCL_NO) {
-					add_x86_feature(featureset,
-					    X86FSET_RDCL_NO);
-				}
-				if (reg & IA32_ARCH_CAP_IBRS_ALL) {
-					add_x86_feature(featureset,
-					    X86FSET_IBRS_ALL);
-				}
-				if (reg & IA32_ARCH_CAP_RSBA) {
-					add_x86_feature(featureset,
-					    X86FSET_RSBA);
-				}
-				if (reg & IA32_ARCH_CAP_SKIP_L1DFL_VMENTRY) {
-					add_x86_feature(featureset,
-					    X86FSET_L1D_VM_NO);
-				}
-				if (reg & IA32_ARCH_CAP_SSB_NO) {
-					add_x86_feature(featureset,
-					    X86FSET_SSB_NO);
-				}
-				if (reg & IA32_ARCH_CAP_MDS_NO) {
-					add_x86_feature(featureset,
-					    X86FSET_MDS_NO);
-				}
-				if (reg & IA32_ARCH_CAP_TSX_CTRL) {
-					add_x86_feature(featureset,
-					    X86FSET_TSX_CTRL);
-				}
-				if (reg & IA32_ARCH_CAP_TAA_NO) {
-					add_x86_feature(featureset,
-					    X86FSET_TAA_NO);
-				}
-			}
-			no_trap();
-		}
-
-		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_SSBD)
-			add_x86_feature(featureset, X86FSET_SSBD);
-
-		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_FLUSH_CMD)
-			add_x86_feature(featureset, X86FSET_FLUSH_CMD);
 	}
 
 	/*
@@ -3112,48 +3036,16 @@ cpuid_pass1_thermal(cpu_t *cpu, uchar_t *featureset)
 static void
 cpuid_pass1_ppin(cpu_t *cpu, uchar_t *featureset)
 {
-	on_trap_data_t otd;
 	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
 
-	switch (cpi->cpi_vendor) {
-	case X86_VENDOR_AMD:
-		/*
-		 * This leaf will have already been gathered in the topology
-		 * functions.
-		 */
-		if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
-			if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_PPIN) {
-				add_x86_feature(featureset, X86FSET_PPIN);
-			}
+	/*
+	 * This leaf will have already been gathered in the topology
+	 * functions.
+	 */
+	if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
+		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_PPIN) {
+			add_x86_feature(featureset, X86FSET_PPIN);
 		}
-		break;
-	case X86_VENDOR_Intel:
-		if (cpi->cpi_family != 6)
-			break;
-		switch (cpi->cpi_model) {
-		case INTC_MODEL_IVYBRIDGE_XEON:
-		case INTC_MODEL_HASWELL_XEON:
-		case INTC_MODEL_BROADWELL_XEON:
-		case INTC_MODEL_BROADWELL_XEON_D:
-		case INTC_MODEL_SKYLAKE_XEON:
-		case INTC_MODEL_ICELAKE_XEON:
-			if (!on_trap(&otd, OT_DATA_ACCESS)) {
-				uint64_t value;
-
-				value = rdmsr(MSR_PLATFORM_INFO);
-				if ((value & MSR_PLATFORM_INFO_PPIN) != 0) {
-					add_x86_feature(featureset,
-					    X86FSET_PPIN);
-				}
-			}
-			no_trap();
-			break;
-		default:
-			break;
-		}
-		break;
-	default:
-		break;
 	}
 }
 
@@ -3695,7 +3587,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 */
 	uint64_t val = 0;
 
-#if 0	/* XXXBOOT why does on_trap() blow up?! */
 	/*
 	 * Be careful when attempting to enable the bit, and
 	 * verify that it was actually set in case we are
@@ -3704,15 +3595,12 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 */
 	on_trap_data_t otd;
 	if (!on_trap(&otd, OT_DATA_ACCESS)) {
-#endif
 		val = rdmsr(MSR_AMD_DE_CFG);
 		val |= AMD_DE_CFG_LFENCE_DISPATCH;
 		wrmsr(MSR_AMD_DE_CFG, val);
 		val = rdmsr(MSR_AMD_DE_CFG);
-#if 0
 	}
 	no_trap();
-#endif
 
 	if ((val & AMD_DE_CFG_LFENCE_DISPATCH) != 0) {
 		add_x86_feature(featureset, X86FSET_LFENCE_SER);
@@ -6812,22 +6700,20 @@ post_startup_cpu_fixups(void)
 	 * cause the local APIC timer to stop, which we can't deal with at
 	 * this time.
 	 */
-	if (cpuid_getvendor(CPU) == X86_VENDOR_AMD) {
-		on_trap_data_t otd;
-		uint64_t reg;
+	on_trap_data_t otd;
+	uint64_t reg;
 
-		if (!on_trap(&otd, OT_DATA_ACCESS)) {
-			reg = rdmsr(MSR_AMD_INT_PENDING_CMP_HALT);
-			/* Disable C1E state if it is enabled by BIOS */
-			if ((reg >> AMD_ACTONCMPHALT_SHIFT) &
-			    AMD_ACTONCMPHALT_MASK) {
-				reg &= ~(AMD_ACTONCMPHALT_MASK <<
-				    AMD_ACTONCMPHALT_SHIFT);
-				wrmsr(MSR_AMD_INT_PENDING_CMP_HALT, reg);
-			}
+	if (!on_trap(&otd, OT_DATA_ACCESS)) {
+		reg = rdmsr(MSR_AMD_INT_PENDING_CMP_HALT);
+		/* Disable C1E state if it is otherwise supported */
+		if ((reg >> AMD_ACTONCMPHALT_SHIFT) &
+		    AMD_ACTONCMPHALT_MASK) {
+			reg &= ~(AMD_ACTONCMPHALT_MASK <<
+			    AMD_ACTONCMPHALT_SHIFT);
+			wrmsr(MSR_AMD_INT_PENDING_CMP_HALT, reg);
 		}
-		no_trap();
 	}
+	no_trap();
 }
 
 void

@@ -67,7 +67,7 @@ extern uint_t kbm_debug;
 static caddr_t window;
 static x86pte_t *pte_to_window;
 
-uint_t kbm_nucleus_size = FOUR_MEG;
+uint_t kbm_nucleus_size = TWO_MEG;
 
 #define	BOOT_SHIFT(l)	(shift_amt[l])
 #define	BOOT_SZ(l)	((size_t)1 << BOOT_SHIFT(l))
@@ -103,7 +103,7 @@ kbm_init(const struct bsys_mem *memlists)
  	 */
 	top_page_table = getcr3();
 	DBG(top_page_table);
-	window = (caddr_t)alloc_vaddr(MMU_PAGESIZE, MMU_PAGESIZE);
+	window = (caddr_t)MMU_PAGESIZE;
 	DBG(window);
 	pte_to_window = (x86pte_t *)(uintptr_t)0x75ff7008;	/* XXXBOOT */
 	DBG(pte_to_window);

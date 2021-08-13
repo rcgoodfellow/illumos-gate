@@ -680,7 +680,7 @@ attr_val(val_t *bootaux)
 #endif
 		} else {
 #ifdef	oxide		/* XXX we set this properly so can't use PF_W */
-			if (phdr->p_vaddr == 0xFFFFFFFFFBC00000UL) {
+			if (phdr->p_vaddr == 0xFFFFFFFFFBE00000UL) {
 #else
 			if (phdr->p_flags & PF_W) {
 #endif
