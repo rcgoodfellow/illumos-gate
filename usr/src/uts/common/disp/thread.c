@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2019 Joyent, Inc.
+ * Copyright 2021 Joyent, Inc.
  */
 
 #include <sys/types.h>
@@ -182,7 +182,7 @@ thread_init(void)
 		mutex_init(lp, NULL, MUTEX_DEFAULT, NULL);
 	}
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	thread_cache = kmem_cache_create("thread_cache", sizeof (kthread_t),
 	    PTR24_ALIGN, NULL, NULL, NULL, NULL, NULL, 0);
 
@@ -1030,7 +1030,28 @@ reapq_add(kthread_t *t)
 }
 
 /*
+ * Provide an allocation function for callers of installctx() that, for
+ * reasons of incomplete context-op initialization, must call installctx()
+ * in a kpreempt_disable() block.  The caller, therefore, must call this
+ * without being in such a block.
+ */
+struct ctxop *
+installctx_preallocate(void)
+{
+	/*
+	 * NOTE: We could ASSERT/VERIFY that we are not in a place where
+	 * a KM_SLEEP allocation could block indefinitely.
+	 *
+	 * ASSERT(curthread->t_preempt == 0);
+	 */
+
+	return (kmem_alloc(sizeof (struct ctxop), KM_SLEEP));
+}
+
+/*
  * Install thread context ops for the current thread.
+ * The caller can pass in a preallocated struct ctxop, eliminating the need
+ * for the requirement of entering with kernel preemption still enabled.
  */
 void
 installctx(
@@ -1041,11 +1062,12 @@ installctx(
 	void	(*fork)(void *, void *),
 	void	(*lwp_create)(void *, void *),
 	void	(*exit)(void *),
-	void	(*free)(void *, int))
+	void	(*free)(void *, int),
+	struct ctxop *ctx)
 {
-	struct ctxop *ctx;
+	if (ctx == NULL)
+		ctx = kmem_alloc(sizeof (struct ctxop), KM_SLEEP);
 
-	ctx = kmem_alloc(sizeof (struct ctxop), KM_SLEEP);
 	ctx->save_op = save;
 	ctx->restore_op = restore;
 	ctx->fork_op = fork;
@@ -1506,7 +1528,7 @@ thread_create_intr(struct cpu *cp)
 	tp->t_bind_cpu = PBIND_NONE;	/* no USER-requested binding */
 	tp->t_bind_pset = PS_NONE;
 
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 	tp->t_stk -= STACK_ALIGN;
 	*(tp->t_stk) = 0;		/* terminate intr thread stack */
 #endif
@@ -2106,7 +2128,7 @@ stkinfo_end(kthread_t *t)
 	/* search until no pattern in the stack */
 	if (t->t_stk > t->t_stkbase) {
 		/* stack grows down */
-#if defined(__i386) || defined(__amd64)
+#if defined(__x86)
 		/*
 		 * 6 longs are pushed on stack, see thread_load(). Skip
 		 * them, so if kthread has never run, percent is zero.

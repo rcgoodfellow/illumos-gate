@@ -28,6 +28,7 @@
  * Copyright 2018 Joyent, Inc.
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2021 Oxide Computer Company
  */
 
 #define	_STRUCTURED_PROC	1
@@ -635,14 +636,13 @@ count_sections(pgcore_t *pgc)
 {
 	struct ps_prochandle *P = pgc->P;
 	file_info_t *fptr;
-	uint_t cnt;
 	uint_t nshdrs = 0;
 
 	if (!(pgc->pgc_content & (CC_CONTENT_CTF | CC_CONTENT_SYMTAB)))
 		return (0);
 
-	fptr = list_next(&P->file_head);
-	for (cnt = P->num_files; cnt > 0; cnt--, fptr = list_next(fptr)) {
+	for (fptr = list_head(&P->file_head); fptr != NULL;
+	    fptr = list_next(&P->file_head, fptr)) {
 		int hit_symtab = 0;
 
 		Pbuild_file_symtab(P, fptr);
@@ -772,14 +772,13 @@ dump_sections(pgcore_t *pgc)
 {
 	struct ps_prochandle *P = pgc->P;
 	file_info_t *fptr;
-	uint_t cnt;
 	uint_t index = 1;
 
 	if (!(pgc->pgc_content & (CC_CONTENT_CTF | CC_CONTENT_SYMTAB)))
 		return (0);
 
-	fptr = list_next(&P->file_head);
-	for (cnt = P->num_files; cnt > 0; cnt--, fptr = list_next(fptr)) {
+	for (fptr = list_head(&P->file_head); fptr != NULL;
+	    fptr = list_next(&P->file_head, fptr)) {
 		int hit_symtab = 0;
 
 		Pbuild_file_symtab(P, fptr);
@@ -920,6 +919,18 @@ dump_map(void *data, const prmap_t *pmp, const char *name)
 	n = 0;
 	while (n < pmp->pr_size) {
 		size_t csz = MIN(pmp->pr_size - n, pgc->pgc_chunksz);
+		ssize_t ret;
+
+		/*
+		 * If we happen to have a PROT_NONE mapping, don't try to read
+		 * from the address space.
+		 */
+		if ((pmp->pr_mflags & (MA_READ | MA_WRITE | MA_EXEC)) == 0) {
+			bzero(pgc->pgc_chunk, csz);
+			ret = csz;
+		} else {
+			ret = Pread(P, pgc->pgc_chunk, csz, pmp->pr_vaddr + n);
+		}
 
 		/*
 		 * If we can't read out part of the victim's address
@@ -929,8 +940,7 @@ dump_map(void *data, const prmap_t *pmp, const char *name)
 		 * PF_SUNW_FAILURE flag and store the errno where the
 		 * mapping would have been.
 		 */
-		if (Pread(P, pgc->pgc_chunk, csz, pmp->pr_vaddr + n) != csz ||
-		    gc_pwrite64(pgc->pgc_fd, pgc->pgc_chunk, csz,
+		if (ret != csz || gc_pwrite64(pgc->pgc_fd, pgc->pgc_chunk, csz,
 		    *pgc->pgc_doff + n) != 0) {
 			int err = errno;
 			(void) gc_pwrite64(pgc->pgc_fd, &err, sizeof (err),

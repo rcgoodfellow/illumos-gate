@@ -510,8 +510,9 @@
  * generations of topology. There's the basic topology that has been used in
  * family 0xf+ (Opteron, Athlon64), there's the topology that was introduced
  * with family 0x15 (Bulldozer), and there's the topology that was introduced
- * with family 0x17 (Zen). AMD also has some additional terminology that's worth
- * talking about.
+ * with family 0x17 (Zen), evolved more dramatically in Zen 2 (still family
+ * 0x17), and tweaked slightly in Zen 3 (family 19h). AMD also has some
+ * additional terminology that's worth talking about.
  *
  * Until the introduction of family 0x17 (Zen), AMD did not implement something
  * that they considered SMT. Whether or not the AMD processors have SMT
@@ -647,6 +648,129 @@
  *  to PCIe devices and other I/O, by the 'P' character. Because each Zeppelin
  *  die is made up of two core complexes, we have multiple different NUMA
  *  domains that we care about for these systems.
+ *
+ * ZEN 2
+ *
+ *	Zen 2 changes things in a dramatic way from Zen 1. Whereas in Zen 1
+ *	each Zeppelin Die had its own I/O die, that has been moved out of the
+ *	core complex in Zen 2. The actual core complex looks pretty similar, but
+ *	now the die actually looks much simpler:
+ *
+ *      +--------------------------------------------------------+
+ *      | Zen 2 Core Complex Die    HH                           |
+ *      |                           HH                           |
+ *      |          +-----------+    HH    +-----------+          |
+ *      |          |           |    HH    |           |          |
+ *      |          |    Core   |==========|    Core   |          |
+ *      |          |  Complex  |==========|  Complex  |          |
+ *      |          |           |    HH    |           |          |
+ *      |          +-----------+    HH    +-----------+          |
+ *      |                           HH                           |
+ *      |                           HH                           |
+ *      +--------------------------------------------------------+
+ *
+ *	From here, when we add the central I/O die, this changes things a bit.
+ *	Each die is connected to the I/O die, rather than trying to interconnect
+ *	them directly. The following image takes the same Zen 1 image that we
+ *	had earlier and shows what it looks like with the I/O die instead:
+ *
+ *                                 PP    PP
+ *                                 PP    PP
+ *           +---------------------PP----PP---------------------+
+ *           |                     PP    PP                     |
+ *           |  +-----------+      PP    PP      +-----------+  |
+ *           |  |           |      PP    PP      |           |  |
+ *           |  |   Zen 2   |    +-PP----PP-+    |   Zen 2   |  |
+ *           |  |    Die   _|    | PP    PP |    |_   Die    |  |
+ *           |  |         |o|oooo|          |oooo|o|         |  |
+ *           |  +-----------+    |          |    +-----------+  |
+ *           |                   |   I/O    |                   |
+ *       MMMMMMMMMMMMMMMMMMMMMMMMMM  Die   MMMMMMMMMMMMMMMMMMMMMMMMMM
+ *       MMMMMMMMMMMMMMMMMMMMMMMMMM        MMMMMMMMMMMMMMMMMMMMMMMMMM
+ *           |                   |          |                   |
+ *       MMMMMMMMMMMMMMMMMMMMMMMMMM        MMMMMMMMMMMMMMMMMMMMMMMMMM
+ *       MMMMMMMMMMMMMMMMMMMMMMMMMM        MMMMMMMMMMMMMMMMMMMMMMMMMM
+ *           |                   |          |                   |
+ *           |  +-----------+    |          |    +-----------+  |
+ *           |  |         |o|oooo| PP    PP |oooo|o|         |  |
+ *           |  |   Zen 2  -|    +-PP----PP-+    |-  Zen 2   |  |
+ *           |  |    Die    |      PP    PP      |    Die    |  |
+ *           |  |           |      PP    PP      |           |  |
+ *           |  +-----------+      PP    PP      +-----------+  |
+ *           |                     PP    PP                     |
+ *           +---------------------PP----PP---------------------+
+ *                                 PP    PP
+ *                                 PP    PP
+ *
+ *	The above has four core complex dies installed, though the Zen 2 EPYC
+ *	and ThreadRipper parts allow for up to eight, while the Ryzen parts
+ *	generally only have one to two. The more notable difference here is how
+ *	everything communicates. Note that memory and PCIe come out of the
+ *	central die. This changes the way that one die accesses a resource. It
+ *	basically always has to go to the I/O die, where as in Zen 1 it may have
+ *	satisfied it locally. In general, this ends up being a better strategy
+ *	for most things, though it is possible to still treat everything in four
+ *	distinct NUMA domains with each Zen 2 die slightly closer to some memory
+ *	and PCIe than otherwise. This also impacts the 'amdzen' nexus driver as
+ *	now there is only one 'node' present.
+ *
+ * ZEN 3
+ *
+ *	From an architectural perspective, Zen 3 is a much smaller change from
+ *	Zen 2 than Zen 2 was from Zen 1, though it makes up for most of that in
+ *	its microarchitectural changes. The biggest thing for us is how the die
+ *	changes. In Zen 1 and Zen 2, each core complex still had its own L3
+ *	cache. However, in Zen 3, the L3 is now shared between the entire core
+ *	complex die and is no longer partitioned between each core complex. This
+ *	means that all cores on the die can share the same L3 cache. Otherwise,
+ *	the general layout of the overall package with various core complexes
+ *	and an I/O die stays the same. Here's what the Core Complex Die looks
+ *	like in a bit more detail:
+ *
+ *               +-------------------------------------------------+
+ *               | Zen 3 Core Complex Die                          |
+ *               | +-------------------+    +-------------------+  |
+ *               | | Core       +----+ |    | Core       +----+ |  |
+ *               | | +--------+ | L2 | |    | +--------+ | L2 | |  |
+ *               | | | Thread | +----+ |    | | Thread | +----+ |  |
+ *               | | +--------+-+ +--+ |    | +--------+-+ +--+ |  |
+ *               | |   | Thread | |L1| |    |   | Thread | |L1| |  |
+ *               | |   +--------+ +--+ |    |   +--------+ +--+ |  |
+ *               | +-------------------+    +-------------------+  |
+ *               | +-------------------+    +-------------------+  |
+ *               | | Core       +----+ |    | Core       +----+ |  |
+ *               | | +--------+ | L2 | |    | +--------+ | L2 | |  |
+ *               | | | Thread | +----+ |    | | Thread | +----+ |  |
+ *               | | +--------+-+ +--+ |    | +--------+-+ +--+ |  |
+ *               | |   | Thread | |L1| |    |   | Thread | |L1| |  |
+ *               | |   +--------+ +--+ |    |   +--------+ +--+ |  |
+ *               | +-------------------+    +-------------------+  |
+ *               |                                                 |
+ *               | +--------------------------------------------+  |
+ *               | |                 L3 Cache                   |  |
+ *               | +--------------------------------------------+  |
+ *               |                                                 |
+ *               | +-------------------+    +-------------------+  |
+ *               | | Core       +----+ |    | Core       +----+ |  |
+ *               | | +--------+ | L2 | |    | +--------+ | L2 | |  |
+ *               | | | Thread | +----+ |    | | Thread | +----+ |  |
+ *               | | +--------+-+ +--+ |    | +--------+-+ +--+ |  |
+ *               | |   | Thread | |L1| |    |   | Thread | |L1| |  |
+ *               | |   +--------+ +--+ |    |   +--------+ +--+ |  |
+ *               | +-------------------+    +-------------------+  |
+ *               | +-------------------+    +-------------------+  |
+ *               | | Core       +----+ |    | Core       +----+ |  |
+ *               | | +--------+ | L2 | |    | +--------+ | L2 | |  |
+ *               | | | Thread | +----+ |    | | Thread | +----+ |  |
+ *               | | +--------+-+ +--+ |    | +--------+-+ +--+ |  |
+ *               | |   | Thread | |L1| |    |   | Thread | |L1| |  |
+ *               | |   +--------+ +--+ |    |   +--------+ +--+ |  |
+ *               | +-------------------+    +-------------------+  |
+ *               +-------------------------------------------------+
+ *
+ *	While it is not pictured, there are connections from the die to the
+ *	broader data fabric and additional functional blocks to support that
+ *	communication and coherency.
  *
  * CPUID LEAVES
  *
@@ -5475,17 +5599,12 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 
 		if (!is_x86_feature(x86_featureset, X86FSET_NX))
 			*edx &= ~CPUID_AMD_EDX_NX;
-#if !defined(__amd64)
-		*edx &= ~CPUID_AMD_EDX_LM;
-#endif
 		/*
 		 * Now map the supported feature vector to
 		 * things that we think userland will care about.
 		 */
-#if defined(__amd64)
 		if (*edx & CPUID_AMD_EDX_SYSC)
 			hwcap_flags |= AV_386_AMD_SYSC;
-#endif
 		if (*edx & CPUID_AMD_EDX_MMXamd)
 			hwcap_flags |= AV_386_AMD_MMX;
 		if (*edx & CPUID_AMD_EDX_3DNow)
@@ -5850,26 +5969,6 @@ cpuid_get_cores_per_compunit(cpu_t *cpu)
 	return (cpu->cpu_m.mcpu_cpi->cpi_cores_per_compunit);
 }
 
-/*ARGSUSED*/
-int
-cpuid_have_cr8access(cpu_t *cpu)
-{
-#if defined(__amd64)
-	return (1);
-#else
-	struct cpuid_info *cpi;
-
-	ASSERT(cpu != NULL);
-	cpi = cpu->cpu_m.mcpu_cpi;
-	if ((cpi->cpi_vendor == X86_VENDOR_AMD ||
-	    cpi->cpi_vendor == X86_VENDOR_HYGON) &&
-	    cpi->cpi_maxeax >= 1 &&
-	    (CPI_FEATURES_XTD_ECX(cpi) & CPUID_AMD_ECX_CR8D) != 0)
-		return (1);
-	return (0);
-#endif
-}
-
 uint32_t
 cpuid_get_apicid(cpu_t *cpu)
 {
@@ -6105,11 +6204,7 @@ cpuid_opteron_erratum(cpu_t *cpu, uint_t erratum)
 	case 86:
 		return (SH_C0(eax) || CG(eax));
 	case 88:
-#if !defined(__amd64)
-		return (0);
-#else
 		return (B(eax) || SH_C0(eax));
-#endif
 	case 89:
 		return (cpi->cpi_family < 0x10);
 	case 90:
@@ -6122,11 +6217,7 @@ cpuid_opteron_erratum(cpu_t *cpu, uint_t erratum)
 	case 94:
 		return (B(eax) || SH_C0(eax) || CG(eax));
 	case 95:
-#if !defined(__amd64)
-		return (0);
-#else
 		return (B(eax) || SH_C0(eax));
-#endif
 	case 96:
 		return (B(eax) || SH_C0(eax) || CG(eax));
 	case 97:
@@ -6221,11 +6312,7 @@ cpuid_opteron_erratum(cpu_t *cpu, uint_t erratum)
 		    DR_B2(eax) || RB_C0(eax));
 
 	case 721:
-#if defined(__amd64)
 		return (cpi->cpi_family == 0x10 || cpi->cpi_family == 0x12);
-#else
-		return (0);
-#endif
 
 	default:
 		return (-1);
@@ -7494,7 +7581,7 @@ cpuid_deadline_tsc_supported(void)
 	}
 }
 
-#if defined(__amd64) && !defined(__xpv)
+#if !defined(__xpv)
 /*
  * Patch in versions of bcopy for high performance Intel Nhm processors
  * and later...
@@ -7515,7 +7602,7 @@ patch_memops(uint_t vendor)
 		}
 	}
 }
-#endif  /* __amd64 && !__xpv */
+#endif  /*  !__xpv */
 
 /*
  * We're being asked to tell the system how many bits are required to represent

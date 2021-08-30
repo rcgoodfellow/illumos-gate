@@ -979,8 +979,16 @@ extern "C" {
 #define	X86_CHIPREV_HYGON_18_DN_A1 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_HYGON, 0x18, 0x0001)
 
+#define	X86_CHIPREV_AMD_19_GN_A0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0000)
 #define	X86_CHIPREV_AMD_19_GN_B0 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0001)
+#define	X86_CHIPREV_AMD_19_GN_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0002)
+#define	X86_CHIPREV_AMD_19_VMR_B0 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0003)
+#define	X86_CHIPREV_AMD_19_VMR_B1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0004)
 
 /*
  * Various socket/package types, extended as the need to distinguish
@@ -1263,8 +1271,6 @@ extern uint32_t cpuid_getchiprev(struct cpu *);
 extern const char *cpuid_getchiprevstr(struct cpu *);
 extern uint32_t cpuid_getsockettype(struct cpu *);
 extern const char *cpuid_getsocketstr(struct cpu *);
-
-extern int cpuid_have_cr8access(struct cpu *);
 
 extern int cpuid_opteron_erratum(struct cpu *, uint_t);
 

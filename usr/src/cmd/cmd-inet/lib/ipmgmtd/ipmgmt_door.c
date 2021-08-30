@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2016-2017, Chris Fraire <cfraire@me.com>.
+ * Copyright 2021, Tintri by DDN. All rights reserved.
  */
 
 /*
@@ -680,6 +681,10 @@ ipmgmt_getaddr_handler(void *argp)
 	    NV_ENCODE_NATIVE)) != 0) {
 		goto fail;
 	}
+
+	if (onvlsize > (UINT32_MAX - sizeof (ipmgmt_get_rval_t)))
+		goto fail;
+
 	buflen = onvlsize + sizeof (ipmgmt_get_rval_t);
 	/*
 	 * We cannot use malloc() here because door_return never returns, and
@@ -732,7 +737,8 @@ ipmgmt_getif_handler(void *argp)
 	ipmgmt_getif_rval_t	*rvalp;
 	ipmgmt_retval_t		rval;
 	ipmgmt_getif_cbarg_t	cbarg;
-	ipadm_if_info_t		*ifp, *rifp, *curifp;
+	ipadm_if_info_list_t	*ifl, *curifl;
+	ipadm_if_info_t		*ifp, *rifp;
 	int			i, err = 0, count = 0;
 	size_t			rbufsize;
 
@@ -755,7 +761,7 @@ ipmgmt_getif_handler(void *argp)
 	}
 
 	/* allocate sufficient buffer to return the interface info */
-	for (ifp = cbarg.cb_ifinfo; ifp != NULL; ifp = ifp->ifi_next)
+	for (ifl = cbarg.cb_ifinfo; ifl != NULL; ifl = ifl->ifil_next)
 		++count;
 	rbufsize = sizeof (*rvalp) + count * sizeof (*ifp);
 	rvalp = alloca(rbufsize);
@@ -763,7 +769,7 @@ ipmgmt_getif_handler(void *argp)
 
 	rvalp->ir_ifcnt = count;
 	rifp = rvalp->ir_ifinfo;
-	ifp = cbarg.cb_ifinfo;
+	ifl = cbarg.cb_ifinfo;
 
 	/*
 	 * copy the interface info to buffer allocated on stack. The reason
@@ -771,12 +777,12 @@ ipmgmt_getif_handler(void *argp)
 	 * return
 	 */
 	for (i = 0; i < count; i++) {
+		ifp = &ifl->ifil_ifi;
 		rifp = rvalp->ir_ifinfo + i;
 		(void) bcopy(ifp, rifp, sizeof (*rifp));
-		rifp->ifi_next = NULL;
-		curifp = ifp->ifi_next;
-		free(ifp);
-		ifp = curifp;
+		curifl = ifl->ifil_next;
+		free(ifl);
+		ifl = curifl;
 	}
 	rvalp->ir_err = err;
 	(void) door_return((char *)rvalp, rbufsize, NULL, 0);
@@ -823,6 +829,10 @@ ipmgmt_initif_handler(void *argp)
 
 	if ((err = nvlist_size(cbarg.cb_onvl, &nvlsize, NV_ENCODE_NATIVE)) != 0)
 		goto fail;
+
+	if (nvlsize > (UINT32_MAX - sizeof (ipmgmt_get_rval_t)))
+		goto fail;
+
 	buflen = nvlsize + sizeof (ipmgmt_get_rval_t);
 	/*
 	 * We cannot use malloc() here because door_return never returns, and
