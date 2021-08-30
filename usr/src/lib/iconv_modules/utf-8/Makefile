@@ -84,7 +84,7 @@ install: all $(BINARYTABLES) $(BTS_DIR) $(ICONV_DIR)/alias
 		$(CHMOD) 0444 $(BTS_DIR)/$$fp; \
 	done
 
-clean:
+clean clobber:
 	$(RM) $(BINARYTABLES)
 
 all clean clobber install echo: $(SUBDIRS)

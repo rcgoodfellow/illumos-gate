@@ -97,7 +97,7 @@ $(ROOT)/usr/ccs/lib/$(MACH64)/values-xpg6.o:= \
 all:	$(OBJECTS)
 
 clean clobber:
-	$(RM) $(OBJECTS)
+	$(RM) $(OBJECTS) $(MACH_CRT) $(COMMON_CRT)
 
 
 $(CRT1): $(COMMON_CRT) $(MACH_CRT)
