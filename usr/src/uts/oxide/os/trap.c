@@ -486,18 +486,18 @@ trap(struct regs *rp, caddr_t addr, processorid_t cpuid)
 	ASSERT(ct->t_schedflag & TS_DONT_SWAP);
 
 	if (type == T_PGFLT) {
-
 		errcode = rp->r_err;
-		if (errcode & PF_ERR_WRITE)
+		if (errcode & PF_ERR_WRITE) {
 			rw = S_WRITE;
-		else if ((caddr_t)rp->r_pc == addr ||
-		    (mmu.pt_nx != 0 && (errcode & PF_ERR_EXEC)))
+		} else if ((caddr_t)rp->r_pc == addr ||
+		    (mmu.pt_nx != 0 && (errcode & PF_ERR_EXEC))) {
 			rw = S_EXEC;
-		else
+		} else {
 			rw = S_READ;
-
-	} else if (type == T_SGLSTP && lwp != NULL)
+		}
+	} else if (type == T_SGLSTP && lwp != NULL) {
 		lwp->lwp_pcb.pcb_drstat = (uintptr_t)addr;
+	}
 
 	if (tdebug)
 		showregs(type, rp, addr);

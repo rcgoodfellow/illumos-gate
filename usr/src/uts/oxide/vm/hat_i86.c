@@ -1941,9 +1941,9 @@ hat_kmap_load(
  *
  * Flags for hat_memload/hat_devload/hat_*attr.
  *
- * 	HAT_LOAD	Default flags to load a translation to the page.
+ *	HAT_LOAD	Default flags to load a translation to the page.
  *
- * 	HAT_LOAD_LOCK	Lock down mapping resources; hat_map(), hat_memload(),
+ *	HAT_LOAD_LOCK	Lock down mapping resources; hat_map(), hat_memload(),
  *			and hat_devload().
  *
  *	HAT_LOAD_NOCONSIST Do not add mapping to page_t mapping list.
@@ -4308,7 +4308,7 @@ hat_mempte_remap(
 /*
  * Hat locking functions
  * XXX - these two functions are currently being used by hatstats
- * 	they can be removed by using a per-as mutex for hatstats.
+ *	they can be removed by using a per-as mutex for hatstats.
  */
 void
 hat_enter(hat_t *hat)

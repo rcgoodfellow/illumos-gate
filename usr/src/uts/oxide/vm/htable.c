@@ -953,7 +953,7 @@ link_ptp(htable_t *higher, htable_t *new, uintptr_t vaddr)
 	 *
 	 * We also need to do this for the kernel hat on PAE 32 bit kernel.
 	 */
-	if (higher->ht_flags & HTABLE_COPIED)
+	if ((higher->ht_flags & HTABLE_COPIED) != 0)
 		hat_tlb_inval(higher->ht_hat, DEMAP_ALL_ADDR);
 }
 

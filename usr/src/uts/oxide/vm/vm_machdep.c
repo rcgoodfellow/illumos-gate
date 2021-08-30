@@ -773,8 +773,9 @@ map_addr_proc(
 			slen = p->p_usrstack - base -
 			    ((p->p_stk_ctl + PAGEOFFSET) & PAGEMASK);
 		}
-	} else
+	} else {
 		slen = userlimit - base;
+	}
 
 	/* Make len be a multiple of PAGESIZE */
 	len = (len + PAGEOFFSET) & PAGEMASK;

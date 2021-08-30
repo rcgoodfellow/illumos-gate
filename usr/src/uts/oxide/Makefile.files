@@ -107,7 +107,6 @@ CORE_OBJS +=			\
 	ppage.o			\
 	pwrnow.o		\
 	smt.o			\
-	seg_vmm.o		\
 	ssp.o			\
 	startup.o		\
 	stubs.o			\
@@ -186,7 +185,9 @@ VMM_OBJS += vmm.o \
 	vmcb.o \
 	svm_support.o \
 	amdv.o \
-	gipt.o \
+	vmm_gpt.o \
+	seg_vmm.o \
+	vmm_reservoir.o \
 	vmm_sol_vm.o \
 	vmm_sol_glue.o \
 	vmm_sol_ept.o \

@@ -5247,13 +5247,6 @@ cpuid_get_cores_per_compunit(cpu_t *cpu)
 	return (cpu->cpu_m.mcpu_cpi->cpi_cores_per_compunit);
 }
 
-/*ARGSUSED*/
-int
-cpuid_have_cr8access(cpu_t *cpu)
-{
-	return (1);
-}
-
 uint32_t
 cpuid_get_apicid(cpu_t *cpu)
 {

@@ -267,7 +267,7 @@
  *
  * Check to make sure that we are returning to user land and that CR0.TS
  * is not set. This is required as part of the eager FPU (see
- * uts/intel/ia32/os/fpu.c for more information).
+ * uts/intel/os/fpu.c for more information).
  */
 
 #if defined(DEBUG)
