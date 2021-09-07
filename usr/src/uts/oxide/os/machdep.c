@@ -941,8 +941,6 @@ boot_virt_alloc(void *addr, size_t size)
 	return (addr);
 }
 
-volatile unsigned long	tenmicrodata;
-
 void
 tenmicrosec(void)
 {
@@ -956,13 +954,7 @@ tenmicrosec(void)
 			end = gethrtime();
 		}
 	} else {
-		int i;
-
-		/*
-		 * Artificial loop to induce delay.
-		 */
-		for (i = 0; i < microdata; i++)
-			tenmicrodata = microdata;
+		panic("TSC was not calibrated!");
 	}
 }
 

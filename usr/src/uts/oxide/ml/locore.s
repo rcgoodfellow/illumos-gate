@@ -526,7 +526,7 @@ _sys_rtt_end:
 	 * believe the amd64 tsc is more reliable, could this code be
 	 * simpler?
 	 */
-	ENTRY_NP(freq_tsc)
+	ENTRY_NP(freq_tsc_pit)
 	pushq	%rbp
 	movq	%rsp, %rbp
 	movq	%rdi, %r9	/* save pit_counter */
@@ -724,5 +724,5 @@ freq_tsc_end:
 	popq	%rbx
 	leaveq
 	ret
-	SET_SIZE(freq_tsc)
+	SET_SIZE(freq_tsc_pit)
 

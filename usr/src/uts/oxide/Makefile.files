@@ -113,6 +113,7 @@ CORE_OBJS +=			\
 	timestamp.o		\
 	todpc_subr.o		\
 	trap.o			\
+	tscc_pit.o		\
 	turbo.o			\
 	vm_machdep.o		\
 	x_call.o

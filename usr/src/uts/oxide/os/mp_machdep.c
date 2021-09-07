@@ -25,7 +25,7 @@
 /*
  * Copyright (c) 2009-2010, Intel Corporation.
  * All rights reserved.
- * Copyright 2018 Joyent, Inc.
+ * Copyright 2020 Joyent, Inc.
  * Copyright 2020 Oxide Computer Company
  */
 
@@ -62,6 +62,7 @@
 #include <sys/sunndi.h>
 #include <sys/cpc_pcbe.h>
 #include <sys/prom_debug.h>
+#include <sys/tsc.h>
 
 
 #define	OFFSETOF(s, m)		(size_t)(&(((s *)0)->m))
@@ -98,7 +99,6 @@ static int mach_cpu_create_devinfo(cpu_t *cp, dev_info_t **dipp);
  *	External reference functions
  */
 extern void return_instr();
-extern uint64_t freq_tsc(uint32_t *);
 extern void pc_gethrestime(timestruc_t *);
 extern int cpuid_get_coreid(cpu_t *);
 extern int cpuid_get_chipid(cpu_t *);
@@ -1204,24 +1204,7 @@ mach_calchz(uint32_t pit_counter, uint64_t *processor_clks)
 static uint64_t
 mach_getcpufreq(void)
 {
-	uint32_t pit_counter;
-	uint64_t processor_clks;
-
-	if (is_x86_feature(x86_featureset, X86FSET_TSC)) {
-		/*
-		 * We have a TSC. freq_tsc() knows how to measure the number
-		 * of clock cycles sampled against the PIT.
-		 */
-		ulong_t flags = clear_int_flag();
-		processor_clks = freq_tsc(&pit_counter);
-		restore_int_flag(flags);
-		return (mach_calchz(pit_counter, &processor_clks));
-	} else if (x86_vendor == X86_VENDOR_Cyrix || x86_type == X86_TYPE_P5) {
-		panic("mach_getcpufreq: no TSC!");
-	}
-
-	/* We do not know how to calculate cpu frequency for this cpu. */
-	return (0);
+	return (tsc_get_freq());
 }
 
 /*
@@ -1366,18 +1349,10 @@ mach_clkinit(int preferred_mode, int *set_mode)
 
 	cpu_freq = machhztomhz(cpu_freq_hz);
 
-	if (!is_x86_feature(x86_featureset, X86FSET_TSC) || (cpu_freq == 0))
-		tsc_gethrtime_enable = 0;
-
-	if (tsc_gethrtime_enable) {
-		tsc_hrtimeinit(cpu_freq_hz);
-	} else {
-		if (pops->psm_hrtimeinit)
-			(*pops->psm_hrtimeinit)();
-		gethrtimef = pops->psm_gethrtime;
-		gethrtimeunscaledf = gethrtimef;
-		/* scalehrtimef will remain dummy */
-	}
+	/*
+	 * For most systems, we retain the default TSC-based gethrtime()
+	 * implementation that was initialized early in the boot process.
+	 */
 
 	mach_fixcpufreq();
 

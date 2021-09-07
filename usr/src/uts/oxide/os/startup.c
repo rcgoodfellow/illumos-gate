@@ -23,7 +23,7 @@
  * Copyright (c) 1993, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
  * Copyright 2017 Nexenta Systems, Inc.
- * Copyright (c) 2018 Joyent, Inc.
+ * Copyright (c) 2020 Joyent, Inc.
  * Copyright (c) 2015 by Delphix. All rights reserved.
  * Copyright 2020 Oxide Computer Company
  * Copyright (c) 2020 Carlos Neira <cneirabustos@gmail.com>
@@ -127,6 +127,8 @@
 #include <sys/systeminfo.h>
 #include <sys/multiboot.h>
 #include <sys/ramdisk.h>
+#include <sys/tsc.h>
+#include <sys/clock.h>
 #include <sys/boot_data.h>
 
 #include <sys/memlist_impl.h>
@@ -160,6 +162,7 @@ static void startup_memlist(void);
 static void startup_kmem(void);
 static void startup_modules(void);
 static void startup_vm(void);
+static void startup_tsc(void);
 static void startup_end(void);
 static void layout_kernel_va(void);
 
@@ -653,6 +656,16 @@ startup(void)
 	startup_memlist();
 	startup_kmem();
 	startup_vm();
+	/*
+	 * Up until this point, we cannot use any time delay functions
+	 * (e.g. tenmicrosec()). Once the TSC is setup, we can. This is
+	 * purposely done after the VM system as been setup to allow
+	 * calibration sources which might require mapping for access
+	 * (e.g. the HPET), but still early enough to allow the rest of
+	 * the startup code to make use of the TSC (via tenmicrosec() or
+	 * the default TSC-based gethrtime()) as required.
+	 */
+	startup_tsc();
 #if 0 /* XXX replacement? */
 	/*
 	 * Note we need to do this even on fast reboot in order to access
@@ -1357,14 +1370,6 @@ startup_modules(void)
 
 	PRM_POINT("startup_modules() starting...");
 
-	/*
-	 * Initialize ten-micro second timer so that drivers will
-	 * not get short changed in their init phase. This was
-	 * not getting called until clkinit which, on fast cpu's
-	 * caused the drv_usecwait to be way too short.
-	 */
-	microfind();
-
 	if ((get_hwenv() & HW_XEN_HVM) != 0)
 		update_default_path();
 
@@ -1835,6 +1840,19 @@ load_tod_module(char *todmod)
 {
 	if (modload("tod", todmod) == -1)
 		halt("Can't load TOD module");
+}
+
+static void
+startup_tsc(void)
+{
+	uint64_t tsc_freq;
+
+	PRM_POINT("startup_tsc() starting...");
+
+	tsc_freq = tsc_calibrate();
+	PRM_DEBUG(tsc_freq);
+
+	tsc_hrtimeinit(tsc_freq);
 }
 
 static void
