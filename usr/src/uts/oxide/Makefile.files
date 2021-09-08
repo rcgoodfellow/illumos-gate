@@ -87,7 +87,6 @@ CORE_OBJS +=			\
 	memlist_new.o		\
 	memnode.o		\
 	microcode.o		\
-	microfind.o		\
 	mlsetup.o		\
 	mp_call.o		\
 	mp_implfuncs.o		\
