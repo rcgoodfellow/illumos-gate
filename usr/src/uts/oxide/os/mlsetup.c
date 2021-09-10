@@ -57,7 +57,6 @@
 #include <sys/machsystm.h>
 #include <sys/ontrap.h>
 #include <sys/bootconf.h>
-#include <sys/boot_console.h>
 #include <sys/kdi_machimpl.h>
 #include <sys/archsystm.h>
 #include <sys/promif.h>

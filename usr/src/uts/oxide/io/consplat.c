@@ -39,7 +39,6 @@
 #include <sys/ddi_impldefs.h>
 #include <sys/promif.h>
 #include <sys/modctl.h>
-#include <sys/boot_console.h>
 
 extern int pseudo_isa;
 

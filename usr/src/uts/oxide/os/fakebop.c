@@ -26,13 +26,15 @@
  * Copyright (c) 2010, Intel Corporation.
  * All rights reserved.
  *
+ * Copyright (c) 2012 Gary Mills
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Co.
  */
 
 /*
  * This file contains the functionality that mimics the boot operations
  * on SPARC systems or the old boot.bin/multiboot programs on x86 systems.
- * The x86 kernel now does everything on its own.
+ * The x86 kernels now do everything on their own.
  */
 
 #include <sys/types.h>
@@ -46,7 +48,6 @@
 #include <sys/machparam.h>
 #include <sys/machsystm.h>
 #include <sys/archsystm.h>
-#include <sys/boot_console.h>
 #include <sys/cmn_err.h>
 #include <sys/systm.h>
 #include <sys/promif.h>
@@ -64,6 +65,7 @@
 #include <sys/ddipropdefs.h>	/* For DDI prop types */
 #include <sys/boot_data.h>
 #include <sys/dw_apb_uart.h>
+#include <sys/uart.h>
 
 /*
  * Debugging macros - XXX clean this up and make it shared; this is replicated
@@ -110,6 +112,41 @@ static ulong_t total_bop_alloc_kernel = 0;
  * Not used here, but required by the openprom driver.
  */
 char saved_cmdline[1] = "";
+
+static uintptr_t dw_apb_uart_hdl;
+
+void
+bcons_init(void)
+{
+	dw_apb_uart_hdl = dw_apb_uart_init(DAP_0, 3000000,
+		AD_8BITS, AP_NONE, AS_1BIT);
+}
+
+static void
+_doputchar(int c)
+{
+	dw_apb_uart_tx(dw_apb_uart_hdl, (uint8_t *)(&c), 1);
+}
+
+void
+bcons_putchar(int c)
+{
+	if (c == '\n')
+		_doputchar('\r');
+	_doputchar(c);
+}
+
+int
+bcons_getchar(void)
+{
+	return (int)(dw_apb_uart_rx_one(dw_apb_uart_hdl));
+}
+
+int
+bcons_ischar(void)
+{
+	return dw_apb_uart_dr(dw_apb_uart_hdl);
+}
 
 /*
  * Allocate aligned physical memory at boot time. This allocator allocates

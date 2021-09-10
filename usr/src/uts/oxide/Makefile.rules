@@ -181,10 +181,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/os/cpupm/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/boot/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/vm/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -218,10 +214,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/xsvc/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/xen/os/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/dboot/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
