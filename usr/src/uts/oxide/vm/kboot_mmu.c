@@ -24,6 +24,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Co.
  */
 
 #include <sys/types.h>
@@ -41,6 +42,7 @@
 #include <sys/promif.h>
 #include <sys/kobj.h>
 #include <sys/mach_mmu.h>
+#include <sys/boot_debug.h>
 #include <vm/kboot_mmu.h>
 #include <vm/hat_pte.h>
 #include <vm/hat_i86.h>
@@ -53,13 +55,6 @@ static uint_t pte_size = 8;
 static uint32_t lpagesize = TWO_MEG;
 static paddr_t top_page_table = 0;
 static uint_t top_level = 3;
-
-extern uint_t kbm_debug;
-#define	DBG_MSG(s)	{ if (kbm_debug) bop_printf(NULL, "%s", s); }
-#define	DBG(x)		{ if (kbm_debug)			\
-	bop_printf(NULL, __FILE__ ": %s is %" PRIx64 "\n", \
-	    #x, (uint64_t)(x));	\
-	}
 
 /*
  * Page table and memory stuff.
@@ -140,9 +135,7 @@ kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
 	if (khat_running)
 		panic("kbm_map() called too late");
 
-	if (kbm_debug)
-		bop_printf(NULL, "kbm_map(%lx, %lx, %x, %x)\n",
-		    va, pa, level, is_kernel);
+	DBG_MSG("kbm_map(%lx, %lx, %x, %x)\n", va, pa, level, is_kernel);
 
 	pteval = pa | PT_NOCONSIST | PT_VALID | PT_WRITABLE;
 	if (level >= 1)

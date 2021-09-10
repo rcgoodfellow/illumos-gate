@@ -66,24 +66,20 @@
 #include <sys/boot_data.h>
 #include <sys/dw_apb_uart.h>
 #include <sys/uart.h>
+#include <sys/boot_debug.h>
 
 /*
- * Debugging macros - XXX clean this up and make it shared; this is replicated
- * in kboot_mmu.c and maybe other places.
+ * Comes from fs/ufsops.c.  For debugging the ramdisk/root fs operations.  Set
+ * by the existence of the boot property of the same name.
  */
-uint_t kbm_debug = 0;
-#define	DBG_MSG(s)	{ if (kbm_debug) bop_printf(NULL, "%s", s); }
-#define	DBG(x)		{ if (kbm_debug)			\
-	bop_printf(NULL, "%s is %" PRIx64 "\n", #x, (uint64_t)(x));	\
-	}
-
-#define	PUT_STRING(s) {				\
-	char *cp;				\
-	for (cp = (s); *cp; ++cp)		\
-		bcons_putchar(*cp);		\
-	}
-
 extern int bootrd_debug;
+
+/*
+ * General early boot (pre-kobj, pre-prom_printf) debug flag.  Set by the
+ * existence of the boot property of the same name.
+ */
+boolean_t kbm_debug = 0;
+
 static bootops_t bootop;
 static struct bsys_mem bm;
 static const bt_prop_t *bt_props;
@@ -95,12 +91,6 @@ static uintptr_t next_virt = (uintptr_t)MMU_PAGESIZE * 2;
 static paddr_t next_phys = 0;	/* next available physical address */
 static paddr_t high_phys = -(paddr_t)1;	/* lowest allocated address */
 struct memlist first_memlist;
-
-/*
- * buffer for vsnprintf for console I/O
- */
-#define	BUFFERSIZE	512
-static char buffer[BUFFERSIZE];
 
 /*
  * some allocator statistics
@@ -115,7 +105,7 @@ char saved_cmdline[1] = "";
 
 static uintptr_t dw_apb_uart_hdl;
 
-void
+static void
 bcons_init(void)
 {
 	dw_apb_uart_hdl = dw_apb_uart_init(DAP_0, 3000000,
@@ -123,29 +113,51 @@ bcons_init(void)
 }
 
 static void
-_doputchar(int c)
-{
-	dw_apb_uart_tx(dw_apb_uart_hdl, (uint8_t *)(&c), 1);
-}
-
-void
 bcons_putchar(int c)
 {
-	if (c == '\n')
-		_doputchar('\r');
-	_doputchar(c);
+	static const uint8_t CR = '\r';
+	uint8_t ch = (uint8_t)(c);
+
+	if (ch == '\n')
+		dw_apb_uart_tx(dw_apb_uart_hdl, &CR, 1);
+	dw_apb_uart_tx(dw_apb_uart_hdl, &ch, 1);
 }
 
-int
+static int
 bcons_getchar(void)
 {
 	return (int)(dw_apb_uart_rx_one(dw_apb_uart_hdl));
 }
 
-int
+static int
 bcons_ischar(void)
 {
 	return dw_apb_uart_dr(dw_apb_uart_hdl);
+}
+
+void
+kbm_debug_printf(const char *file, int line, const char *fmt, ...)
+{
+	/*
+	 * This use of a static is safe because we are always single-threaded
+	 * when this code is running.
+	 */
+	static boolean_t continuation = 0;
+	size_t fmtlen = strlen(fmt);
+	boolean_t is_end = (fmt[fmtlen - 1] == '\n');
+	va_list ap;
+
+	if (!kbm_debug)
+		return;
+
+	if (!continuation)
+		bop_printf(NULL, "%s:%d: ", file, line);
+
+	va_start(ap, fmt);
+	vbop_printf(NULL, fmt, ap);
+	va_end(ap);
+
+	continuation = !is_end;
 }
 
 /*
@@ -245,8 +257,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	 */
 	pa = do_bop_phys_alloc(size, a);
 
-	if (kbm_debug)
-		bop_printf(NULL, "bsys_alloc: alloc sz %lx pa %lx for va %p...",
+	DBG_MSG("bsys_alloc: alloc sz %lx pa %lx for va %p...",
 		    size, pa, virthint);
 
 	/*
@@ -278,9 +289,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 		s -= pgsize;
 	}
 
-	if (kbm_debug)
-		bop_printf(NULL, "done (%p -> %lx @ %lx)\n",
-		    virthint, size, pa);
+	DBG_MSG("done (%p -> %lx @ %lx)\n", virthint, size, pa);
 
 	if (kbm_debug && is_kernel) {
 		extern void dump_tables(void);
@@ -544,8 +553,12 @@ read_bootenvrc(void)
 void
 vbop_printf(void *ptr, const char *fmt, va_list ap)
 {
-	(void) vsnprintf(buffer, BUFFERSIZE, fmt, ap);
-	PUT_STRING(buffer);
+	const char *cp;
+	static char buffer[512];
+
+	(void) vsnprintf(buffer, sizeof(buffer), fmt, ap);
+	for (cp = buffer; *cp != '\0'; ++cp)
+		bcons_putchar(*cp);
 }
 
 /*PRINTFLIKE2*/
@@ -787,8 +800,7 @@ _start(const bt_discovery_t *btdp)
 	bt_props = btdp->btd_prop_list;
 	bcons_init();
 
-	if (find_bt_prop("kbm_debug", 0) != NULL)
-		kbm_debug = 1;
+	kbm_debug = (find_bt_prop("kbm_debug", 0) != NULL);
 
 	if (find_bt_prop("bootrd_debug", 0) != NULL)
 		bootrd_debug = 1;
