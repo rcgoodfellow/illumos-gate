@@ -76,7 +76,6 @@
  * Platform drivers on this platform
  */
 char *platform_module_list[] = {
-	"acpippm",
 	"ppm",
 	(char *)0
 };
@@ -1808,8 +1807,7 @@ get_boot_properties(void)
 		copy_boot_str(name, property_name, 50);
 
 		/*
-		 * Skip vga properties. They will be picked up later
-		 * by get_vga_properties.
+		 * Skip vga properties; we ignore them entirely.
 		 */
 		if (strcmp(property_name, "display-edif-block") == 0 ||
 		    strcmp(property_name, "display-edif-id") == 0) {
@@ -1847,12 +1845,6 @@ get_boot_properties(void)
 		if (strcmp(name, "si-hw-provider") == 0) {
 			(void) strncpy(hw_provider, bop_staging_area, SYS_NMLN);
 			hw_provider[SYS_NMLN - 1] = '\0';
-			continue;
-		}
-		if (strcmp(name, "bios-boot-device") == 0) {
-			copy_boot_str(bop_staging_area, property_val, 50);
-			(void) ndi_prop_update_string(DDI_DEV_T_NONE, devi,
-			    property_name, property_val);
 			continue;
 		}
 		if (strcmp(name, "stdout") == 0) {
@@ -1907,71 +1899,6 @@ get_boot_properties(void)
 			    DDI_PROP_CANSLEEP, property_name, bop_staging_area,
 			    length);
 		}
-	}
-
-	kmem_free(bop_staging_area, MMU_PAGESIZE);
-}
-
-static void
-get_vga_properties(void)
-{
-	dev_info_t *devi;
-	major_t major;
-	char *name;
-	int length;
-	char property_val[50];
-	void *bop_staging_area;
-
-	/*
-	 * XXXX Hack Allert!
-	 * There really needs to be a better way for identifying various
-	 * console framebuffers and their related issues.  Till then,
-	 * check for this one as a replacement to vgatext.
-	 */
-	major = ddi_name_to_major("ragexl");
-	if (major == (major_t)-1) {
-		major = ddi_name_to_major("vgatext");
-		if (major == (major_t)-1)
-			return;
-	}
-	devi = devnamesp[major].dn_head;
-	if (devi == NULL)
-		return;
-
-	bop_staging_area = kmem_zalloc(MMU_PAGESIZE, KM_SLEEP);
-
-	/*
-	 * Import "vga" properties from the boot.
-	 */
-	name = "display-edif-block";
-	length = BOP_GETPROPLEN(bootops, name);
-	if (length > 0 && length < MMU_PAGESIZE) {
-		BOP_GETPROP(bootops, name, bop_staging_area);
-		(void) ndi_prop_update_byte_array(DDI_DEV_T_NONE,
-		    devi, name, bop_staging_area, length);
-	}
-
-	/*
-	 * kdmconfig is also looking for display-type and
-	 * video-adapter-type. We default to color and svga.
-	 *
-	 * Could it be "monochrome", "vga"?
-	 * Nah, you've got to come to the 21st century...
-	 * And you can set monitor type manually in kdmconfig
-	 * if you are really an old junky.
-	 */
-	(void) ndi_prop_update_string(DDI_DEV_T_NONE,
-	    devi, "display-type", "color");
-	(void) ndi_prop_update_string(DDI_DEV_T_NONE,
-	    devi, "video-adapter-type", "svga");
-
-	name = "display-edif-id";
-	length = BOP_GETPROPLEN(bootops, name);
-	if (length > 0 && length < MMU_PAGESIZE) {
-		BOP_GETPROP(bootops, name, bop_staging_area);
-		copy_boot_str(bop_staging_area, property_val, length);
-		(void) ndi_prop_update_string(DDI_DEV_T_NONE,
-		    devi, name, property_val);
 	}
 
 	kmem_free(bop_staging_area, MMU_PAGESIZE);
@@ -2600,12 +2527,12 @@ impl_bus_initialprobe(void)
 {
 	struct bus_probe *probe;
 
+#if 0	/* XXXBOOT likely just delete */
 	/* load modules to install bus probes */
 	if (modload("misc", "pci_autoconfig") < 0) {
 		panic("failed to load misc/pci_autoconfig");
 	}
 
-#if 0	/* XXXBOOT likely just delete */
 	(void) modload("misc", "acpidev");
 
 	if (modload("drv", "isa") < 0)

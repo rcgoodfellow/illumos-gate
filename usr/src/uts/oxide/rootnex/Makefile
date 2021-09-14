@@ -51,10 +51,7 @@ include $(UTSBASE)/oxide/Makefile.oxide
 ALL_TARGET	= $(BINARY) $(SRC_CONFILE)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 
-#
-# Define dependencies on iommulib and acpica
-#
-LDFLAGS		+= -dy -N misc/iommulib -N misc/acpica
+LDFLAGS		+= -dy -N misc/iommulib
 
 #
 # For now, disable these checks; maintainers should endeavor

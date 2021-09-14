@@ -68,7 +68,6 @@
 #include <sys/ddifm.h>
 #include <sys/ddi_isa.h>
 #include <sys/apic.h>
-#include <sys/immu.h>
 
 /*
  * enable/disable extra checking of function parameters. Useful for debugging
@@ -430,9 +429,8 @@ rootnex_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 
 	switch (cmd) {
 	case DDI_ATTACH:
-		break;
 	case DDI_RESUME:
-		return (immu_unquiesce());
+		break;
 	default:
 		return (DDI_FAILURE);
 	}
@@ -496,7 +494,7 @@ rootnex_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 {
 	switch (cmd) {
 	case DDI_SUSPEND:
-		return (immu_quiesce());
+		return (DDI_SUCCESS);
 	default:
 		return (DDI_FAILURE);
 	}
@@ -4684,5 +4682,25 @@ rootnex_dma_check(dev_info_t *dip, const void *handle, const void *addr,
 static int
 rootnex_quiesce(dev_info_t *dip)
 {
-	return (immu_quiesce());
+	return (DDI_SUCCESS);
+}
+
+/*
+ * XXX Stubs required because the "generic" x86 modstubs assume that rootnex
+ * always supports/provides an Intel MMU implementation.  We don't support any
+ * Intel processors so we don't have that; without these, rootnex can't be
+ * loaded properly.
+ */
+void
+immu_init(void)
+{
+}
+
+void immu_startup(void)
+{
+}
+
+void
+immu_physmem_update(uint64_t addr, uint64_t size)
+{
 }
