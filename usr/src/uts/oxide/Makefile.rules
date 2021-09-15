@@ -65,22 +65,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:                $(UTSBASE)/oxide/io/acpi_drv/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/fipe/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/acpi/acpidev/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/acpi/acpinex/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 SBD_IOCTL	= $(UTSBASE)/oxide/sys/sbd_ioctl.h
 DRMACH_IO	= $(UTSBASE)/oxide/io/acpi/drmach_acpi
 DRMACH_GENERR	= $(DRMACH_IO)/sbdgenerr
@@ -117,10 +101,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/dr/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/ioat/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/imc/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -141,13 +121,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/pciex/hotplug/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/pcplusmp/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/pcplusmp/%.s
-	$(COMPILE.s) -o $@ $<
-
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/apix/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -158,17 +131,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/ppm/%.c
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/ppm/%.s
 	$(COMPILE.s) -o $@ $<
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/psm/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/psm/%.s
-	$(COMPILE.s) -o $@ $<
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/tzmon/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/ml/%.s
 	$(COMPILE.s) -o $@ $<
@@ -202,18 +164,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/os/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(SRC)/common/dis/i386/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/gfx_private/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/xsvc/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/common/xen/os/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 

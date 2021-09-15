@@ -1332,34 +1332,6 @@ startup_kmem(void)
 	PRM_POINT("startup_kmem() done");
 }
 
-/*
- * If we have detected that we are running in an HVM environment, we need
- * to prepend the PV driver directory to the module search path.
- */
-#define	HVM_MOD_DIR "/platform/i86hvm/kernel"
-static void
-update_default_path()
-{
-	char *current, *newpath;
-	int newlen;
-
-	/*
-	 * We are about to resync with krtld.  krtld will reset its
-	 * internal module search path iff illumos has set default_path.
-	 * We want to be sure we're prepending this new directory to the
-	 * right search path.
-	 */
-	current = (default_path == NULL) ? kobj_module_path : default_path;
-
-	newlen = strlen(HVM_MOD_DIR) + strlen(current) + 2;
-	newpath = kmem_alloc(newlen, KM_SLEEP);
-	(void) strcpy(newpath, HVM_MOD_DIR);
-	(void) strcat(newpath, " ");
-	(void) strcat(newpath, current);
-
-	default_path = newpath;
-}
-
 static void
 startup_modules(void)
 {
@@ -1369,9 +1341,6 @@ startup_modules(void)
 	cmi_hdl_t hdl;
 
 	PRM_POINT("startup_modules() starting...");
-
-	if ((get_hwenv() & HW_XEN_HVM) != 0)
-		update_default_path();
 
 	/*
 	 * Read the GMT lag from /etc/rtc_config.

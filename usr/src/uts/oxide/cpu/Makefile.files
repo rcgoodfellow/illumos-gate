@@ -26,6 +26,3 @@ CPU_GCPU_OBJS = \
 	gcpu_mca.o \
 	gcpu_poll_ntv.o \
 	gcpu_poll_subr.o
-
-CPU_AUTHAMD_OBJS = \
-	authamd_main.o

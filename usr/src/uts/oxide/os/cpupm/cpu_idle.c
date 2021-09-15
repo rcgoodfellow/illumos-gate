@@ -34,8 +34,6 @@
 #include <sys/machsystm.h>
 #include <sys/x_call.h>
 #include <sys/stat.h>
-#include <sys/acpi/acpi.h>
-#include <sys/acpica.h>
 #include <sys/cpu_acpi.h>
 #include <sys/cpu_idle.h>
 #include <sys/cpupm.h>

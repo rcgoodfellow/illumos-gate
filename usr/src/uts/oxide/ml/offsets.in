@@ -60,8 +60,6 @@
 #include <sys/lgrp.h>
 #include <sys/dtrace.h>
 #include <sys/brand.h>
-#include <sys/fastboot.h>
-#include <sys/cpr_wakecode.h>
 #include <sys/comm_page.h>
 
 proc		PROCSIZE
@@ -420,83 +418,7 @@ brand
 brand_proc_data_t
 	spd_handler
 
-fastboot_file_t
-	fb_va
-	fb_pte_list_va
-	fb_pte_list_pa
-	fb_dest_pa
-	fb_size
-	fb_next_pa
-	fb_sections
-	fb_sectcnt
-
-fastboot_section_t
-	fb_sec_offset
-	fb_sec_paddr
-	fb_sec_size
-	fb_sec_bss_size
-
-fastboot_info_t
-	fi_files
-	fi_has_pae
-	fi_pagetable_va
-	fi_pagetable_pa
-	fi_last_table_pa
-	fi_new_mbi_pa
-	fi_valid
-
 zone
 	zone_brand_data
-
-wc_cpu	WC_CPU_SIZE
-	wc_retaddr
-	wc_virtaddr
-	wc_cr0
-	wc_cr3
-	wc_cr4
-	wc_cr8
-	wc_fs
-	wc_fsbase
-	wc_gs
-	wc_gsbase
-	wc_kgsbase
-	wc_r8
-	wc_r9
-	wc_r10
-	wc_r11
-	wc_r12
-	wc_r13
-	wc_r14
-	wc_r15
-	wc_rax
-	wc_rbp
-	wc_rbx
-	wc_rcx
-	wc_rdi
-	wc_rdx
-	wc_rsi
-	wc_rsp
-	wc_gdt_limit	WC_GDT
-	wc_gdt_base
-	wc_idt_limit	WC_IDT
-	wc_idt_base
-	wc_tr
-	wc_ldt
-	wc_eflags
-	wc_ebx
-	wc_edi
-	wc_esi
-	wc_ebp
-	wc_esp
-	wc_esp
-	wc_ss
-	wc_cs
-	wc_ds
-	wc_es
-	wc_cpu_id
-	wc_saved_stack
-
-wc_wakecode
-	wc_cpu
 
 comm_page_s	COMM_PAGE_S_SIZE

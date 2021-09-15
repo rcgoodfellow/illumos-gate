@@ -38,14 +38,12 @@ include ../Makefile.oxide
 FILEMODE = 644
 
 HDRS=  \
-	acpidev.h	\
 	amd_iommu.h	\
 	asm_misc.h	\
 	clock.h		\
 	cram.h		\
 	ddi_subrdefs.h	\
 	debug_info.h	\
-	fastboot.h	\
 	hma.h		\
 	mach_mmu.h	\
 	machclock.h	\
@@ -65,8 +63,7 @@ HDRS=  \
 	smt.h		\
 	vm_machparam.h	\
 	x_call.h	\
-	xc_levels.h	\
-	xsvc.h
+	xc_levels.h
 
 ROOTHDRS=	$(HDRS:%=$(USR_PSM_ISYS_DIR)/%)
 

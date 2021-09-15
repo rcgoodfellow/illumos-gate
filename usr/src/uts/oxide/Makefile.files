@@ -129,14 +129,10 @@ SPECIAL_OBJS +=			\
 	syscall_asm_amd64.o	\
 	kpti_trampolines.o
 
-IOAT_OBJS += ioat.o ioat_rs.o ioat_ioctl.o ioat_chan.o
 PCIE_MISC_OBJS += pcie_acpi.o pciehpc_acpi.o pcie_x86.o
 PCI_E_NEXUS_OBJS += npe.o npe_misc.o
 PCI_E_NEXUS_OBJS += pci_common.o pci_kstats.o pci_tools.o
 PCINEXUS_OBJS += pci.o pci_common.o pci_kstats.o pci_tools.o
-PCPLUSMP_OBJS += apic.o apic_regops.o psm_common.o apic_introp.o	\
-			mp_platform_common.o mp_platform_misc.o		\
-			hpet_acpi.o apic_common.o apic_timer.o
 APIX_OBJS += apix.o apic_regops.o psm_common.o apix_intr.o apix_utils.o \
 		apix_irm.o mp_platform_common.o hpet_acpi.o apic_common.o \
 		apic_timer.o apix_regops.o
@@ -229,10 +225,7 @@ ASSYM_DEPS      +=		\
 	sseblk.o		\
 	swtch.o			\
 	syscall_asm_amd64.o	\
-	kpti_trampolines.o	\
-	cpr_wakecode.o
-
-CPR_IMPL_OBJS	= cpr_impl.o	cpr_wakecode.o
+	kpti_trampolines.o
 
 $(KDI_ASSYM_DEPS:%=$(OBJS_DIR)/%):	$(DSF_DIR)/$(OBJS_DIR)/kdi_assym.h
 

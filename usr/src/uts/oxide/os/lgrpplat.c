@@ -181,14 +181,6 @@
 #include <vm/seg_kmem.h>
 #include <vm/vm_dep.h>
 
-#include <sys/acpidev.h>
-#include <sys/acpi/acpi.h>		/* for SRAT, SLIT and MSCT */
-
-/* XXX delete me */
-ACPI_TABLE_SRAT *srat_ptr;
-ACPI_TABLE_SLIT *slit_ptr;
-ACPI_TABLE_MSCT *msct_ptr;
-
 #define	MAX_NODES		8
 #define	NLGRP			(MAX_NODES * (MAX_NODES - 1) + 1)
 
@@ -325,16 +317,6 @@ static lgrp_plat_probe_mem_config_t	lgrp_plat_probe_mem_config;
 static uint32_t				lgrp_plat_prox_domain_min = UINT32_MAX;
 
 /*
- * Error code from processing ACPI SRAT
- */
-static int				lgrp_plat_srat_error = 0;
-
-/*
- * Error code from processing ACPI SLIT
- */
-static int				lgrp_plat_slit_error = 0;
-
-/*
  * Whether lgrp topology has been flattened to 2 levels.
  */
 static int				lgrp_plat_topo_flatten = 0;
@@ -381,14 +363,6 @@ uint_t			lgrp_plat_probe_flags = 0;
 int			lgrp_plat_probe_nrounds = LGRP_PLAT_PROBE_NROUNDS;
 int			lgrp_plat_probe_nsamples = LGRP_PLAT_PROBE_NSAMPLES;
 int			lgrp_plat_probe_nreads = LGRP_PLAT_PROBE_NREADS;
-
-/*
- * Enable use of ACPI System Resource Affinity Table (SRAT), System
- * Locality Information Table (SLIT) and Maximum System Capability Table (MSCT)
- */
-int			lgrp_plat_srat_enable = 1;
-int			lgrp_plat_slit_enable = 1;
-int			lgrp_plat_msct_enable = 1;
 
 /*
  * mnode_xwa: set to non-zero value to initiate workaround if large pages are
@@ -445,8 +419,6 @@ lgrp_handle_t	lgrp_plat_root_hand(void);
 /*
  * Forward declarations of local routines
  */
-static int	is_opteron(void);
-
 static int	lgrp_plat_cpu_node_update(node_domain_map_t *node_domain,
     int node_cnt, cpu_node_map_t *cpu_node, int nentries, uint32_t apicid,
     uint32_t domain);
@@ -487,27 +459,7 @@ static hrtime_t	lgrp_plat_probe_time(int to, cpu_node_map_t *cpu_node,
 
 static int	lgrp_plat_process_cpu_apicids(cpu_node_map_t *cpu_node);
 
-static int	lgrp_plat_process_slit(ACPI_TABLE_SLIT *tp,
-    node_domain_map_t *node_domain, uint_t node_cnt,
-    memnode_phys_addr_map_t *memnode_info,
-    lgrp_plat_latency_stats_t *lat_stats);
-
-static int	lgrp_plat_process_sli(uint32_t domain, uchar_t *sli_info,
-    uint32_t sli_cnt, node_domain_map_t *node_domain, uint_t node_cnt,
-    lgrp_plat_latency_stats_t *lat_stats);
-
-static int	lgrp_plat_process_srat(ACPI_TABLE_SRAT *tp, ACPI_TABLE_MSCT *mp,
-    uint32_t *prox_domain_min, node_domain_map_t *node_domain,
-    cpu_node_map_t *cpu_node, int cpu_count,
-    memnode_phys_addr_map_t *memnode_info);
-
 static void	lgrp_plat_release_bootstrap(void);
-
-static int	lgrp_plat_srat_domains(ACPI_TABLE_SRAT *tp,
-    uint32_t *prox_domain_min);
-
-static int	lgrp_plat_msct_domains(ACPI_TABLE_MSCT *tp,
-    uint32_t *prox_domain_min);
 
 static void	lgrp_plat_2level_setup(lgrp_plat_latency_stats_t *lat_stats);
 
@@ -838,17 +790,6 @@ lgrp_plat_config(lgrp_config_flag_t flag, uintptr_t arg)
 			}
 		}
 
-		/* Update latency information among lgrps. */
-		if (slicnt != 0 && sliptr != NULL) {
-			if (lgrp_plat_process_sli(domain, sliptr, slicnt,
-			    lgrp_plat_node_domain, lgrp_plat_node_cnt,
-			    &lgrp_plat_lat_stats) != 0) {
-				cmn_err(CE_WARN, "!lgrp: failed to update "
-				    "latency information for domain (%u).",
-				    domain);
-			}
-		}
-
 		/* Update CPU to node mapping. */
 		lgrp_plat_cpu_node[cp->cpu_id].prox_domain = domain;
 		lgrp_plat_cpu_node[cp->cpu_id].node = node;
@@ -899,18 +840,6 @@ lgrp_plat_config(lgrp_config_flag_t flag, uintptr_t arg)
 	case LGRP_CONFIG_MEM_ADD:
 		mp = (update_membounds_t *)arg;
 		ASSERT(mp != NULL);
-
-		/* Update latency information among lgrps. */
-		if (mp->u_sli_cnt != 0 && mp->u_sli_ptr != NULL) {
-			if (lgrp_plat_process_sli(mp->u_domain,
-			    mp->u_sli_ptr, mp->u_sli_cnt,
-			    lgrp_plat_node_domain, lgrp_plat_node_cnt,
-			    &lgrp_plat_lat_stats) != 0) {
-				cmn_err(CE_WARN, "!lgrp: failed to update "
-				    "latency information for domain (%u).",
-				    domain);
-			}
-		}
 
 		if (lgrp_plat_memnode_info_update(lgrp_plat_node_domain,
 		    lgrp_plat_node_cnt, lgrp_plat_memnode_info, max_mem_nodes,
@@ -968,24 +897,6 @@ lgrp_plat_init(lgrp_init_stages_t stage)
 		 */
 		if (bootprop_getval(BP_LGRP_TOPO_LEVELS, &value) == 0)
 			(void) lgrp_topo_ht_limit_set((int)value);
-
-		/*
-		 * Get boot property for enabling/disabling SRAT
-		 */
-		if (bootprop_getval(BP_LGRP_SRAT_ENABLE, &value) == 0)
-			lgrp_plat_srat_enable = (int)value;
-
-		/*
-		 * Get boot property for enabling/disabling SLIT
-		 */
-		if (bootprop_getval(BP_LGRP_SLIT_ENABLE, &value) == 0)
-			lgrp_plat_slit_enable = (int)value;
-
-		/*
-		 * Get boot property for enabling/disabling MSCT
-		 */
-		if (bootprop_getval(BP_LGRP_MSCT_ENABLE, &value) == 0)
-			lgrp_plat_msct_enable = (int)value;
 
 		/*
 		 * Initialize as a UMA machine
@@ -1238,8 +1149,6 @@ lgrp_plat_probe(void)
 	from = lgrp_plat_cpu_to_node(CPU, lgrp_plat_cpu_node,
 	    lgrp_plat_cpu_node_nentries);
 	ASSERT(from >= 0 && from < lgrp_plat_node_cnt);
-	if (srat_ptr && lgrp_plat_srat_enable && !lgrp_plat_srat_error)
-		ASSERT(lgrp_plat_node_domain[from].exists);
 
 	/*
 	 * Don't need to probe if got times already
@@ -1405,34 +1314,7 @@ static int
 lgrp_plat_cpu_to_node(cpu_t *cp, cpu_node_map_t *cpu_node,
     int cpu_node_nentries)
 {
-	processorid_t	cpuid;
-
-	if (cp == NULL)
-		return (-1);
-
-	cpuid = cp->cpu_id;
-	if (cpuid < 0 || cpuid >= max_ncpus)
-		return (-1);
-
-	/*
-	 * SRAT doesn't exist, isn't enabled, or there was an error processing
-	 * it, so return node ID for Opteron and -1 otherwise.
-	 */
-	if (srat_ptr == NULL || !lgrp_plat_srat_enable ||
-	    lgrp_plat_srat_error) {
-		if (is_opteron())
-			return (pg_plat_hw_instance_id(cp, PGHW_PROCNODE));
-		return (-1);
-	}
-
-	/*
-	 * Return -1 when CPU to node ID mapping entry doesn't exist for given
-	 * CPU
-	 */
-	if (cpuid >= cpu_node_nentries || !cpu_node[cpuid].exists)
-		return (-1);
-
-	return (cpu_node[cpuid].node);
+	return (-1);
 }
 
 
@@ -1513,27 +1395,8 @@ lgrp_plat_get_numa_config(void)
 		 */
 		(void) lgrp_plat_process_cpu_apicids(lgrp_plat_cpu_node);
 
-		retval = lgrp_plat_process_srat(srat_ptr, msct_ptr,
-		    &lgrp_plat_prox_domain_min,
-		    lgrp_plat_node_domain, lgrp_plat_cpu_node,
-		    lgrp_plat_apic_ncpus, lgrp_plat_memnode_info);
-		if (retval <= 0) {
-			lgrp_plat_srat_error = retval;
-			lgrp_plat_node_cnt = 1;
-		} else {
-			lgrp_plat_srat_error = 0;
-			lgrp_plat_node_cnt = retval;
-		}
+		lgrp_plat_node_cnt = 1;
 	}
-
-	/*
-	 * Try to use PCI config space registers on Opteron if there's an error
-	 * processing CPU to APIC ID mapping or SRAT
-	 */
-	if ((lgrp_plat_apic_ncpus <= 0 || lgrp_plat_srat_error != 0) &&
-	    is_opteron())
-		opt_get_numa_config(&lgrp_plat_node_cnt, &lgrp_plat_mem_intrlv,
-		    lgrp_plat_memnode_info);
 
 	/*
 	 * Don't bother to setup system for multiple lgroups and only use one
@@ -1568,15 +1431,6 @@ lgrp_plat_get_numa_config(void)
 	lgrp_plat_lat_stats.latency_max = 0;
 
 	/*
-	 * Determine how far each NUMA node is from each other by
-	 * reading ACPI System Locality Information Table (SLIT) if it
-	 * exists
-	 */
-	lgrp_plat_slit_error = lgrp_plat_process_slit(slit_ptr,
-	    lgrp_plat_node_domain, lgrp_plat_node_cnt, lgrp_plat_memnode_info,
-	    &lgrp_plat_lat_stats);
-
-	/*
 	 * Disable support of CPU/memory DR operations if multiple locality
 	 * domains exist in system and either of following is true.
 	 * 1) Failed to process SLIT table.
@@ -1584,26 +1438,12 @@ lgrp_plat_get_numa_config(void)
 	 */
 	if (lgrp_plat_node_cnt > 1 &&
 	    (plat_dr_support_cpu() || plat_dr_support_memory())) {
-		if (!lgrp_plat_slit_enable || lgrp_plat_slit_error != 0 ||
-		    !lgrp_plat_srat_enable || lgrp_plat_srat_error != 0 ||
-		    lgrp_plat_apic_ncpus <= 0) {
 			cmn_err(CE_CONT,
 			    "?lgrp: failed to process ACPI SRAT/SLIT table, "
 			    "disable support of CPU/memory DR operations.");
 			plat_dr_disable_cpu();
 			plat_dr_disable_memory();
-		} else if (lgrp_plat_probe_flags & LGRP_PLAT_PROBE_ENABLE) {
-			cmn_err(CE_CONT,
-			    "?lgrp: latency probing enabled by user, "
-			    "disable support of CPU/memory DR operations.");
-			plat_dr_disable_cpu();
-			plat_dr_disable_memory();
-		}
 	}
-
-	/* Done if succeeded to process SLIT table. */
-	if (lgrp_plat_slit_error == 0)
-		return;
 
 	/*
 	 * Probe to determine latency between NUMA nodes when SLIT
@@ -1622,11 +1462,7 @@ lgrp_plat_get_numa_config(void)
 	    probe_op == (LGRP_PLAT_PROBE_PGCPY|LGRP_PLAT_PROBE_VENDOR)) {
 		lgrp_plat_probe_flags &=
 		    ~(LGRP_PLAT_PROBE_PGCPY|LGRP_PLAT_PROBE_VENDOR);
-		if (is_opteron())
-			lgrp_plat_probe_flags |=
-			    LGRP_PLAT_PROBE_VENDOR;
-		else
-			lgrp_plat_probe_flags |= LGRP_PLAT_PROBE_PGCPY;
+		lgrp_plat_probe_flags |= LGRP_PLAT_PROBE_PGCPY;
 	}
 
 	/*
@@ -2210,42 +2046,6 @@ lgrp_plat_memnode_info_update(node_domain_map_t *node_domain, int node_cnt,
 	}
 
 	/*
-	 * This function is called during boot if device_id is
-	 * ACPI_MEMNODE_DEVID_BOOT, otherwise it's called at runtime for
-	 * memory DR operations.
-	 */
-	if (device_id != ACPI_MEMNODE_DEVID_BOOT) {
-		ASSERT(lgrp_plat_max_mem_node <= memnode_cnt);
-
-		for (mnode = lgrp_plat_node_cnt;
-		    mnode < lgrp_plat_max_mem_node; mnode++) {
-			if (memnode_info[mnode].exists &&
-			    memnode_info[mnode].prox_domain == domain &&
-			    memnode_info[mnode].device_id == device_id) {
-				if (btop(start) < memnode_info[mnode].start)
-					memnode_info[mnode].start = btop(start);
-				if (btop(end) > memnode_info[mnode].end)
-					memnode_info[mnode].end = btop(end);
-				return (1);
-			}
-		}
-
-		if (lgrp_plat_max_mem_node >= memnode_cnt) {
-			return (-3);
-		} else {
-			lgrp_plat_max_mem_node++;
-			memnode_info[mnode].start = btop(start);
-			memnode_info[mnode].end = btop(end);
-			memnode_info[mnode].prox_domain = domain;
-			memnode_info[mnode].device_id = device_id;
-			memnode_info[mnode].lgrphand = node;
-			membar_producer();
-			memnode_info[mnode].exists = 1;
-			return (0);
-		}
-	}
-
-	/*
 	 * Create entry in table for node if it doesn't exist
 	 */
 	ASSERT(node < memnode_cnt);
@@ -2610,375 +2410,6 @@ lgrp_plat_process_cpu_apicids(cpu_node_map_t *cpu_node)
 	return (i);
 }
 
-
-/*
- * Read ACPI System Locality Information Table (SLIT) to determine how far each
- * NUMA node is from each other
- */
-static int
-lgrp_plat_process_slit(ACPI_TABLE_SLIT *tp,
-    node_domain_map_t *node_domain, uint_t node_cnt,
-    memnode_phys_addr_map_t *memnode_info, lgrp_plat_latency_stats_t *lat_stats)
-{
-	int		i;
-	int		j;
-	int		src;
-	int		dst;
-	int		localities;
-	hrtime_t	max;
-	hrtime_t	min;
-	int		retval;
-	uint8_t		*slit_entries;
-
-	if (tp == NULL || !lgrp_plat_slit_enable)
-		return (1);
-
-	if (lat_stats == NULL)
-		return (2);
-
-	localities = tp->LocalityCount;
-
-	min = lat_stats->latency_min;
-	max = lat_stats->latency_max;
-
-	/*
-	 * Fill in latency matrix based on SLIT entries
-	 */
-	slit_entries = tp->Entry;
-	for (i = 0; i < localities; i++) {
-		src = lgrp_plat_domain_to_node(node_domain,
-		    node_cnt, i);
-		if (src == -1)
-			continue;
-
-		for (j = 0; j < localities; j++) {
-			uint8_t	latency;
-
-			dst = lgrp_plat_domain_to_node(node_domain,
-			    node_cnt, j);
-			if (dst == -1)
-				continue;
-
-			latency = slit_entries[(i * localities) + j];
-			lat_stats->latencies[src][dst] = latency;
-			if (latency < min || min == -1)
-				min = latency;
-			if (latency > max)
-				max = latency;
-		}
-	}
-
-	/*
-	 * Verify that latencies/distances given in SLIT look reasonable
-	 */
-	retval = lgrp_plat_latency_verify(memnode_info, lat_stats);
-
-	if (retval) {
-		/*
-		 * Reinitialize (zero) latency table since SLIT doesn't look
-		 * right
-		 */
-		for (i = 0; i < localities; i++) {
-			for (j = 0; j < localities; j++)
-				lat_stats->latencies[i][j] = 0;
-		}
-	} else {
-		/*
-		 * Update min and max latencies seen since SLIT looks valid
-		 */
-		lat_stats->latency_min = min;
-		lat_stats->latency_max = max;
-	}
-
-	return (retval);
-}
-
-
-/*
- * Update lgrp latencies according to information returned by ACPI _SLI method.
- */
-static int
-lgrp_plat_process_sli(uint32_t domain_id, uchar_t *sli_info,
-    uint32_t sli_cnt, node_domain_map_t *node_domain, uint_t node_cnt,
-    lgrp_plat_latency_stats_t *lat_stats)
-{
-	int		i;
-	int		src, dst;
-	uint8_t		latency;
-	hrtime_t	max, min;
-
-	if (lat_stats == NULL || sli_info == NULL ||
-	    sli_cnt == 0 || domain_id >= sli_cnt)
-		return (-1);
-
-	src = lgrp_plat_domain_to_node(node_domain, node_cnt, domain_id);
-	if (src == -1) {
-		src = lgrp_plat_node_domain_update(node_domain, node_cnt,
-		    domain_id);
-		if (src == -1)
-			return (-1);
-	}
-
-	/*
-	 * Don't update latency info if topology has been flattened to 2 levels.
-	 */
-	if (lgrp_plat_topo_flatten != 0) {
-		return (0);
-	}
-
-	/*
-	 * Latency information for proximity domain is ready.
-	 * TODO: support adjusting latency information at runtime.
-	 */
-	if (lat_stats->latencies[src][src] != 0) {
-		return (0);
-	}
-
-	/* Validate latency information. */
-	for (i = 0; i < sli_cnt; i++) {
-		if (i == domain_id) {
-			if (sli_info[i] != ACPI_SLIT_SELF_LATENCY ||
-			    sli_info[sli_cnt + i] != ACPI_SLIT_SELF_LATENCY) {
-				return (-1);
-			}
-		} else {
-			if (sli_info[i] <= ACPI_SLIT_SELF_LATENCY ||
-			    sli_info[sli_cnt + i] <= ACPI_SLIT_SELF_LATENCY ||
-			    sli_info[i] != sli_info[sli_cnt + i]) {
-				return (-1);
-			}
-		}
-	}
-
-	min = lat_stats->latency_min;
-	max = lat_stats->latency_max;
-	for (i = 0; i < sli_cnt; i++) {
-		dst = lgrp_plat_domain_to_node(node_domain, node_cnt, i);
-		if (dst == -1)
-			continue;
-
-		ASSERT(sli_info[i] == sli_info[sli_cnt + i]);
-
-		/* Update row in latencies matrix. */
-		latency = sli_info[i];
-		lat_stats->latencies[src][dst] = latency;
-		if (latency < min || min == -1)
-			min = latency;
-		if (latency > max)
-			max = latency;
-
-		/* Update column in latencies matrix. */
-		latency = sli_info[sli_cnt + i];
-		lat_stats->latencies[dst][src] = latency;
-		if (latency < min || min == -1)
-			min = latency;
-		if (latency > max)
-			max = latency;
-	}
-	lat_stats->latency_min = min;
-	lat_stats->latency_max = max;
-
-	return (0);
-}
-
-
-/*
- * Read ACPI System Resource Affinity Table (SRAT) to determine which CPUs
- * and memory are local to each other in the same NUMA node and return number
- * of nodes
- */
-static int
-lgrp_plat_process_srat(ACPI_TABLE_SRAT *tp, ACPI_TABLE_MSCT *mp,
-    uint32_t *prox_domain_min, node_domain_map_t *node_domain,
-    cpu_node_map_t *cpu_node, int cpu_count,
-    memnode_phys_addr_map_t *memnode_info)
-{
-	ACPI_SUBTABLE_HEADER	*item, *srat_end;
-	int			i;
-	int			node_cnt;
-	int			proc_entry_count;
-	int			rc;
-
-	/*
-	 * Nothing to do when no SRAT or disabled
-	 */
-	if (tp == NULL || !lgrp_plat_srat_enable)
-		return (-1);
-
-	/*
-	 * Try to get domain information from MSCT table.
-	 * ACPI4.0: OSPM will use information provided by the MSCT only
-	 * when the System Resource Affinity Table (SRAT) exists.
-	 */
-	node_cnt = lgrp_plat_msct_domains(mp, prox_domain_min);
-	if (node_cnt <= 0) {
-		/*
-		 * Determine number of nodes by counting number of proximity
-		 * domains in SRAT.
-		 */
-		node_cnt = lgrp_plat_srat_domains(tp, prox_domain_min);
-	}
-	/*
-	 * Return if number of nodes is 1 or less since don't need to read SRAT.
-	 */
-	if (node_cnt == 1)
-		return (1);
-	else if (node_cnt <= 0)
-		return (-2);
-
-	/*
-	 * Walk through SRAT, examining each CPU and memory entry to determine
-	 * which CPUs and memory belong to which node.
-	 */
-	item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)tp + sizeof (*tp));
-	srat_end = (ACPI_SUBTABLE_HEADER *)(tp->Header.Length + (uintptr_t)tp);
-	proc_entry_count = 0;
-	while (item < srat_end) {
-		uint32_t	apic_id;
-		uint32_t	domain;
-		uint64_t	end;
-		uint64_t	length;
-		uint64_t	start;
-
-		switch (item->Type) {
-		case ACPI_SRAT_TYPE_CPU_AFFINITY: {	/* CPU entry */
-			ACPI_SRAT_CPU_AFFINITY *cpu =
-			    (ACPI_SRAT_CPU_AFFINITY *) item;
-
-			if (!(cpu->Flags & ACPI_SRAT_CPU_ENABLED) ||
-			    cpu_node == NULL)
-				break;
-
-			/*
-			 * Calculate domain (node) ID and fill in APIC ID to
-			 * domain/node mapping table
-			 */
-			domain = cpu->ProximityDomainLo;
-			for (i = 0; i < 3; i++) {
-				domain += cpu->ProximityDomainHi[i] <<
-				    ((i + 1) * 8);
-			}
-			apic_id = cpu->ApicId;
-
-			rc = lgrp_plat_cpu_node_update(node_domain, node_cnt,
-			    cpu_node, cpu_count, apic_id, domain);
-			if (rc < 0)
-				return (-3);
-			else if (rc == 0)
-				proc_entry_count++;
-			break;
-		}
-		case ACPI_SRAT_TYPE_MEMORY_AFFINITY: {	/* memory entry */
-			ACPI_SRAT_MEM_AFFINITY *mem =
-			    (ACPI_SRAT_MEM_AFFINITY *)item;
-
-			if (!(mem->Flags & ACPI_SRAT_MEM_ENABLED) ||
-			    memnode_info == NULL)
-				break;
-
-			/*
-			 * Get domain (node) ID and fill in domain/node
-			 * to memory mapping table
-			 */
-			domain = mem->ProximityDomain;
-			start = mem->BaseAddress;
-			length = mem->Length;
-			end = start + length - 1;
-
-			/*
-			 * According to ACPI 4.0, both ENABLE and HOTPLUG flags
-			 * may be set for memory address range entries in SRAT
-			 * table which are reserved for memory hot plug.
-			 * We intersect memory address ranges in SRAT table
-			 * with memory ranges in physinstalled to filter out
-			 * memory address ranges reserved for hot plug.
-			 */
-			if (mem->Flags & ACPI_SRAT_MEM_HOT_PLUGGABLE) {
-				uint64_t	rstart = UINT64_MAX;
-				uint64_t	rend = 0;
-				struct memlist	*ml;
-				extern struct bootops	*bootops;
-
-				memlist_read_lock();
-				for (ml = bootops->boot_mem->physinstalled;
-				    ml; ml = ml->ml_next) {
-					uint64_t tstart = ml->ml_address;
-					uint64_t tend;
-
-					tend = ml->ml_address + ml->ml_size;
-					if (tstart > end || tend < start)
-						continue;
-					if (start > tstart)
-						tstart = start;
-					if (rstart > tstart)
-						rstart = tstart;
-					if (end < tend)
-						tend = end;
-					if (rend < tend)
-						rend = tend;
-				}
-				memlist_read_unlock();
-				start = rstart;
-				end = rend;
-				/* Skip this entry if no memory installed. */
-				if (start > end)
-					break;
-			}
-
-			if (lgrp_plat_memnode_info_update(node_domain,
-			    node_cnt, memnode_info, node_cnt,
-			    start, end, domain, ACPI_MEMNODE_DEVID_BOOT) < 0)
-				return (-4);
-			break;
-		}
-		case ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY: {	/* x2apic CPU */
-			ACPI_SRAT_X2APIC_CPU_AFFINITY *x2cpu =
-			    (ACPI_SRAT_X2APIC_CPU_AFFINITY *) item;
-
-			if (!(x2cpu->Flags & ACPI_SRAT_CPU_ENABLED) ||
-			    cpu_node == NULL)
-				break;
-
-			/*
-			 * Calculate domain (node) ID and fill in APIC ID to
-			 * domain/node mapping table
-			 */
-			domain = x2cpu->ProximityDomain;
-			apic_id = x2cpu->ApicId;
-
-			rc = lgrp_plat_cpu_node_update(node_domain, node_cnt,
-			    cpu_node, cpu_count, apic_id, domain);
-			if (rc < 0)
-				return (-3);
-			else if (rc == 0)
-				proc_entry_count++;
-			break;
-		}
-		default:
-			break;
-		}
-
-		item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)item + item->Length);
-	}
-
-	/*
-	 * Should have seen at least as many SRAT processor entries as CPUs
-	 */
-	if (proc_entry_count < cpu_count)
-		return (-5);
-
-	/*
-	 * Need to sort nodes by starting physical address since VM system
-	 * assumes and expects memnodes to be sorted in ascending order by
-	 * physical address
-	 */
-	lgrp_plat_node_sort(node_domain, node_cnt, cpu_node, cpu_count,
-	    memnode_info);
-
-	return (node_cnt);
-}
-
-
 /*
  * Allocate permanent memory for any temporary memory that we needed to
  * allocate using BOP_ALLOC() before kmem_alloc() and VM system were
@@ -2998,251 +2429,6 @@ lgrp_plat_release_bootstrap(void)
 		lgrp_plat_cpu_node = buf;
 	}
 }
-
-
-/*
- * Return number of proximity domains given in ACPI SRAT
- */
-static int
-lgrp_plat_srat_domains(ACPI_TABLE_SRAT *tp, uint32_t *prox_domain_min)
-{
-	int			domain_cnt;
-	uint32_t		domain_min;
-	ACPI_SUBTABLE_HEADER	*item, *end;
-	int			i;
-	node_domain_map_t	node_domain[MAX_NODES];
-
-
-	if (tp == NULL || !lgrp_plat_srat_enable)
-		return (1);
-
-	/*
-	 * Walk through SRAT to find minimum proximity domain ID
-	 */
-	domain_min = UINT32_MAX;
-	item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)tp + sizeof (*tp));
-	end = (ACPI_SUBTABLE_HEADER *)(tp->Header.Length + (uintptr_t)tp);
-	while (item < end) {
-		uint32_t	domain;
-
-		switch (item->Type) {
-		case ACPI_SRAT_TYPE_CPU_AFFINITY: {	/* CPU entry */
-			ACPI_SRAT_CPU_AFFINITY *cpu =
-			    (ACPI_SRAT_CPU_AFFINITY *) item;
-
-			if (!(cpu->Flags & ACPI_SRAT_CPU_ENABLED)) {
-				item = (ACPI_SUBTABLE_HEADER *)
-				    ((uintptr_t)item + item->Length);
-				continue;
-			}
-			domain = cpu->ProximityDomainLo;
-			for (i = 0; i < 3; i++) {
-				domain += cpu->ProximityDomainHi[i] <<
-				    ((i + 1) * 8);
-			}
-			break;
-		}
-		case ACPI_SRAT_TYPE_MEMORY_AFFINITY: {	/* memory entry */
-			ACPI_SRAT_MEM_AFFINITY *mem =
-			    (ACPI_SRAT_MEM_AFFINITY *)item;
-
-			if (!(mem->Flags & ACPI_SRAT_MEM_ENABLED)) {
-				item = (ACPI_SUBTABLE_HEADER *)
-				    ((uintptr_t)item + item->Length);
-				continue;
-			}
-			domain = mem->ProximityDomain;
-			break;
-		}
-		case ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY: {	/* x2apic CPU */
-			ACPI_SRAT_X2APIC_CPU_AFFINITY *x2cpu =
-			    (ACPI_SRAT_X2APIC_CPU_AFFINITY *) item;
-
-			if (!(x2cpu->Flags & ACPI_SRAT_CPU_ENABLED)) {
-				item = (ACPI_SUBTABLE_HEADER *)
-				    ((uintptr_t)item + item->Length);
-				continue;
-			}
-			domain = x2cpu->ProximityDomain;
-			break;
-		}
-		default:
-			item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)item +
-			    item->Length);
-			continue;
-		}
-
-		/*
-		 * Keep track of minimum proximity domain ID
-		 */
-		if (domain < domain_min)
-			domain_min = domain;
-
-		item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)item + item->Length);
-	}
-	if (lgrp_plat_domain_min_enable && prox_domain_min != NULL)
-		*prox_domain_min = domain_min;
-
-	/*
-	 * Walk through SRAT, examining each CPU and memory entry to determine
-	 * proximity domain ID for each.
-	 */
-	domain_cnt = 0;
-	item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)tp + sizeof (*tp));
-	end = (ACPI_SUBTABLE_HEADER *)(tp->Header.Length + (uintptr_t)tp);
-	bzero(node_domain, MAX_NODES * sizeof (node_domain_map_t));
-	while (item < end) {
-		uint32_t	domain;
-		boolean_t	overflow;
-		uint_t		start;
-
-		switch (item->Type) {
-		case ACPI_SRAT_TYPE_CPU_AFFINITY: {	/* CPU entry */
-			ACPI_SRAT_CPU_AFFINITY *cpu =
-			    (ACPI_SRAT_CPU_AFFINITY *) item;
-
-			if (!(cpu->Flags & ACPI_SRAT_CPU_ENABLED)) {
-				item = (ACPI_SUBTABLE_HEADER *)
-				    ((uintptr_t)item + item->Length);
-				continue;
-			}
-			domain = cpu->ProximityDomainLo;
-			for (i = 0; i < 3; i++) {
-				domain += cpu->ProximityDomainHi[i] <<
-				    ((i + 1) * 8);
-			}
-			break;
-		}
-		case ACPI_SRAT_TYPE_MEMORY_AFFINITY: {	/* memory entry */
-			ACPI_SRAT_MEM_AFFINITY *mem =
-			    (ACPI_SRAT_MEM_AFFINITY *)item;
-
-			if (!(mem->Flags & ACPI_SRAT_MEM_ENABLED)) {
-				item = (ACPI_SUBTABLE_HEADER *)
-				    ((uintptr_t)item + item->Length);
-				continue;
-			}
-			domain = mem->ProximityDomain;
-			break;
-		}
-		case ACPI_SRAT_TYPE_X2APIC_CPU_AFFINITY: {	/* x2apic CPU */
-			ACPI_SRAT_X2APIC_CPU_AFFINITY *x2cpu =
-			    (ACPI_SRAT_X2APIC_CPU_AFFINITY *) item;
-
-			if (!(x2cpu->Flags & ACPI_SRAT_CPU_ENABLED)) {
-				item = (ACPI_SUBTABLE_HEADER *)
-				    ((uintptr_t)item + item->Length);
-				continue;
-			}
-			domain = x2cpu->ProximityDomain;
-			break;
-		}
-		default:
-			item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)item +
-			    item->Length);
-			continue;
-		}
-
-		/*
-		 * Count and keep track of which proximity domain IDs seen
-		 */
-		start = i = domain % MAX_NODES;
-		overflow = B_TRUE;
-		do {
-			/*
-			 * Create entry for proximity domain and increment
-			 * count when no entry exists where proximity domain
-			 * hashed
-			 */
-			if (!node_domain[i].exists) {
-				node_domain[i].exists = 1;
-				node_domain[i].prox_domain = domain;
-				domain_cnt++;
-				overflow = B_FALSE;
-				break;
-			}
-
-			/*
-			 * Nothing to do when proximity domain seen already
-			 * and its entry exists
-			 */
-			if (node_domain[i].prox_domain == domain) {
-				overflow = B_FALSE;
-				break;
-			}
-
-			/*
-			 * Entry exists where proximity domain hashed, but for
-			 * different proximity domain so keep search for empty
-			 * slot to put it or matching entry whichever comes
-			 * first.
-			 */
-			i = (i + 1) % MAX_NODES;
-		} while (i != start);
-
-		/*
-		 * Didn't find empty or matching entry which means have more
-		 * proximity domains than supported nodes (:-(
-		 */
-		ASSERT(overflow != B_TRUE);
-		if (overflow == B_TRUE)
-			return (-1);
-
-		item = (ACPI_SUBTABLE_HEADER *)((uintptr_t)item + item->Length);
-	}
-	return (domain_cnt);
-}
-
-
-/*
- * Parse domain information in ACPI Maximum System Capability Table (MSCT).
- * MSCT table has been verified in function process_msct() in fakebop.c.
- */
-static int
-lgrp_plat_msct_domains(ACPI_TABLE_MSCT *tp, uint32_t *prox_domain_min)
-{
-	int last_seen = 0;
-	uint32_t proxmin = UINT32_MAX;
-	ACPI_MSCT_PROXIMITY *item, *end;
-
-	if (tp == NULL || lgrp_plat_msct_enable == 0)
-		return (-1);
-
-	if (tp->MaxProximityDomains >= MAX_NODES) {
-		cmn_err(CE_CONT,
-		    "?lgrp: too many proximity domains (%d), max %d supported, "
-		    "disable support of CPU/memory DR operations.",
-		    tp->MaxProximityDomains + 1, MAX_NODES);
-		plat_dr_disable_cpu();
-		plat_dr_disable_memory();
-		return (-1);
-	}
-
-	if (prox_domain_min != NULL) {
-		end = (void *)(tp->Header.Length + (uintptr_t)tp);
-		for (item = (void *)((uintptr_t)tp +
-		    tp->ProximityOffset); item < end;
-		    item = (void *)(item->Length + (uintptr_t)item)) {
-			if (item->RangeStart < proxmin) {
-				proxmin = item->RangeStart;
-			}
-
-			last_seen = item->RangeEnd - item->RangeStart + 1;
-			/*
-			 * Break out if all proximity domains have been
-			 * processed. Some BIOSes may have unused items
-			 * at the end of MSCT table.
-			 */
-			if (last_seen > tp->MaxProximityDomains) {
-				break;
-			}
-		}
-		*prox_domain_min = proxmin;
-	}
-
-	return (tp->MaxProximityDomains + 1);
-}
-
 
 /*
  * Set lgroup latencies for 2 level lgroup topology
@@ -3414,45 +2600,6 @@ typedef	struct opt_dram_addr_map {
 	uint32_t	limit_lo;
 } opt_dram_addr_map_t;
 
-
-/*
- * Supported AMD processor families
- */
-#define	AMD_FAMILY_HAMMER	15
-#define	AMD_FAMILY_GREYHOUND	16
-
-/*
- * Whether to have is_opteron() return 1 even when processor isn't supported
- */
-uint_t	is_opteron_override = 0;
-
-/*
- * AMD processor family for current CPU
- */
-uint_t	opt_family = 0;
-
-
-/*
- * Determine whether we're running on a supported AMD Opteron since reading
- * node count and DRAM address map registers may have different format or
- * may not be supported across processor families
- */
-static int
-is_opteron(void)
-{
-
-	if (x86_vendor != X86_VENDOR_AMD)
-		return (0);
-
-	opt_family = cpuid_getfamily(CPU);
-	if (opt_family == AMD_FAMILY_HAMMER ||
-	    opt_family == AMD_FAMILY_GREYHOUND || is_opteron_override)
-		return (1);
-	else
-		return (0);
-}
-
-
 /*
  * Determine NUMA configuration for Opteron from registers that live in PCI
  * configuration space
@@ -3468,7 +2615,6 @@ opt_get_numa_config(uint_t *node_cnt, int *mem_intrlv,
 	uint_t				node_info[MAX_NODES];
 	uint_t				off_hi;
 	uint_t				off_lo;
-	uint64_t nb_cfg_reg;
 
 	/*
 	 * Read configuration registers from PCI configuration space to
@@ -3499,18 +2645,6 @@ opt_get_numa_config(uint_t *node_cnt, int *mem_intrlv,
 		return;
 	}
 
-	/*
-	 * For Greyhound, PCI Extended Configuration Space must be enabled to
-	 * read high DRAM address map base and limit registers
-	 */
-	nb_cfg_reg = 0;
-	if (opt_family == AMD_FAMILY_GREYHOUND) {
-		nb_cfg_reg = rdmsr(MSR_AMD_NB_CFG);
-		if ((nb_cfg_reg & AMD_GH_NB_CFG_EN_ECS) == 0)
-			wrmsr(MSR_AMD_NB_CFG,
-			    nb_cfg_reg | AMD_GH_NB_CFG_EN_ECS);
-	}
-
 	for (node = 0; node < *node_cnt; node++) {
 		uint32_t	base_hi;
 		uint32_t	base_lo;
@@ -3529,14 +2663,7 @@ opt_get_numa_config(uint_t *node_cnt, int *mem_intrlv,
 		 * Read DRAM base and limit registers which specify
 		 * physical memory range of each node
 		 */
-		if (opt_family != AMD_FAMILY_GREYHOUND)
-			base_hi = 0;
-		else {
-			outl(PCI_CONFADD, OPT_PCI_ECS_ADDR(bus, dev,
-			    OPT_PCS_FUNC_ADDRMAP, off_hi));
-			base_hi = dram_map[node].base_hi =
-			    inl(PCI_CONFDATA);
-		}
+		base_hi = 0;
 		base_lo = dram_map[node].base_lo = pci_getl_func(bus, dev,
 		    OPT_PCS_FUNC_ADDRMAP, off_lo);
 
@@ -3545,14 +2672,7 @@ opt_get_numa_config(uint_t *node_cnt, int *mem_intrlv,
 			*mem_intrlv = *mem_intrlv + 1;
 
 		off_hi += 4;	/* high limit register offset */
-		if (opt_family != AMD_FAMILY_GREYHOUND)
-			limit_hi = 0;
-		else {
-			outl(PCI_CONFADD, OPT_PCI_ECS_ADDR(bus, dev,
-			    OPT_PCS_FUNC_ADDRMAP, off_hi));
-			limit_hi = dram_map[node].limit_hi =
-			    inl(PCI_CONFDATA);
-		}
+		limit_hi = 0;
 
 		off_lo += 4;	/* low limit register offset */
 		limit_lo = dram_map[node].limit_lo = pci_getl_func(bus,
@@ -3593,14 +2713,6 @@ opt_get_numa_config(uint_t *node_cnt, int *mem_intrlv,
 
 		memnode_info[node].end = btop(OPT_DRAMADDR(limit_hi, limit_lo) |
 		    OPT_DRAMADDR_LO_MASK_OFF);
-	}
-
-	/*
-	 * Restore PCI Extended Configuration Space enable bit
-	 */
-	if (opt_family == AMD_FAMILY_GREYHOUND) {
-		if ((nb_cfg_reg & AMD_GH_NB_CFG_EN_ECS) == 0)
-			wrmsr(MSR_AMD_NB_CFG, nb_cfg_reg);
 	}
 }
 

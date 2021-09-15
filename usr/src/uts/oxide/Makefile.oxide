@@ -51,7 +51,7 @@ UNAME_M		= $(PLATFORM)
 # these platforms to have their own Makefiles to define ROOT_PLAT_DIRS,
 # USR_PLAT_DIRS, etc.
 #
-#IMPLEMENTATIONS	= i86hvm
+IMPLEMENTATIONS	=
 
 #
 #	Everybody needs to know how to build modstubs.o and to locate unix.o
@@ -230,14 +230,12 @@ MACH_NOT_YET_KMODS	= $(AUTOCONF_OBJS)
 #	DRV_KMODS_64 are built only 64-bit
 #
 DRV_KMODS	+= rootnex
-DRV_KMODS	+= pcplusmp
 DRV_KMODS	+= apix
 DRV_KMODS	+= cpc
 DRV_KMODS	+= pci
 DRV_KMODS	+= npe
 DRV_KMODS	+= amd_iommu
 DRV_KMODS	+= dr
-DRV_KMODS	+= ioat
 DRV_KMODS	+= imc imcstub
 DRV_KMODS	+= vmm
 DRV_KMODS	+= viona
@@ -255,7 +253,6 @@ DRV_KMODS	+= cpudrv
 #	CPU Modules
 #
 CPU_KMODS	+= generic_cpu
-CPU_KMODS	+= authenticamd
 
 #
 #	Exec Class Modules (/kernel/exec):
@@ -296,8 +293,3 @@ MISC_KMODS	+= pcie
 #	'Mach' Modules (/kernel/mach):
 #
 MACH_KMODS	+=
-
-#
-#	CPR Misc Module.
-#
-MISC_KMODS	+= cpr
