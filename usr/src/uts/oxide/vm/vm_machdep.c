@@ -350,6 +350,18 @@ i86devmap(pfn_t pf, pgcnt_t pgcnt, uint_t prot)
 	return (addr1);
 }
 
+caddr_t
+map_bios_page(uint_t prot)
+{
+	return (NULL);
+}
+
+void
+unmap_bios_page(caddr_t va)
+{
+	ASSERT(va == NULL);
+}
+
 /*
  * This routine is like page_numtopp, but accepts only free pages, which
  * it allocates (unfrees) and returns with the exclusive lock held.

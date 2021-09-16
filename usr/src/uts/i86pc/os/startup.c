@@ -173,12 +173,6 @@ extern void immu_startup(void);
 #endif
 
 /*
- * XXX make declaration below "static" when drivers no longer use this
- * interface.
- */
-extern caddr_t p0_va;	/* Virtual address for accessing physical page 0 */
-
-/*
  * segkp
  */
 extern int segkp_fromheap;
@@ -1979,16 +1973,6 @@ startup_vm(void)
 	 */
 	if (boothowto & RB_DEBUG)
 		kdi_dvec_memavail();
-
-#if !defined(__xpv)
-	/*
-	 * Map page pfn=0 for drivers, such as kd, that need to pick up
-	 * parameters left there by controllers/BIOS.
-	 */
-	PRM_POINT("setup up p0_va");
-	p0_va = i86devmap(0, 1, PROT_READ);
-	PRM_DEBUG(p0_va);
-#endif
 
 	cmn_err(CE_CONT, "?mem = %luK (0x%lx)\n",
 	    physinstalled << (MMU_PAGESHIFT - 10), ptob(physinstalled));

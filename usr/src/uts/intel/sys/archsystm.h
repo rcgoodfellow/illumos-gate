@@ -151,6 +151,8 @@ extern int use_sse_pagezero;
 extern int use_sse_copy;
 
 extern caddr_t i86devmap(pfn_t, pgcnt_t, uint_t);
+extern caddr_t map_bios_page(uint_t);
+extern void unmap_bios_page(caddr_t);
 extern page_t *page_numtopp_alloc(pfn_t pfnum);
 
 extern void hwblkclr(void *, size_t);

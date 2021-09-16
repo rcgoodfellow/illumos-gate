@@ -387,6 +387,28 @@ i86devmap(pfn_t pf, pgcnt_t pgcnt, uint_t prot)
 	return (addr1);
 }
 
+static void
+i86devunmap(caddr_t va, pgcnt_t pgcnt)
+{
+	if (va == NULL)
+		return;
+
+	hat_unload(kas.a_hat, va, pgcnt * MMU_PAGESIZE, HAT_UNLOAD_NOSYNC);
+	vmem_free(heap_arena, va, pgcnt * MMU_PAGESIZE);
+}
+
+caddr_t
+map_bios_page(uint_t prot)
+{
+	return (i86devmap(0, 1, prot));
+}
+
+void
+unmap_bios_page(caddr_t va)
+{
+	i86devunmap(va, 1);
+}
+
 /*
  * This routine is like page_numtopp, but accepts only free pages, which
  * it allocates (unfrees) and returns with the exclusive lock held.

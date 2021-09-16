@@ -45,6 +45,7 @@
 #include "sys/consdev.h"
 #include <sys/kbd.h>
 #include <sys/kbtrans.h>
+#include <sys/archsystm.h>
 #include "kb8042.h"
 
 #include <sys/i8042.h>
@@ -1509,6 +1510,38 @@ kb8042_xlate_leds(int led)
 	return (res);
 }
 
+static int
+kb8042_get_bios_leds(int *leds, int *led_mask)
+{
+#ifdef	__x86
+	caddr_t bios_page = map_bios_page(PROT_READ);
+	uint8_t	bios_kb_flag;
+
+	/*
+ 	 * Machine has no BIOS or mapping somehow failed.
+ 	 */
+	if (bios_page == NULL)
+		return (-1);
+
+	bios_kb_flag = bios_page[BIOS_KB_FLAG];
+
+	*led_mask = LED_CAPS_LOCK | LED_NUM_LOCK | LED_SCROLL_LOCK;
+	*leds = 0;
+	if (bios_kb_flag & BIOS_CAPS_STATE)
+		*leds |= LED_CAPS_LOCK;
+	if (bios_kb_flag & BIOS_NUM_STATE)
+		*leds |= LED_NUM_LOCK;
+	if (bios_kb_flag & BIOS_SCROLL_STATE)
+		*leds |= LED_SCROLL_LOCK;
+
+	unmap_bios_page(bios_page);
+
+	return (0);
+#else	/* ! __x86 */
+	return (-1);
+#endif
+}
+
 /*ARGSUSED*/
 static void
 kb8042_get_initial_leds(
@@ -1516,24 +1549,11 @@ kb8042_get_initial_leds(
     int *initial_leds,
     int *initial_led_mask)
 {
-#if defined(__x86)
-	extern caddr_t	p0_va;
-	uint8_t		bios_kb_flag;
+	if (kb8042_get_bios_leds(initial_leds, initial_led_mask) == 0)
+		return;
 
-	bios_kb_flag = p0_va[BIOS_KB_FLAG];
-
-	*initial_led_mask = LED_CAPS_LOCK | LED_NUM_LOCK | LED_SCROLL_LOCK;
-	*initial_leds = 0;
-	if (bios_kb_flag & BIOS_CAPS_STATE)
-		*initial_leds |= LED_CAPS_LOCK;
-	if (bios_kb_flag & BIOS_NUM_STATE)
-		*initial_leds |= LED_NUM_LOCK;
-	if (bios_kb_flag & BIOS_SCROLL_STATE)
-		*initial_leds |= LED_SCROLL_LOCK;
-#else
 	*initial_leds = 0;
 	*initial_led_mask = 0;
-#endif
 }
 
 static boolean_t

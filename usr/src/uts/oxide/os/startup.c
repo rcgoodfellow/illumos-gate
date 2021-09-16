@@ -143,14 +143,6 @@ extern void ssp_init(void);
 
 extern int size_pse_array(pgcnt_t, int);
 
-extern void immu_startup(void);
-
-/*
- * XXX make declaration below "static" when drivers no longer use this
- * interface.
- */
-extern caddr_t p0_va;	/* Virtual address for accessing physical page 0 */
-
 /*
  * segkp
  */
@@ -1709,17 +1701,6 @@ startup_vm(void)
 	if (boothowto & RB_DEBUG)
 		kdi_dvec_memavail();
 
-	/*
-	 * Map page pfn=0 for drivers, such as kd, that need to pick up
-	 * parameters left there by controllers/BIOS.
-	 *
-	 * XXX This should go away on the oxide arch; anything relying on this
-	 * is going to break anyway.
-	 */
-	PRM_POINT("setup up p0_va");
-	p0_va = i86devmap(0, 1, PROT_READ);
-	PRM_DEBUG(p0_va);
-
 	cmn_err(CE_CONT, "?mem = %luK (0x%lx)\n",
 	    physinstalled << (MMU_PAGESHIFT - 10), ptob(physinstalled));
 
@@ -1896,12 +1877,6 @@ startup_end(void)
 	PRM_POINT("NULLing out bootops");
 	*bootopsp = (struct bootops *)NULL;
 	bootops = (struct bootops *)NULL;
-
-	/*
-	 * Intel IOMMU has been setup/initialized in ddi_impl.c
-	 * Start it up now.  XXX We don't support the Intel anything.
-	 */
-	immu_startup();
 
 	/*
 	 * Now that we're no longer going to drop into real mode for a BIOS call
