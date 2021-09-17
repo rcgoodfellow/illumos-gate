@@ -1878,12 +1878,6 @@ startup_end(void)
 	*bootopsp = (struct bootops *)NULL;
 	bootops = (struct bootops *)NULL;
 
-	/*
-	 * Now that we're no longer going to drop into real mode for a BIOS call
-	 * via bootops, we can enable PCID (which requires CR0.PG).
-	 *
-	 * XXX But we never were.  Should this be done sooner?
-	 */
 	enable_pcid();
 
 	PRM_POINT("Enabling interrupts");
@@ -1914,14 +1908,6 @@ startup_end(void)
 
 	PRM_POINT("startup_end() done");
 }
-
-/*
- * Don't remove the following 2 variables.  They are necessary
- * for reading the hostid from the legacy file (/kernel/misc/sysinit).
- * XXX so why do we care?
- */
-char *_hs1107 = hw_serial;
-ulong_t  _bdhs34;
 
 void
 post_startup(void)
@@ -1958,8 +1944,6 @@ post_startup(void)
 	 * ON4.0: This must be fixed or restated in /etc/systems.
 	 */
 	(void) modload("fs", "procfs");
-
-	(void) i_ddi_attach_hw_nodes("pit_beep");
 
 	maxmem = freemem;
 

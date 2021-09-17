@@ -63,3 +63,8 @@ void
 fastreboot_disable_highpil(void)
 {
 }
+
+void
+ld_ib_prop(void)
+{
+}
