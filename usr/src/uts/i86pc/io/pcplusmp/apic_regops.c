@@ -167,15 +167,19 @@ int
 apic_local_mode(void)
 {
 	uint64_t apic_base_msr;
-	int bit = ((0x1 << (X2APIC_ENABLE_BIT + 1)) |
-	    (0x1 << X2APIC_ENABLE_BIT));
 
 	apic_base_msr = rdmsr(REG_APIC_BASE_MSR);
 
-	if ((apic_base_msr & bit) == bit)
-		return (LOCAL_X2APIC);
-	else
+	switch (apic_base_msr & LAPIC_MODE_MASK) {
+	case 0:
+		return (APIC_IS_DISABLED);
+	case LAPIC_ENABLE_MASK:
 		return (LOCAL_APIC);
+	case X2APIC_ENABLE_MASK:
+		return (LOCAL_X2APIC);
+	}
+
+	return (APIC_MODE_NOTSET);
 }
 
 void

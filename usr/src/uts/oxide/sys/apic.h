@@ -118,8 +118,15 @@ typedef enum apic_mode {
 #define	APIC_SVR_SUPPRESS_BROADCAST_EOI		0x1000
 #define	APIC_DIRECTED_EOI_BIT			0x1000000
 
-/* x2APIC enable bit in REG_APIC_BASE_MSR */
+/* x2APIC enable bit in REG_APIC_BASE_MSR (Intel: Extd, AMD: x2ApicEn) */
 #define	X2APIC_ENABLE_BIT	10
+#define	X2APIC_ENABLE_MASK	(1UL << (X2APIC_ENABLE_BIT))
+
+/* xAPIC (LAPIC) enable bit in REG_APIC_BASE_MSR (Intel: EN, AMD: ApicEn) */
+#define	LAPIC_ENABLE_BIT	11
+#define	LAPIC_ENABLE_MASK	(1UL << (LAPIC_ENABLE_BIT))
+
+#define	LAPIC_MODE_MASK		(X2APIC_ENABLE_MASK | LAPIC_ENABLE_MASK)
 
 /* IRR register	*/
 #define	APIC_IRR_REG		0x80

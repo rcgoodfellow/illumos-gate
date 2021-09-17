@@ -985,16 +985,17 @@ apix_post_cpu_start()
 	cpus_started++;
 
 	/*
-	 * On BSP we would have enabled X2APIC, if supported by processor,
-	 * in acpi_probe(), but on AP we do it here.
+	 * On BSP we would have setup ourselves to use the X2APIC mode if it
+	 * was enabled by hardware and/or firmware; on the AP we do that here,
+	 * including enabling it in hardware if necessary.
 	 *
-	 * We enable X2APIC mode only if BSP is running in X2APIC & the
-	 * local APIC mode of the current CPU is MMIO (xAPIC).
+	 * We enable X2APIC mode only if BSP is already in X2APIC mode; we do
+	 * this even if the AP's LAPIC is disabled because we don't support
+	 * that mode at all.  There should not exist any machine on which the
+	 * BSP can run in X2APIC mode and the AP cannot.
 	 */
-	if (apic_mode == LOCAL_X2APIC && apic_detect_x2apic() &&
-	    apic_local_mode() == LOCAL_APIC) {
+	if (apic_mode == LOCAL_X2APIC && apic_detect_x2apic())
 		apic_enable_x2apic();
-	}
 
 	/*
 	 * Switch back to x2apic IPI sending method for performance when target

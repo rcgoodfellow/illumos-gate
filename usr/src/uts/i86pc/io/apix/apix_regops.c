@@ -131,24 +131,46 @@ apic_detect_x2apic(void)
 void
 apic_enable_x2apic(void)
 {
-	uint64_t apic_base_msr;
-
-	if (apic_local_mode() == LOCAL_X2APIC) {
-		/* BIOS apparently has enabled X2APIC */
-		if (apic_mode != LOCAL_X2APIC)
-			x2apic_update_psm();
-		return;
-	}
+	uint64_t apic_base_msr = rdmsr(REG_APIC_BASE_MSR);
+	apic_mode_t hwmode = apic_local_mode();
 
 	/*
-	 * This is the first time we are enabling X2APIC on this CPU
+	 * The Intel x2APIC spec states that the processor comes out of reset
+	 * with EN (bit 11) set and EXTD (bit 10) clear; that is, in xAPIC
+	 * mode or our LOCAL_APIC.  However, AMD's implementation, at least on
+	 * some models, appears to come out of reset with EN = EXTD = 0, or
+	 * our APIC_IS_DISABLED.  Despite this divergence from the Intel spec,
+	 * AMD's implementation does follow the state transition diagram from
+	 * x2APIC fig. 2-9 in that a transition from APIC_IS_DISABLED to
+	 * LOCAL_X2APIC is forbidden.  AMD however do not document this in
+	 * their PPRs.  We must take the set of legal transitions into
+	 * consideration here; if the LAPIC is not already enabled, we must
+	 * enable it first or we will take a #GP.
 	 */
-	apic_base_msr = rdmsr(REG_APIC_BASE_MSR);
-	apic_base_msr = apic_base_msr | (0x1 << X2APIC_ENABLE_BIT);
-	wrmsr(REG_APIC_BASE_MSR, apic_base_msr);
-
-	if (apic_mode != LOCAL_X2APIC)
-		x2apic_update_psm();
+	switch (hwmode) {
+	case APIC_MODE_NOTSET:
+	default:
+		/*
+		 * This should never happen; it's documented as an illegal
+		 * state.  The x2APIC spec says we should always be able to
+		 * disable both xAPIC and x2APIC modes, so try to return to
+		 * that legal state before proceeding.
+		 */
+		apic_base_msr &= ~LAPIC_MODE_MASK;
+		wrmsr(REG_APIC_BASE_MSR, apic_base_msr);
+		/*FALLTHROUGH*/
+	case APIC_IS_DISABLED:
+		apic_base_msr |= LAPIC_ENABLE_MASK;
+		wrmsr(REG_APIC_BASE_MSR, apic_base_msr);
+		/*FALLTHROUGH*/
+	case LOCAL_APIC:
+		apic_base_msr |= X2APIC_ENABLE_MASK;
+		wrmsr(REG_APIC_BASE_MSR, apic_base_msr);
+		/*FALLTHROUGH*/
+	case LOCAL_X2APIC:
+		if (apic_mode != LOCAL_X2APIC)
+			x2apic_update_psm();
+	}
 }
 
 /*
