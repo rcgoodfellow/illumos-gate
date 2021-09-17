@@ -30,7 +30,8 @@
  * This file contains ddi functions needed during boot and DR.
  * Many functions in swapgeneric.c can be moved here.
  *
- * The object file is currently linked into unix.
+ * The object file is currently linked into genunix, so contents must not be
+ * machine-dependent.
  */
 
 #include <sys/bootconf.h>
