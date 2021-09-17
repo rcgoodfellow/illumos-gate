@@ -77,6 +77,13 @@
 #define	RTS_MSG_SIZE(type, rtm_addrs, af, sacnt) \
 	(rts_data_msg_size(rtm_addrs, af, sacnt) + rts_header_msg_size(type))
 
+struct rtm_getall_mblk {
+	mblk_t *request,
+	       *response_head,
+	       *response_tail;
+};
+
+
 static size_t	rts_copyfromsockaddr(struct sockaddr *sa, in6_addr_t *addrp);
 static void	rts_fill_msg(int type, int rtm_addrs, ipaddr_t dst,
     ipaddr_t mask, ipaddr_t gateway, ipaddr_t src_addr, ipaddr_t brd_addr,
@@ -100,7 +107,7 @@ static ire_t	*ire_lookup_v6(const in6_addr_t *dst_addr_v6,
     const ill_t *ill, zoneid_t zoneid, const ts_label_t *tsl, int match_flags,
     ip_stack_t *ipst, ire_t **pifire,
     in6_addr_t *v6setsrcp, tsol_ire_gw_secattr_t **gwattrp);
-static void	ire_collect(ire_t *ire, void *arg);
+static void	ire_collect(ire_t *ire, struct rtm_getall_mblk *rgm);
 
 /*
  * Send `mp' to all eligible routing queues.  A queue is ineligible if:
@@ -356,20 +363,17 @@ ip_rts_request_common(mblk_t *mp, conn_t *connp, cred_t *ioc_cr)
 
 	if (rtm->rtm_type ==  RTM_GETALL) {
 		/* get all routes */
-		ire_walk(ire_collect, NULL, ipst);
+		struct rtm_getall_mblk rgm;
+		rgm.request = mp;
+		rgm.response_head = NULL;
+		rgm.response_tail = NULL;
 
-		/* XXX BAIL FOR NOW */
-		error = EINVAL;
-		goto done;
+		ire_walk(ire_collect, &rgm, ipst);
 
-		/* TODO create reply message */
-
-
-		/* TODO return */
-		/*
+		/* return */
 		rtm->rtm_flags |= RTF_DONE;
-		rts_queue_input(mp, connp, af, RTSQ_ALL, ipst);
-		*/
+		rts_queue_input(rgm.response_head, connp, af, RTSQ_ALL, ipst);
+		return (error);
 	}
 
 	found_addrs = rts_getaddrs(rtm, &dst_addr_v6, &gw_addr_v6, &net_mask_v6,
@@ -997,30 +1001,55 @@ done:
 	return (error);
 }
 
+//TODO this is not terribly efficient, we're creating a full RTM_GET message per
+//routing table entry. Ideally we just create one rt_msghdr for the whole table
+//and then aggregate the entries within that one message.
 static void
-ire_collect(ire_t *ire, void *arg)
+ire_collect(ire_t *ire, struct rtm_getall_mblk *rgm)
 {
 	if (ire == NULL) {
-		ip1dbg(("ire_collect: ire cannot be NULL\n"));
+		ip0dbg(("ire_collect: ire cannot be NULL\n"));
 		return;
 	}
-	switch(ire->ire_ipversion) {
-		case IPV4_VERSION:
-			{
-				ipaddr_t addr = ire->ire_u.ire4_u.ire4_addr;
-				ipaddr_t gw = ire->ire_u.ire4_u.ire4_gateway_addr;
-				printf("%d.%d.%d.%d => %d.%d.%d.%d\n",
-					addr & 0x000000ff,
-					(addr & 0x0000ff00) >> 8,
-					(addr & 0x00ff0000) >> 16,
-					(addr & 0xff000000) >> 24,
-					gw & 0x000000ff,
-					(gw & 0x0000ff00) >> 8,
-					(gw & 0x00ff0000) >> 16,
-					(gw & 0xff000000) >> 24
-				);
-				break;
+	if (rgm == NULL) {
+		ip0dbg(("ire_collect: rgm cannot be NULL\n"));
+		return;
+	}
+
+
+	switch (ire->ire_ipversion) {
+		case IPV4_VERSION: {
+			in6_addr_t v6setsrc = ipv6_all_zeros; //TODO
+			ipaddr_t addr = ire->ire_u.ire4_u.ire4_addr;
+			ipaddr_t gw = ire->ire_u.ire4_u.ire4_gateway_addr;
+			printf("%d.%d.%d.%d => %d.%d.%d.%d\n",
+				addr & 0x000000ff,
+				(addr & 0x0000ff00) >> 8,
+				(addr & 0x00ff0000) >> 16,
+				(addr & 0xff000000) >> 24,
+				gw & 0x000000ff,
+				(gw & 0x0000ff00) >> 8,
+				(gw & 0x00ff0000) >> 16,
+				(gw & 0xff000000) >> 24);
+
+			mblk_t *mp = rts_rtmget(
+				rgm->request,
+				ire,
+				NULL,
+				&v6setsrc,
+				NULL,
+				AF_INET);
+
+			if (rgm->response_head == NULL) {
+				rgm->response_head = mp;
+				rgm->response_tail = mp;
+			} else {
+				rgm->response_tail->b_cont = mp;
+				rgm->response_tail = mp;
 			}
+
+			break;
+		}
 		case IPV6_VERSION:
 			break;
 	}
