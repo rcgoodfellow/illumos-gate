@@ -393,7 +393,8 @@ i86devunmap(caddr_t va, pgcnt_t pgcnt)
 	if (va == NULL)
 		return;
 
-	hat_unload(kas.a_hat, va, pgcnt * MMU_PAGESIZE, HAT_UNLOAD_NOSYNC);
+	hat_unload(kas.a_hat, va, pgcnt * MMU_PAGESIZE,
+	    HAT_UNLOAD_NOSYNC | HAT_UNLOAD_UNLOCK);
 	vmem_free(heap_arena, va, pgcnt * MMU_PAGESIZE);
 }
 
