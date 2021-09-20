@@ -38,7 +38,6 @@ UTSBASE	= ../..
 MODULE		= rootnex
 OBJECTS		= $(ROOTNEX_OBJS:%=$(OBJS_DIR)/%)
 ROOTMODULE	= $(ROOT_PSM_DRV_DIR)/$(MODULE)
-CONF_SRCDIR	= $(UTSBASE)/oxide/io
 
 #
 #	Include common rules.
@@ -48,8 +47,8 @@ include $(UTSBASE)/oxide/Makefile.oxide
 #
 #	Define targets
 #
-ALL_TARGET	= $(BINARY) $(SRC_CONFILE)
-INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
+ALL_TARGET	= $(BINARY)
+INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
 LDFLAGS		+= -dy -N misc/iommulib
 

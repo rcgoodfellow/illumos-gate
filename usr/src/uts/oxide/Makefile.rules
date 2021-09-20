@@ -65,47 +65,7 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-SBD_IOCTL	= $(UTSBASE)/oxide/sys/sbd_ioctl.h
-DRMACH_IO	= $(UTSBASE)/oxide/io/acpi/drmach_acpi
-DRMACH_GENERR	= $(DRMACH_IO)/sbdgenerr
-DR_IO		= $(UTSBASE)/oxide/io/dr
-DR_GENERR	= $(DR_IO)/sbdgenerr
-
-$(DRMACH_GENERR):	$(DR_IO)/sbdgenerr.pl
-	$(RM) $@
-	$(CAT) $(DR_IO)/sbdgenerr.pl > $@
-	$(CHMOD) +x $@
-
-$(DRMACH_IO)/drmach_err.c:	$(DRMACH_GENERR) $(SBD_IOCTL)
-	$(RM) $@
-	$(DRMACH_GENERR) EX86 < $(SBD_IOCTL) > $(DRMACH_IO)/drmach_err.c
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/acpi/drmach_acpi/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/amd_iommu/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(DR_GENERR):			$(DR_IO)/sbdgenerr.pl
-	$(RM) $@
-	$(CAT) $(DR_IO)/sbdgenerr.pl > $@
-	$(CHMOD) +x $@
-
-$(DR_IO)/dr_err.c:		$(DR_GENERR) $(SBD_IOCTL)
-	$(RM) $@
-	$(DR_GENERR) ESBD < $(SBD_IOCTL) > $(DR_IO)/dr_err.c
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/dr/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/imc/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
-$(OBJS_DIR)/%.o:		$(SRC)/common/mc/imc/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 

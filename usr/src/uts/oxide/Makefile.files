@@ -227,10 +227,3 @@ ASSYM_DEPS      +=		\
 	kpti_trampolines.o
 
 $(KDI_ASSYM_DEPS:%=$(OBJS_DIR)/%):	$(DSF_DIR)/$(OBJS_DIR)/kdi_assym.h
-
-#
-# Intel Integrated Memory Controller
-# (Sandy Bridge - Cascade Lake)
-#
-IMC_OBJS =	imc.o imc_decode.o imc_dump.o
-IMCSTUB_OBJS =	imcstub.o
