@@ -82,6 +82,7 @@ i_ipadm_create_ipv6addrs(ipadm_handle_t iph, ipadm_addrobj_t addr,
     uint32_t i_flags)
 {
 	ipadm_status_t status;
+	printf("create_ipv6addrs_1\n");
 
 	/*
 	 * Create the link local based on the given token. If the same intfid
@@ -97,6 +98,7 @@ i_ipadm_create_ipv6addrs(ipadm_handle_t iph, ipadm_addrobj_t addr,
 	 * If autoconfiguration was already started by another means (e.g.
 	 * "ifconfig" ), in.ndpd will return EEXIST.
 	 */
+	printf("create_ipv6addrs_2\n");
 	if (addr->ipadm_stateless || addr->ipadm_stateful) {
 		status = i_ipadm_send_ndpd_cmd(addr->ipadm_ifname, addr,
 		    IPADM_CREATE_ADDRS);
@@ -108,6 +110,7 @@ i_ipadm_create_ipv6addrs(ipadm_handle_t iph, ipadm_addrobj_t addr,
 	}
 
 	/* Persist the intfid. */
+	printf("create_ipv6addrs_3\n");
 	status = i_ipadm_addr_persist(iph, addr, B_FALSE, i_flags, NULL);
 	if (status != IPADM_SUCCESS) {
 		(void) i_ipadm_delete_addr(iph, addr);
@@ -152,6 +155,7 @@ i_ipadm_create_linklocal(ipadm_handle_t iph, ipadm_addrobj_t addr)
 	 * Create a logical interface if needed.
 	 */
 retry:
+	printf("create_linklocal_1\n");
 	status = i_ipadm_do_addif(iph, addr);
 	if (status != IPADM_SUCCESS)
 		return (status);
@@ -163,18 +167,22 @@ retry:
 			return (status);
 	}
 
+	printf("create_linklocal_2\n");
 	bzero(&lifr, sizeof (lifr));
 	(void) strlcpy(lifr.lifr_name, addr->ipadm_ifname, LIFNAMSIZ);
 	i_ipadm_addrobj2lifname(addr, lifr.lifr_name, sizeof (lifr.lifr_name));
 	sin6 = (struct sockaddr_in6 *)&lifr.lifr_addr;
 
+	printf("create_linklocal_3\n");
 	/* Create the link-local address */
 	bzero(&lifr.lifr_addr, sizeof (lifr.lifr_addr));
 	(void) plen2mask(PREFIXLEN_LINKLOCAL, AF_INET6,
 	    (struct sockaddr *)&lifr.lifr_addr);
 	if ((err = ioctl(iph->iph_sock6, SIOCSLIFNETMASK, (caddr_t)&lifr)) < 0)
 		goto fail;
+	printf("create_linklocal_4\n");
 	if (addr->ipadm_intfidlen == 0) {
+	printf("create_linklocal_5\n");
 		/*
 		 * If we have to use the default interface id,
 		 * we just need to set the prefix to the link-local prefix.
@@ -183,20 +191,28 @@ retry:
 		 */
 		sin6->sin6_addr = ll_template;
 		err = ioctl(iph->iph_sock6, SIOCSLIFPREFIX, (caddr_t)&lifr);
-		if (err < 0)
+		if (err < 0) {
+			printf("SIOCSLIFPREFIX fail %d\n", errno);
 			goto fail;
+		}
+	printf("create_linklocal_6\n");
 	} else {
+	printf("create_linklocal_7\n");
 		/* Make a linklocal address in sin6 and set it */
 		i_ipadm_make_linklocal(sin6, &addr->ipadm_intfid.sin6_addr);
 		err = ioctl(iph->iph_sock6, SIOCSLIFADDR, (caddr_t)&lifr);
 		if (err < 0)
 			goto fail;
+	printf("create_linklocal_8\n");
 	}
+	printf("create_linklocal_9\n");
 	if ((err = ioctl(iph->iph_sock6, SIOCGLIFFLAGS, (char *)&lifr)) < 0)
 		goto fail;
+	printf("create_linklocal_10\n");
 	lifr.lifr_flags |= IFF_UP;
 	if ((err = ioctl(iph->iph_sock6, SIOCSLIFFLAGS, (char *)&lifr)) < 0)
 		goto fail;
+	printf("create_linklocal_11\n");
 	return (IPADM_SUCCESS);
 
 fail:
