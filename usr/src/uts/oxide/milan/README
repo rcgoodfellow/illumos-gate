@@ -1,0 +1,7 @@
+A Milano!
+
+This directory is intended to encapsulate most of the Milan
+initialization at this time. Once we have a better picture of how all
+this fits together, we will likely go back and make additions to the
+existing amdzen nexus driver and split up a bunch of this functionality
+in a more coherent fashion.

@@ -68,6 +68,8 @@
 #include <sys/uart.h>
 #include <sys/boot_debug.h>
 
+#include <milan/milan_apob.h>
+
 /*
  * Comes from fs/ufsops.c.  For debugging the ramdisk/root fs operations.  Set
  * by the existence of the boot property of the same name.
@@ -744,6 +746,20 @@ build_memlists(paddr_t apob_phys)
 }
 
 static void
+apob_init(void)
+{
+	const bt_prop_t *apob_prop = find_bt_prop(BTPROP_NAME_APOB_ADDRESS, 0);
+
+	if (apob_prop == NULL) {
+		bop_panic("APOB address property %s is missing; don't "
+		    "know how to probe memory ourselves",
+		    BTPROP_NAME_APOB_ADDRESS);
+	}
+
+	milan_apob_init((paddr_t)(*(uint64_t *)apob_prop->btp_value));
+}
+
+static void
 memory_init(void)
 {
 	const bt_prop_t *apob_prop = find_bt_prop(BTPROP_NAME_APOB_ADDRESS, 0);
@@ -809,15 +825,21 @@ _start(const bt_discovery_t *btdp)
 	DBG(btdp);
 	DBG(btdp->btd_prop_list);
 
+	DBG_MSG("Initializing boot time memory management...");
+	kbm_init(&bm);
+	DBG_MSG("done\n");
+
+	/*
+	 * Initialize the APOB boot operations. This will be required for us to
+	 * successfully use it as a boot operation vector.
+	 */
+	apob_init();
+
 	/*
 	 * Find usable memory regions and set up the structures needed by the
 	 * allocator, including bm.
 	 */
 	memory_init();
-
-	DBG_MSG("Initializing boot time memory management...");
-	kbm_init(&bm);
-	DBG_MSG("done\n");
 
 	/*
 	 * Fill in the bootops vector; all of this can now work.

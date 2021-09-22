@@ -648,6 +648,7 @@ startup(void)
 	startup_memlist();
 	startup_kmem();
 	startup_vm();
+
 	/*
 	 * Up until this point, we cannot use any time delay functions
 	 * (e.g. tenmicrosec()). Once the TSC is setup, we can. This is

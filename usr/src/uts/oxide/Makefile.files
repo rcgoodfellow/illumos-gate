@@ -117,7 +117,11 @@ CORE_OBJS +=			\
 	vm_machdep.o		\
 	x_call.o
 
-CORE_OBJS += $(SMBIOS_OBJS)
+MILAN_OBJS +=			\
+	milan_apob.o		\
+	milan_init.o
+
+CORE_OBJS += $(SMBIOS_OBJS) $(MILAN_OBJS)
 
 #
 #	locore.o is special. It must be the first file relocated so that it
