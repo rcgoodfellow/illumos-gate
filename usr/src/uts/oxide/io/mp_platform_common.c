@@ -1034,7 +1034,8 @@ acpi_probe(char *modname)
 		 * failure message it will be logged by the routine itself.
 		 */
 		PRM_POINT("hpet_acpi_init()");
-		(void) hpet_acpi_init(&apic_hpet_vect, &apic_hpet_flags);
+		(void) hpet_acpi_init(&apic_hpet_vect, &apic_hpet_flags,
+		    apic_timer_stop_count, apic_timer_restart);
 
 		kmem_free(local_ids, NCPU * sizeof (uint32_t));
 		kmem_free(proc_ids, NCPU * sizeof (uint32_t));
