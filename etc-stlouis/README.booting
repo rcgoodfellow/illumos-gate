@@ -1,0 +1,202 @@
+You will need:
+
+- An Ethanol-X, almost certainly
+- Milan, possibly; I believe this should also work on Rome but have not tried
+  it yet
+- illumos-gate stlouis 8a4880ad2783de02e4f112b2d0a5aae4ac65b2f0 or later
+- nanobl-rs master 2f8b9ce3f85f8a45d60f9abd57c3b21e4e1f2ee5 or later
+- mkrd.bash, mkrd-helper.bash, and ramdisk.manifest from this directory
+
+Steps:
+
+1. Build the kernel, modules, and kmdb and its dependencies.  The kmdb deps
+are a pain if you haven't set up a bunch of ancillary crap to build userland
+(in particular, Python.h seems to come up a lot).  If you have nightly(1onbld)
+working, that should work fine for building all the modules you need.  If you
+want to build on an arbitrary build machine using adjuncts, consider applying
+illumos-build-fixes.diff from this directory.
+
+2. Build a small ramdisk.  The size in mkrd.bash must match the end address
+property value in usr/src/uts/oxide/os/boot_data.c; if you need to grow the
+ramdisk, change both of these!  This program outputs the name of the ramdisk
+image; it uses a temporary name because even though these are internal build
+machines and basically single-user we try to avoid glaring security holes; if
+you want to use a fixed name you can do something like:
+
+	$ mv $(./mkrd.bash) /path/to/ramdisk.ufs
+
+3. Build nanobl-rs and burn it to your test machine's boot flash.  See the
+instructions in that repo's README.
+
+4. At this point you should have:
+	- An Eth-X sitting at the > prompt in your terminal emulator (see
+	  nanobl-rs repo for notes on configuring it)
+	- A copy unix from $ROOT/platform/kernel/oxide/amd64/unix
+	- A copy of ramdisk.ufs or whatever you called it
+
+Note that we currently need unix in the ramdisk and outside it; this
+requirement can eventually be relaxed because we actually have the ELF image
+in memory and the loader could tell krtld where to find it to look up symbols.
+That will save about 2 MiB in the image, but for now you need it twice, and
+the file in the ramdisk MUST MATCH the kernel you boot; otherwise krtld will
+complain and you will not get very far.
+
+5. Now issue the following sequence of loader commands:
+	> 2ff::wrmsr 806
+
+	This enables caching via the default MTRR.  It's not necessary for
+anything, but it will increase the speed of your UART loading by about 150%
+and of execution by many many multiples.
+
+	> 100000000::recv
+
+	Send unix via your terminal emulator's Xmodem upload command at this
+time.  This command places the kernel into memory at 1_0000_0000.  You are
+free to put this almost anywhere that the loader will let you, except for the
+area the kernel wants to be loaded in and the area you need for the ramdisk.
+This is a convenient, out of the way location for now.
+
+	> 101000000::recv
+
+	Send ramdisk.ufs in the same manner at this time.  This command places
+the ramdisk into memory at 1_0100_0000.  If you want to change this, you must
+also change the ramdisk start and end addresses in oxide/os/boot_data.c to
+match the physical address range you select.  Eventually this requirement can
+be relaxed by passing the address to the kernel as an argument or boot
+property.
+
+	> 100000000::load
+
+	This interprets the ELF kernel and maps and copies its segments to the
+appropriate locations in memory.  It will spit out the virtual address of the
+entry point, which you should keep around in your terminal because you'll need
+it momentarily.
+
+	> 1000::map 0
+
+	This maps the 4K page at PA 0 to VA 0x1000.  We don't actually need
+the mapping nor the page of memory, but we do need the lower-level pagetables
+this constructs so that find_pte() and friends can use the second page of VA
+as a window to map in pagetable pages.  IMPORTANT: the code assumes that this
+mapping exists in the pagetable at 0x75ff_7008.  With the nanobl-rs and Milan
+firmware in the repo, that is where this will end up if you execute these
+commands properly.  If this PTE ends up somewhere else, you'll need to change
+the assignment to pte_to_window in oxide/vm/kboot_mmu.c:kbm_init() prior to
+building unix and the ramdisk.  You can verify the mappings with ::mappings.
+This requirement is going to go away soon, because it's kind of a gross hack
+and it's very brittle.
+
+	> fffffffffb828d30::call 0
+
+	The address used here may not be correct for you; it is the entry
+point given to you by ::load previously.  This is the moment of truth; it
+executes a call to _start(), passing it a NULL pointer so it will use the
+built-in boot data instead of expecting the loader to provide boot-time
+properties.  The semantics of the arguments will change later, and these
+instructions will be updated to match.
+
+Notes:
+
+1. We don't read the APOB or anything else to get our memory range.  Instead
+this is capped statically at 0xB000_0000 in
+oxide/os/fakebop.c:build_memlists() for now.  It's not that difficult to
+improve this so we can use more memory, I just haven't done it yet.  This is
+one of many next steps.
+
+2. The fact that I've deleted a lot of garbage (and actually a fair bit of
+perfectly good code we simply don't need, usually because it's either for
+32-bit processors or for Xen) from many of the arch-specific kernel files
+doesn't mean they're right.  There's a lot more than can be deleted, and many
+places where we probably need to rewrite chunks of this stuff entirely.  This
+is the hazard of the subtractive approach, which is expedient but not easily
+managed.
+
+3. I haven't included dmods in the manifest.  You may want to, possibly
+removing things like mac that are big and not really useful until just before
+we panic.
+
+4. Rebooting doesn't work once we're past the very earliest stages, because
+the rebooting path expects ACPI/UEFI.  This is going to be replaced with code
+to make an RPC call to a fake SP, which will do the right thing.
+
+Next steps:
+
+There are many, many things to do next, and the good news is that there is
+enough parallelism here for 3-4 engineers.  A few examples:
+
+- Protect the pagetables from eventual allocation.  Currently nothing does.
+
+- Build new pagetables somewhere more convenient, if we want.
+
+- Unmap the loader's text, data, and miscellany.  This includes torching the
+  1GB identity mappings that the kernel currently doesn't deal with very well.
+This will be needed to open up higher memory spaces.
+
+- Read the APOB for the two or three ranges reserved by the PSP.  Figure out
+  how to turn these off, because the PSP is useless and we'd rather keep that
+DRAM for ourselves.
+
+- Construct proper memlists and set up the TOM/TOM2 MSRs, the MTRRs, etc. from
+  the APOB output and/or UMC data.
+
+- Set the magic undocumented MSRs for the BSP, and add code to MP startup to
+  do it on APs once we get there.  This probably belongs in apix, which is a
+much bigger can of worms.
+
+- Fix up the boot time properties code so we can accept the root pointer as a
+  physical address, or decide that we don't ever want the loader passing boot
+properties and just have it pass the ramdisk location.  There are several ways
+to do this and we should take a little time to think it through -- in
+particular, how offsets/pointers internally to the properties are represented.
+Doing 1275 is an option here though a read through that standard suggests far
+more complexity than we want or need.
+
+- Add code to the loader to provide boot time properties.  Ultimately these
+  need to come from the SP if we are doing Heliosboot, and maybe if we're
+doing tiny HBS too.  Then delete most of boot_data.c.  Or decide we don't want
+the loader passing properties at all and just get them all from the fake SP.
+
+- We can remove more of the bootaux code if we want.  The kernel's ELF object
+  is in memory, and we could have the loader tell us where it is if we wanted
+to.  If we were clever we could even dispense with copying the contents and
+just load it in the right place, then create the proper mappings.  You know,
+like a loader.  See the notes above on step 4.
+
+- Switch us to a compressed CPIO ramdisk.  We're certain to need it to save
+  space, and probably time.  Even with just gzip, the existing 13 MiB ramdisk
+that is very nearly enough to get to userland fits in about 4 MiB compressed,
+which is shockingly comparable to LinuxBoot, though it doesn't include any
+actual user programs.  This also offers us another path to simplify booting
+into a single step, by including the kernel and having the loader extract it
+from the archive instead of making them separate steps; we wouldn't want to
+make the loader understand UFS but CPIO might be ok.
+
+- Rewrite the PCI config space access code for the oxide arch.
+
+- Probably rewrite mlsetup(), which is needlessly complicated for our needs.
+
+- Commonise the rest of the microcode updating code.  Being able to upgrade
+  microcode will be one of the very first things we want to do, so we don't
+chase ghosts once we have single-user up.
+
+- Commonise (most?  all?) the x86 HAT code.  This is current machine arch
+  specific but most of it is really not.  This is in fact the same thing they
+found with SPARC when they created the sfmmu directory.
+
+- Audit and remove all the -Nmisc/acpica and other -Ndrv/acpidrv etc.
+  arguments.  This should be quick and simple, but removing the code that
+actually consumes these interfaces won't be.  In most cases that code needs to
+be rewritten entirely but that needs to be audited on a case by case basis;
+there are likely to be places where we want to share most code that currently
+consumes ACPI and it may be good to create a set of ops vectors or whatever
+that allow generic consumers to use ACPI or go direct (similar to platmod/PSM,
+probably, or we may even be able to just extend that interface to cover
+multiple machine architectures).
+
+- Delete the rebooting code, which doesn't work anyway.  Negotiate a
+  communication mechanism with the SP that can be used to request a reset from
+both earlyboot and a normal working system (i.e., this can't rely solely on
+STREAMS or something like that).
+
+- Play around in kmdb and find things that break.  <TAB><TAB> seems to run out
+  of memory and blow up, for example.  Then fix them.

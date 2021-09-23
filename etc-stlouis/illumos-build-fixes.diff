@@ -1,0 +1,197 @@
+diff --git a/usr/src/Makefile b/usr/src/Makefile
+index 6d31345421..d597a413a4 100644
+--- a/usr/src/Makefile
++++ b/usr/src/Makefile
+@@ -110,7 +110,7 @@ install: install1 install2 _msg stage-licenses
+ 	@rm -rf "$(ROOT)/catalog"
+ 
+ stage-licenses: install2
+-	@cd pkg; pwd; $(MAKE) stage-licenses
++	#@cd pkg; pwd; $(MAKE) stage-licenses
+ 
+ install1: mapfiles closedbins sgs
+ 
+diff --git a/usr/src/boot/sys/boot/i386/isoboot/Makefile b/usr/src/boot/sys/boot/i386/isoboot/Makefile
+index 2a0992e5cc..f2e20b2372 100644
+--- a/usr/src/boot/sys/boot/i386/isoboot/Makefile
++++ b/usr/src/boot/sys/boot/i386/isoboot/Makefile
+@@ -61,7 +61,7 @@ OBJS= mb_header.o isoboot.o sio.o drv.o cons.o gptldr.o
+ CLEANFILES += isoboot
+ 
+ isoboot: gptldr.bin isoboot.bin $(BTXKERN)
+-	btxld -v -E $(ORG2) -f bin -b $(BTXKERN) -V $(BOOT_VERSION) -l \
++	$(BTXLD) -v -E $(ORG2) -f bin -b $(BTXKERN) -V $(BOOT_VERSION) -l \
+ 		gptldr.bin -o $@ isoboot.bin
+ 	@set -- `ls -l $@`; x=$$(($(ISOBOOTSIZE)-$$5)); \
+ 	    echo "$$x bytes available"; test $$x -ge 0
+diff --git a/usr/src/cmd/Makefile b/usr/src/cmd/Makefile
+index 8159ad677b..95add292dd 100644
+--- a/usr/src/cmd/Makefile
++++ b/usr/src/cmd/Makefile
+@@ -233,7 +233,6 @@ COMMON_SUBDIRS=		\
+ 	kvmstat		\
+ 	last		\
+ 	lastcomm	\
+-	latencytop	\
+ 	ldap		\
+ 	ldapcachemgr	\
+ 	lgrpinfo	\
+diff --git a/usr/src/cmd/bhyve/Makefile b/usr/src/cmd/bhyve/Makefile
+index bbc966d67f..19b4e06938 100644
+--- a/usr/src/cmd/bhyve/Makefile
++++ b/usr/src/cmd/bhyve/Makefile
+@@ -142,11 +142,11 @@ $(PROG) := LDLIBS += \
+ 	-ldladm \
+ 	-lmd \
+ 	-lnvpair \
+-	-lcrypto \
++	-lsunw_crypto \
+ 	-luuid \
+ 	-lvmmapi \
+ 	-lz
+-NATIVE_LIBS += libz.so libcrypto.so
++NATIVE_LIBS += libz.so libsunw_crypto.so
+ $(MEVENT_TEST_PROG) := LDLIBS += -lsocket
+ $(PROG) := LDFLAGS += $(ZASLR)
+ 
+diff --git a/usr/src/cmd/cmd-inet/usr.lib/wpad/Makefile b/usr/src/cmd/cmd-inet/usr.lib/wpad/Makefile
+index 7d72bad58f..9573856647 100644
+--- a/usr/src/cmd/cmd-inet/usr.lib/wpad/Makefile
++++ b/usr/src/cmd/cmd-inet/usr.lib/wpad/Makefile
+@@ -34,8 +34,8 @@ include	../../../Makefile.cmd
+ ROOTMANIFESTDIR = $(ROOTSVCNETWORK)
+ 
+ LDLIBS +=	-ldladm -ldlpi
+-NATIVE_LIBS +=	libcrypto.so
+-all install := LDLIBS += -lcrypto
++NATIVE_LIBS +=	libsunw_crypto.so
++all install := LDLIBS += -lsunw_crypto
+ 
+ SMOFF += all_func_returns
+ 
+diff --git a/usr/src/cmd/dtrace/demo/Makefile b/usr/src/cmd/dtrace/demo/Makefile
+index a75a418a96..115a2a42dc 100644
+--- a/usr/src/cmd/dtrace/demo/Makefile
++++ b/usr/src/cmd/dtrace/demo/Makefile
+@@ -158,10 +158,10 @@ $(ROOTDEMODIR)/%: %
+ 	$(INS.file)
+ 
+ $(HTMLFILES):	$(DFILES) $(MKDEMO)	
+-	./$(MKDEMO) $@
++	$(PERL) ./$(MKDEMO) $@
+ 
+ $(DFILES):	$(MKDEMO)	
+-	./$(MKDEMO) $@
++	$(PERL) ./$(MKDEMO) $@
+ 
+ $(ROOTDEMOFILES): $(ROOTDEMODIR)
+ 
+diff --git a/usr/src/cmd/sendmail/src/Makefile b/usr/src/cmd/sendmail/src/Makefile
+index 19698de5ad..a7be703880 100644
+--- a/usr/src/cmd/sendmail/src/Makefile
++++ b/usr/src/cmd/sendmail/src/Makefile
+@@ -46,8 +46,8 @@ LDFLAGS +=	$(MAPFILES:%=-Wl,-M%)
+ 
+ LDLIBS +=	../libsmutil/libsmutil.a ../libsm/libsm.a -lresolv -lsocket \
+ 		-lnsl ../db/libdb.a -lldap -lsldap -lwrap -lumem \
+-		-lssl -lcrypto -lsasl
+-NATIVE_LIBS +=	libssl.so libcrypto.so
++		-lsunw_ssl -lsunw_crypto -lsasl
++NATIVE_LIBS +=	libsunw_ssl.so libsunw_crypto.so
+ 
+ INCPATH=	-I. -I../include -I../db
+ 
+diff --git a/usr/src/cmd/svc/svccfg/Makefile b/usr/src/cmd/svc/svccfg/Makefile
+index fa97e72508..c3df9ff031 100644
+--- a/usr/src/cmd/svc/svccfg/Makefile
++++ b/usr/src/cmd/svc/svccfg/Makefile
+@@ -94,6 +94,7 @@ $(NOT_NATIVE)SVCCFG_EXTRA_LIBS += -ltecla
+ #
+ $(NO_ADJUNCT_PROTO)NATIVE_LIBS += libxml2.so libl.so libumem.so \
+     libmd5.so libnvpair.so libc.so
++$(NATIVE_BUILD)NATIVE_LIBS += libl.so libumem.so libmd5.so libnvpair.so libc.so
+ 
+ LIBSCF		= $(SRC)/lib/libscf
+ LIBTECLA	= $(SRC)/lib/libtecla		# just for the header
+diff --git a/usr/src/common/pnglite/pnglite.c b/usr/src/common/pnglite/pnglite.c
+index 7a30bdc609..dca444f35b 100644
+--- a/usr/src/common/pnglite/pnglite.c
++++ b/usr/src/common/pnglite/pnglite.c
+@@ -12,6 +12,7 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
++#include <limits.h>
+ #endif
+ #include <zlib.h>
+ #include "pnglite.h"
+diff --git a/usr/src/lib/Makefile b/usr/src/lib/Makefile
+index 5c796c3caf..e930bcda8e 100644
+--- a/usr/src/lib/Makefile
++++ b/usr/src/lib/Makefile
+@@ -257,9 +257,6 @@ SUBDIRS +=				\
+ 	pkcs11		\
+ 	policykit	\
+ 	print		\
+-	pylibbe		\
+-	pysolaris	\
+-	pyzfs		\
+ 	raidcfg_plugins	\
+ 	rpcsec_gss	\
+ 	sasl_plugins	\
+@@ -351,7 +348,6 @@ MSGSUBDIRS=		\
+ 	madv		\
+ 	mpss		\
+ 	pam_modules	\
+-	pyzfs		\
+ 	rpcsec_gss	\
+ 	$($(MACH)_MSGSUBDIRS)
+ 
+diff --git a/usr/src/lib/fm/libfmd_snmp/Makefile.com b/usr/src/lib/fm/libfmd_snmp/Makefile.com
+index 99dd888363..2f9cf1bfb4 100644
+--- a/usr/src/lib/fm/libfmd_snmp/Makefile.com
++++ b/usr/src/lib/fm/libfmd_snmp/Makefile.com
+@@ -53,8 +53,8 @@ $(NOT_RELEASE_BUILD)CPPFLAGS += -DDEBUG
+ CFLAGS += $(CCVERBOSE) $(C_BIGPICFLAGS)
+ CFLAGS64 += $(CCVERBOSE) $(C_BIGPICFLAGS)
+ 
+-SNMPLIBS = -lnetsnmp -lnetsnmpagent
+-NATIVE_LIBS += libnetsnmp.so libnetsnmpagent.so
++SNMPLIBS = -lnetsnmp -lnetsnmpagent -lnetsnmphelpers
++NATIVE_LIBS += libnetsnmp.so libnetsnmpagent.so libnetsnmphelpers.so
+ 
+ LDLIBS += $(MACH_LDLIBS)
+ LDLIBS += -lfmd_adm -luutil -lnvpair -ltopo
+diff --git a/usr/src/lib/krb5/plugins/preauth/pkinit/Makefile.com b/usr/src/lib/krb5/plugins/preauth/pkinit/Makefile.com
+index 73f90c4777..acfe4e97c1 100644
+--- a/usr/src/lib/krb5/plugins/preauth/pkinit/Makefile.com
++++ b/usr/src/lib/krb5/plugins/preauth/pkinit/Makefile.com
+@@ -73,8 +73,8 @@ SMATCH=off
+ 
+ CFLAGS +=	$(CCVERBOSE) -I..
+ DYNFLAGS +=	$(KRUNPATH) $(KMECHLIB) $(ZNODELETE)
+-LDLIBS +=	-L $(ROOTLIBDIR) -lcrypto -lc
+-NATIVE_LIBS +=	libcrypto.so
++LDLIBS +=	-L $(ROOTLIBDIR) -lsunw_crypto -lc
++NATIVE_LIBS +=	libsunw_crypto.so
+ 
+ ROOTLIBDIR= $(ROOT)/usr/lib/krb5/plugins/preauth
+ 
+diff --git a/usr/src/lib/libkmf/plugins/kmf_openssl/Makefile.com b/usr/src/lib/libkmf/plugins/kmf_openssl/Makefile.com
+index 05fe0a1e2a..2dec215e8d 100644
+--- a/usr/src/lib/libkmf/plugins/kmf_openssl/Makefile.com
++++ b/usr/src/lib/libkmf/plugins/kmf_openssl/Makefile.com
+@@ -36,10 +36,10 @@ KMFINC=		-I../../../include -I../../../ber_der/inc
+ BERLIB=		-lkmf -lkmfberder
+ BERLIB64=	$(BERLIB)
+ 
+-OPENSSLLIBS=	$(BERLIB) -lcrypto -lcryptoutil -lc
+-OPENSSLLIBS64=	$(BERLIB64) -lcrypto -lcryptoutil -lc
++OPENSSLLIBS=	$(BERLIB) -lsunw_crypto -lcryptoutil -lc
++OPENSSLLIBS64=	$(BERLIB64) -lsunw_crypto -lcryptoutil -lc
+ 
+-NATIVE_LIBS +=	libcrypto.so
++NATIVE_LIBS +=	libsunw_crypto.so
+ 
+ SRCDIR=		../common
+ INCDIR=		../../include
