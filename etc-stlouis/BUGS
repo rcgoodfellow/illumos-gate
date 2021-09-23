@@ -1,5 +1,11 @@
 OPEN
 OX0005 evaluate Tctl/Tdie translation in smntemp.c
+OX0008 replace isa with huashan for oxide
+OX0009 replace asy with clock-aware DW APB UART driver for oxide
+OX0010 amd_iommu requires further de-ACPIfication
+OX0011 fix console defaults to reflect 3Mbaud requirement post-OX0009
+OX0012 want a general mechanism for mapping sources to IOAPIC virtual pins
+OX0013 move ccx cache initialisation out of apix
 
 FIXED
 OX0001 PTE page mapping window discovery is excessively brittle

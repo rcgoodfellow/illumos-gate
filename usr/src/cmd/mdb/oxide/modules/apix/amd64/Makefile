@@ -38,6 +38,7 @@ MODSRCS_DIR = ../../common
 
 CPPFLAGS += -DMP -D_MACHDEP
 CPPFLAGS += -I../../../../common
+CPPFLAGS += -I../../../../intel
 CPPFLAGS += -I../../common
 CPPFLAGS += -I$(SRC)/uts/intel
 CPPFLAGS += -I$(SRC)/uts/oxide

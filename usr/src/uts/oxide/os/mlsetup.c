@@ -24,7 +24,7 @@
  * Copyright (c) 1993, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 by Delphix. All rights reserved.
  * Copyright 2019 Joyent, Inc.
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -109,7 +109,6 @@ mlsetup(struct regs *rp)
 	extern struct classfuncs sys_classfuncs;
 	extern disp_t cpu0_disp;
 	extern char t0stack[];
-	extern uint64_t plat_dr_options;
 
 	ASSERT_STACK_ALIGNED();
 
@@ -359,60 +358,12 @@ mlsetup(struct regs *rp)
 
 	prom_init("kernel", (void *)NULL);
 
-	/* User-set option overrides firmware value. */
-	if (bootprop_getval(PLAT_DR_OPTIONS_NAME, &prop_value) == 0) {
-		plat_dr_options = (uint64_t)prop_value;
-	}
-	/* Flag PLAT_DR_FEATURE_ENABLED should only be set by DR driver. */
-	plat_dr_options &= ~PLAT_DR_FEATURE_ENABLED;
-
 	/*
-	 * Get value of "plat_dr_physmax" boot option.
-	 * It overrides values calculated from MSCT or SRAT table.
+	 * Set max_ncpus and boot_max_ncpus to boot_ncpus; we don't support
+	 * CPU DR, ever.
 	 */
-	if (bootprop_getval(PLAT_DR_PHYSMAX_NAME, &prop_value) == 0) {
-		plat_dr_physmax = ((uint64_t)prop_value) >> PAGESHIFT;
-	}
-
-	/* Get value of boot_ncpus. */
-	if (bootprop_getval(BOOT_NCPUS_NAME, &prop_value) != 0) {
-		boot_ncpus = NCPU;
-	} else {
-		boot_ncpus = (int)prop_value;
-		if (boot_ncpus <= 0 || boot_ncpus > NCPU)
-			boot_ncpus = NCPU;
-	}
-
-	/*
-	 * Set max_ncpus and boot_max_ncpus to boot_ncpus if platform doesn't
-	 * support CPU DR operations.
-	 */
-	if (plat_dr_support_cpu() == 0) {
-		max_ncpus = boot_max_ncpus = boot_ncpus;
-	} else {
-		if (bootprop_getval(PLAT_MAX_NCPUS_NAME, &prop_value) != 0) {
-			max_ncpus = NCPU;
-		} else {
-			max_ncpus = (int)prop_value;
-			if (max_ncpus <= 0 || max_ncpus > NCPU) {
-				max_ncpus = NCPU;
-			}
-			if (boot_ncpus > max_ncpus) {
-				boot_ncpus = max_ncpus;
-			}
-		}
-
-		if (bootprop_getval(BOOT_MAX_NCPUS_NAME, &prop_value) != 0) {
-			boot_max_ncpus = boot_ncpus;
-		} else {
-			boot_max_ncpus = (int)prop_value;
-			if (boot_max_ncpus <= 0 || boot_max_ncpus > NCPU) {
-				boot_max_ncpus = boot_ncpus;
-			} else if (boot_max_ncpus > max_ncpus) {
-				boot_max_ncpus = max_ncpus;
-			}
-		}
-	}
+	boot_ncpus = NCPU;
+	max_ncpus = boot_max_ncpus = boot_ncpus;
 
 	/*
 	 * Initialize the lgrp framework

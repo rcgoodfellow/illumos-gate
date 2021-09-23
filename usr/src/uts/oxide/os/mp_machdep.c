@@ -26,7 +26,7 @@
  * Copyright (c) 2009-2010, Intel Corporation.
  * All rights reserved.
  * Copyright 2020 Joyent, Inc.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #define	PSMI_1_7
@@ -926,7 +926,12 @@ mach_construct_info()
 	}
 	mutex_exit(&psmsw_lock);
 
-	mach_get_platform(PSM_OWN_SYS_DEFAULT);
+	/*
+	 * XXX We can make it ok to not have a default as long as we make sure
+	 * there's an exclusive too.  This isn't right yet.
+	 */
+	if (mach_set[PSM_OWN_SYS_DEFAULT] != NULL)
+		mach_get_platform(PSM_OWN_SYS_DEFAULT);
 
 	/* check to see are there any conflicts */
 	if (mach_cnt[PSM_OWN_EXCLUSIVE] > 1)
@@ -1131,7 +1136,7 @@ mach_smpinit(void)
 	psm_get_ipivect = pops->psm_get_ipivect;
 
 	/* check for multiple CPUs */
-	if (cnt < 2 && plat_dr_support_cpu() == B_FALSE)
+	if (cnt < 2)
 		return;
 
 	/* check for MP platforms */

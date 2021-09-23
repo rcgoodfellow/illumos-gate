@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef _MDB_INTR_COMMON_H
@@ -51,8 +52,12 @@ void apix_interrupt_dump(apix_vector_t *, apic_irq_t *,
     struct autovec *, ushort_t *, char);
 void apix_interrupt_ipi_dump(apix_vector_t *, struct autovec *,
     ushort_t *);
+void ioapic_dcmd_help(void);
 int ioapic(uintptr_t, uint_t, int, const mdb_arg_t *);
+void apic_dcmd_help(void);
 int apic(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv);
+int ioapic_walk_init(mdb_walk_state_t *);
+int ioapic_walk_step(mdb_walk_state_t *);
 
 void soft_interrupt_help(void);
 int soft_interrupt_dump(uintptr_t, uint_t, int, const mdb_arg_t *);
@@ -63,6 +68,18 @@ int soft_interrupt_dump(uintptr_t, uint_t, int, const mdb_arg_t *);
  */
 #define	INTR_DISPLAY_DRVR_INST	0x1	/* -d option */
 #define	INTR_DISPLAY_INTRSTAT	0x2	/* -i option */
+
+/*
+ * ::ioapic options
+ */
+#define	IOAPIC_F_SHOW_ENTRIES	0x1	/* -e option */
+
+/*
+ * ::apic options
+ */
+#define	APIC_F_SHOW_BASIC	0x1	/* -b option */
+#define	APIC_F_SHOW_ENTRIES	0x2	/* -e option */
+#define	APIC_F_SHOW_FLAGS	0x4	/* -f option */
 
 extern int	option_flags;
 

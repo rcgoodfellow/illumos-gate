@@ -30,6 +30,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/types.h>
@@ -1471,8 +1472,7 @@ start_other_cpus(int cprboot)
 	 * . only 1 cpu dectected and system isn't hotplug-capable
 	 * . not using MP
 	 */
-	if ((CPUSET_ISNULL(mp_cpus) && plat_dr_support_cpu() == 0) ||
-	    use_mp == 0) {
+	if (CPUSET_ISNULL(mp_cpus) || use_mp == 0) {
 		if (use_mp == 0)
 			cmn_err(CE_CONT, "?***** Not in MP mode\n");
 		goto done;
@@ -1541,54 +1541,13 @@ done:
 int
 mp_cpu_configure(int cpuid)
 {
-	cpu_t *cp;
-
-	if (use_mp == 0 || plat_dr_support_cpu() == 0) {
-		return (ENOTSUP);
-	}
-
-	cp = cpu_get(cpuid);
-	if (cp != NULL) {
-		return (EALREADY);
-	}
-
-	/*
-	 * Check if there's at least a Mbyte of kmem available
-	 * before attempting to start the cpu.
-	 */
-	if (kmem_avail() < 1024 * 1024) {
-		/*
-		 * Kick off a reap in case that helps us with
-		 * later attempts ..
-		 */
-		kmem_reap();
-		return (ENOMEM);
-	}
-
-	cp = mp_cpu_configure_common(cpuid, B_FALSE);
-	ASSERT(cp != NULL && cpu_get(cpuid) == cp);
-
-	return (cp != NULL ? 0 : EAGAIN);
+	return (ENOTSUP);
 }
 
 int
 mp_cpu_unconfigure(int cpuid)
 {
-	cpu_t *cp;
-
-	if (use_mp == 0 || plat_dr_support_cpu() == 0) {
-		return (ENOTSUP);
-	} else if (cpuid < 0 || cpuid >= max_ncpus) {
-		return (EINVAL);
-	}
-
-	cp = cpu_get(cpuid);
-	if (cp == NULL) {
-		return (ENODEV);
-	}
-	mp_cpu_unconfigure_common(cp, 0);
-
-	return (0);
+	return (ENOTSUP);
 }
 
 /*

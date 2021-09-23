@@ -101,13 +101,11 @@ mach_cpucontext_init(void)
 	    HAT_LOAD_NOCONSIST);
 
 	/* Copy CPU startup code to rm_platter if it's still during boot. */
-	if (!plat_dr_enabled()) {
-		ASSERT((size_t)real_mode_start_cpu_end -
-		    (size_t)real_mode_start_cpu <= RM_PLATTER_CODE_SIZE);
-		bcopy((caddr_t)real_mode_start_cpu, (caddr_t)rm->rm_code,
-		    (size_t)real_mode_start_cpu_end -
-		    (size_t)real_mode_start_cpu);
-	}
+	ASSERT((size_t)real_mode_start_cpu_end -
+	    (size_t)real_mode_start_cpu <= RM_PLATTER_CODE_SIZE);
+	bcopy((caddr_t)real_mode_start_cpu, (caddr_t)rm->rm_code,
+	    (size_t)real_mode_start_cpu_end -
+	    (size_t)real_mode_start_cpu);
 
 	return (0);
 }
@@ -256,55 +254,12 @@ mach_cpucontext_alloc_tables(struct cpu *cp)
 void *
 mach_cpucontext_xalloc(struct cpu *cp, int optype)
 {
-	size_t len;
 	struct cpu_tables *ct;
 	rm_platter_t *rm = (rm_platter_t *)rm_platter_va;
-	static int cpu_halt_code_ready;
 
-	if (optype == MACH_CPUCONTEXT_OP_STOP) {
-		ASSERT(plat_dr_enabled());
+	ASSERT(optype != MACH_CPUCONTEXT_OP_STOP);
 
-		/*
-		 * The WARM_RESET_VECTOR has a limitation that the physical
-		 * address written to it must be page-aligned. To work around
-		 * this limitation, the CPU stop code has been splitted into
-		 * two stages.
-		 * The stage 2 code, which implements the real logic to halt
-		 * CPUs, is copied to the rm_cpu_halt_code field in the real
-		 * mode platter. The stage 1 code, which simply jumps to the
-		 * stage 2 code in the rm_cpu_halt_code field, is copied to
-		 * rm_code field in the real mode platter and it may be
-		 * overwritten after the CPU has been stopped.
-		 */
-		if (!cpu_halt_code_ready) {
-			/*
-			 * The rm_cpu_halt_code field in the real mode platter
-			 * is used by the CPU stop code only. So only copy the
-			 * CPU stop stage 2 code into the rm_cpu_halt_code
-			 * field on the first call.
-			 */
-			len = (size_t)real_mode_stop_cpu_stage2_end -
-			    (size_t)real_mode_stop_cpu_stage2;
-			ASSERT(len <= RM_PLATTER_CPU_HALT_CODE_SIZE);
-			bcopy((caddr_t)real_mode_stop_cpu_stage2,
-			    (caddr_t)rm->rm_cpu_halt_code, len);
-			cpu_halt_code_ready = 1;
-		}
-
-		/*
-		 * The rm_code field in the real mode platter is shared by
-		 * the CPU start, CPU stop, CPR and fast reboot code. So copy
-		 * the CPU stop stage 1 code into the rm_code field every time.
-		 */
-		len = (size_t)real_mode_stop_cpu_stage1_end -
-		    (size_t)real_mode_stop_cpu_stage1;
-		ASSERT(len <= RM_PLATTER_CODE_SIZE);
-		bcopy((caddr_t)real_mode_stop_cpu_stage1,
-		    (caddr_t)rm->rm_code, len);
-		rm->rm_cpu_halted = 0;
-
-		return (cp->cpu_m.mcpu_mach_ctx_ptr);
-	} else if (optype != MACH_CPUCONTEXT_OP_START) {
+	if (optype != MACH_CPUCONTEXT_OP_START) {
 		return (NULL);
 	}
 
@@ -315,13 +270,6 @@ mach_cpucontext_xalloc(struct cpu *cp, int optype)
 	ct = mach_cpucontext_alloc_tables(cp);
 	if (ct == NULL) {
 		return (NULL);
-	}
-
-	/* Copy CPU startup code to rm_platter for CPU hot-add operations. */
-	if (plat_dr_enabled()) {
-		bcopy((caddr_t)real_mode_start_cpu, (caddr_t)rm->rm_code,
-		    (size_t)real_mode_start_cpu_end -
-		    (size_t)real_mode_start_cpu);
 	}
 
 	/*
@@ -468,7 +416,7 @@ mp_cpu_poweron(struct cpu *cp)
 
 	ASSERT(cp != NULL);
 	cpuid = cp->cpu_id;
-	if (use_mp == 0 || plat_dr_support_cpu() == 0) {
+	if (use_mp == 0) {
 		return (ENOTSUP);
 	} else if (cpuid < 0 || cpuid >= max_ncpus) {
 		return (EINVAL);
@@ -585,7 +533,7 @@ mp_cpu_poweroff(struct cpu *cp)
 	ASSERT((cp->cpu_flags & CPU_OFFLINE) != 0);
 	ASSERT((cp->cpu_flags & CPU_QUIESCED) != 0);
 
-	if (use_mp == 0 || plat_dr_support_cpu() == 0) {
+	if (use_mp == 0) {
 		return (ENOTSUP);
 	}
 	/*

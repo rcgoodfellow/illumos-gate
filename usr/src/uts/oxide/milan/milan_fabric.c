@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -2904,7 +2904,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(val,
-		    bitx64(MILAN_PHYSADDR_IOAPIC, 47, 32));
+		    bitx64(MILAN_PHYSADDR_IOHC_IOAPIC, 47, 32));
 	} else {
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(val, 0);
 	}
@@ -2913,7 +2913,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_ADDR(val,
-		    bitx64(MILAN_PHYSADDR_IOAPIC, 31, 8));
+		    bitx64(MILAN_PHYSADDR_IOHC_IOAPIC, 31, 8));
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_LOCK(val, 0);
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_EN(val, 1);
 	} else {

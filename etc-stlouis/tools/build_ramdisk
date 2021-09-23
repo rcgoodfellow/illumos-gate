@@ -1,0 +1,729 @@
+#!/bin/bash
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+
+#
+# Copyright 2020 Joyent, Inc.
+# Copyright 2022 Oxide Computer Co.
+#
+
+#
+# Much of this comes from SmartOS, but as this is mainly for development right
+# now we aren't asking nearly as much from it.  All we really want is the
+# ramdisk image, and we don't bother with many of the checks.  More importantly,
+# for now we don't bother with illumos-extra or anything else from smartos-live.
+# The small number of non-ON files we need to boot are ripped from the build
+# machine, 1997-style.  This builds a broken rootfs, so if your build machine
+# is too old or too new, things will break badly.  How old is too old or too
+# new?  Who knows?  If your build doesn't use the adjunct proto area, you have
+# no real control over any of this anyway.  There's a reason Joyent adopted
+# hermetic builds.  Good luck!
+#
+
+set -o pipefail
+set -o nounset
+
+if ! bi_wsroot=$(cd "$(dirname "$0")/../.." && pwd) ||
+    ! bi_arg0=$(basename "$0"); then
+	printf 'failed to locate working directory\n' >&2
+	exit 1
+fi
+
+bi_toolsroot="$bi_wsroot/etc-stlouis/tools"
+
+bi_uid=
+
+bi_tmpdir="/tmp/build_ramdisk-$UID.$$"
+
+bi_dont_leave_me_hanging=0
+if [[ ! -t 1 ]] || ! bi_columns=$(tput cols); then
+	bi_columns=80
+fi
+bi_emit_fmt="%-$((bi_columns - 20))s... "
+bi_last_start=
+bi_last_start_time=
+
+#
+# If this variable is populated on failure, we'll emit the contents after the
+# error message.  The variable will be cleared whenever you start a new
+# section with "bi_emit_start()".
+#
+bi_extra=
+
+bi_exit_reached=false
+
+function bi_early_exit
+{
+	if [[ $bi_exit_reached != true ]]; then
+		bi_exit_reached=true
+		fail 'unexpected early exit'
+	fi
+}
+
+function bi_exit
+{
+	bi_exit_reached=true
+	exit $1
+}
+
+function bi_interrupt
+{
+	bi_exit_reached=true
+	fail 'interrupted by signal'
+}
+
+function bi_stack_trace
+{
+	for (( i = 0; i < ${#FUNCNAME[@]}; i++ )); do
+		#
+		# Elide the stack trace printer from the stack trace:
+		#
+		if [[ ${FUNCNAME[i]} == "fail" ||
+		    ${FUNCNAME[i]} == "bi_stack_trace" ]]; then
+			continue
+		fi
+
+		printf '  [%3d] %s\n' "${i}" "${FUNCNAME[i]}" >&2
+		if (( i > 0 )); then
+			line="${BASH_LINENO[$((i - 1))]}"
+		else
+			line="${LINENO}"
+		fi
+		printf '        (file "%s" line %d)\n' "${BASH_SOURCE[i]}" \
+		    "${line}" >&2
+	done
+}
+
+function bi_big_banner
+{
+	printf '\n'
+	printf '### %s #########################################\n' "$*"
+	printf '\n'
+}
+
+function bi_emit_newline
+{
+	if [[ ${bi_dont_leave_me_hanging} = 1 ]]; then
+		if [[ ! -t 0 || ! -t 1 ]]; then
+			printf '\n'
+		fi
+		bi_dont_leave_me_hanging=0
+	fi
+}
+
+function bi_emit_start
+{
+	printf "${bi_emit_fmt}" "$1"
+	if [[ -t 0 && -t 1 ]]; then
+		printf '\n'
+	fi
+	bi_dont_leave_me_hanging=1
+	bi_last_start="$1"
+	bi_last_start_time=$SECONDS
+	bi_extra=
+}
+
+function bi_emit_done
+{
+	local bi_delta=$(( SECONDS - $bi_last_start_time ))
+
+	if [[ ${bi_dont_leave_me_hanging} = 0 ]]; then
+		#
+		# Intervening output has occurred; refresh the user's memory.
+		#
+		bi_emit_start "(cont.) ${bi_last_start}"
+	fi
+
+	if [[ -t 0 && -t 1 ]]; then
+		printf '\e[A\e[%dG' "$((bi_columns - 15))"
+	fi
+	if (( bi_delta > 1 )); then
+		printf 'done (%ds)\n' "$bi_delta"
+	else
+		printf 'done\n'
+	fi
+	bi_dont_leave_me_hanging=0
+}
+
+function bi_emit_info
+{
+	local msg
+	msg="$1:"
+	shift
+
+	bi_emit_newline
+	printf '  * %s "%s"\n' "${msg}" "$*"
+}
+
+function bi_log_tee
+{
+	if [[ -n ${BASH_XTRACEFD:-} ]]; then
+		/usr/bin/tee -a "/dev/fd/$BASH_XTRACEFD" || true
+	else
+		/usr/bin/cat
+	fi
+}
+
+function bi_log_setup
+{
+	PS4=
+	PS4="${PS4}"'[\D{%FT%TZ}] ${BASH_SOURCE}:${LINENO}: '
+	PS4="${PS4}"'${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+	exec 4>>"$1"
+	export BASH_XTRACEFD=4
+	set -o xtrace
+}
+
+function fail
+{
+	bi_exit_reached=true
+	bi_emit_newline
+	printf '\nBUILD FAILURE:\n' >&2
+	bi_stack_trace
+	printf '\n' >&2
+
+	#
+	# This cleanup function should be defined in the program, so that
+	# program-specific cleanup can be performed on exit.
+	#
+	printf 'CLEANING UP ON FAILURE ...\n' >&2
+	if ! fail_cleanup 2>&1 | sed 's/^/| /'; then
+		printf 'ERROR: "fail_cleanup" function did not succeed\n' >&2
+	fi
+	printf '... DONE\n\n' >&2
+
+	#
+	# Print the final error message:
+	#
+	local msg="$*"
+	[[ -z "$msg" ]] && msg="failed"
+	printf '%s: ERROR: %s\n' "$bi_arg0" "$msg" | bi_log_tee >&2
+	if [[ -n $bi_extra ]]; then
+		printf '%s\n' "$bi_extra" | sed 's/^/  | /' |
+		    bi_log_tee >&2
+	fi
+	exit 1
+}
+
+function bi_setup_work_dir
+{
+	bi_emit_start 'Creating temporary directory...'
+	if ! mkdir -m 0700 $bi_tmpdir >/dev/null; then
+		fail "failed to make temporary directory"
+	fi
+	bi_emit_info 'Temporary Directory' "$bi_tmpdir"
+	bi_emit_done
+}
+
+function bi_cleanup_work_dir
+{
+	if [[ ${bi_dont_clean:-} -eq 1 ]]; then
+		return 0
+	fi
+
+	bi_emit_start 'Removing temporary directory...'
+	[[ ! -d $bi_tmpdir ]] && return
+	rm -rf $bi_tmpdir/*
+	[[ $? -eq 0 ]] || fail "failed to remove temporary directory contents"
+	rmdir $bi_tmpdir
+	[[ $? -eq 0 ]] || fail "failed to remove temporary directory"
+	bi_emit_done
+}
+
+bi_manifest=
+bi_out_dir=
+declare -a bi_in_dirs
+
+#
+# These variables are populated by "bi_find_buildstamp()":
+#
+bi_buildstamp=
+bi_prefix=
+
+bi_archive=
+bi_kernel=
+
+#
+# The "bi_create_ramdisk" function stashes the lofi device path for the
+# most recent ramdisk image in this variable:
+#
+bi_lofi_last=
+
+bi_lofi_root=
+bi_lofi_usr=
+
+bi_file_root=
+bi_file_usr=
+
+bi_mnt_root=
+bi_mnt_usr=
+
+bi_root_size=
+bi_usr_size=
+
+bi_log=
+
+
+function usage
+{
+	printf "Usage: %s -m MANIFEST_FILE " "$bi_arg0"
+	printf -- "-o OUTPUTDIR -s ROOT_SIZE -u USR_SIZE { INPUT_DIR ... }\n"
+	exit 2
+}
+
+function fail_cleanup
+{
+	if [[ -n ${NO_CLEANUP:-} ]]; then
+		printf 'WARNING: skipping cleaning; tmpdir = %s\n' \
+		    "$bi_tmpdir"
+		return
+	fi
+
+	#
+	# Try to make sure we aren't sitting in a directory that we wish
+	# to unmount or remove.
+	#
+	cd /tmp
+
+	if [[ -n $bi_mnt_usr ]]; then
+		pfexec umount -f "$bi_mnt_usr"
+	fi
+	if [[ -n $bi_mnt_root ]]; then
+		pfexec umount -f "$bi_mnt_root"
+	fi
+
+	if [[ -n $bi_lofi_usr ]]; then
+		pfexec lofiadm -d "$bi_lofi_usr"
+	fi
+	if [[ -n $bi_lofi_root ]]; then
+		pfexec lofiadm -d "$bi_lofi_root"
+	fi
+
+	if [[ -n $bi_tmpdir && -d $bi_tmpdir ]]; then
+		rm -rf "$bi_tmpdir"
+	fi
+}
+
+function bi_find_buildstamp
+{
+	if ! bi_buildstamp=$(git rev-parse --short=12 HEAD); then
+		fail "couldn't get git SHA for HEAD"
+	fi
+
+	bi_emit_info 'Build Stamp' "$bi_buildstamp"
+
+	bi_prefix="platform-$bi_buildstamp"
+}
+
+#
+# Create a blank ramdisk image file, then attach it as a lofi device.
+#
+function bi_create_ramdisk
+{
+	local crd_size=$1
+	local crd_path=$2
+
+	if [[ -z $crd_size || -z $crd_path ]]; then
+		fail 'bi_create_ramdisk() requires both arguments'
+	fi
+
+	if [[ -f $crd_path ]]; then
+		fail "ramdisk \"$crd_path\" already exists"
+	fi
+
+	bi_emit_start "Creating ramdisk file \"$crd_path\""
+
+	if ! /usr/sbin/mkfile "${crd_size}k" "$crd_path"; then
+		fail "failed to make ramdisk file \"$crd_path\""
+	fi
+
+	if ! crd_lofi=$(pfexec /usr/sbin/lofiadm -a "$crd_path"); then
+		fail "failed to attach file \"$crd_path\" as lofi device"
+	fi
+
+	bi_lofi_last=$crd_lofi
+
+	bi_emit_done
+}
+
+function bi_create_ufs
+{
+	local cuf_inode_density=$1
+	local cuf_special=$2
+	local cuf_path=$3
+	local cuf_name=$4
+	local cuf_out=
+
+	if [[ -z $cuf_inode_density || -z $cuf_special ||
+	    -z $cuf_path ]]; then
+		fail 'bi_create_ufs() requires three arguments'
+	fi
+
+	if [[ ! -b $cuf_special ]]; then
+		fail "\"$cuf_special\" is not a block device"
+	fi
+
+	bi_emit_start "Creating UFS file system ($cuf_name)"
+
+	if ! cuf_out=$(pfexec /usr/sbin/newfs -o space -m 0 \
+	    -i "$cuf_inode_density" -b 4096 "$cuf_special" \
+	    </dev/null 2>&1); then
+		bi_emit_newline
+		fail "newfs failure for \"$cuf_special\": $cuf_out"
+	fi
+
+	if ! mkdir -p "$cuf_path"; then
+		fail "failed to mkdir \"$cuf_path\" for mount"
+	fi
+
+	if ! pfexec /usr/sbin/mount -F ufs -o nologging "$cuf_special" \
+	    "$cuf_path"; then
+		fail "failed to mount \"$cuf_special\" on \"$cuf_path\""
+	fi
+
+	bi_emit_done
+}
+
+function bi_copy_files
+{
+	local builder="$bi_toolsroot/builder/builder"
+	local builder_log="$bi_tmpdir/builder.output"
+
+	bi_emit_start 'Copying files from proto areas to image'
+
+	#
+	# A torrent of mostly uninteresting output pours forth from the
+	# "builder" program.  We'll keep it in a file just in case it's needed
+	# later.
+	#
+	if ! pfexec "$builder" "$bi_manifest" "$bi_mnt_root" \
+	    "${bi_in_dirs[@]}" 2>&1 | bi_log_tee >"$builder_log"; then
+		#bi_emit_newline
+		#printf 'Builder failures:\n' >&2
+		#/usr/bin/grep 'FAILED$' "$builder_log" >&2
+		bi_extra=$(/usr/bin/grep 'FAILED$' "$builder_log")
+		fail "\"builder\" failed to copy from proto area to image"
+	fi
+
+	bi_emit_done
+}
+
+function bi_smf_import
+{
+	local smf_importer="$bi_toolsroot/smf_import"
+
+	bi_emit_start 'Importing GZ SMF manifests'
+
+	if ! bi_extra=$(pfexec "$smf_importer" "$SRC" "$bi_mnt_root" 2>&1); then
+		fail "failed to import GZ SMF manifests"
+	fi
+
+	bi_emit_done
+}
+
+function bi_file_fixups
+{
+	local kernel_src="$bi_mnt_root/platform/oxide/kernel/amd64/unix"
+
+	bi_emit_start 'Fixing shipped files'
+
+	if ! /usr/bin/mkdir -p "$(dirname "$bi_kernel")" ||
+	    ! /usr/bin/cp "$kernel_src" "$bi_kernel"; then
+		fail "could not copy the kernel"
+	fi
+
+	#
+	# Need to ensure that several files in the image are empty
+	#
+	for f in var/log/syslog var/adm/wtmpx; do
+		if ! pfexec /usr/bin/rm -f "$bi_mnt_root/$f" ||
+		    ! pfexec /usr/bin/touch "$bi_mnt_root/$f" ||
+		    ! pfexec /usr/bin/chown 0:0 "$bi_mnt_root/$f"; then
+			fail "could not create empty file \"$f\""
+		fi
+	done
+
+	if ! pfexec /usr/bin/chown 0:0 "$bi_mnt_root/"; then
+		fail "could not fix permissions on /"
+	fi
+
+	#
+	# The system needs certain files in early boot before /usr is mounted.
+	# We create a tar archive of these files, then unmount /usr and
+	# extract it into the /usr directory underneath.
+	#
+	local -a underfiles=(
+		"bin/["
+		"bin/cat"
+		"bin/head"
+		"bin/i86/ksh93"
+		"bin/ls"
+		"lib/fm/libfmevent.so.1"
+		"lib/fm/libtopo.so.1"
+		"lib/libast.so.1"
+		"lib/libcmd.so.1"
+		"lib/libdll.so.1"
+		"lib/libexacct.so.1"
+		"lib/libidmap.so.1"
+		"lib/libipmi.so.1"
+		"lib/libpkcs11.so.1"
+		"lib/libpool.so.1"
+		"lib/libproject.so.1"
+		"lib/libshell.so.1"
+		"lib/libsmbios.so.1"
+		"lib/libsum.so.1"
+		"sbin/lofiadm"
+	)
+	local fl_tarfile="$bi_tmpdir/usr_underfiles.tar"
+
+	if ! (cd "$bi_mnt_usr" && /usr/bin/tar cbf 512 "$fl_tarfile" \
+	    "${underfiles[@]}"); then
+		fail "could not copy files to put under /usr"
+	fi
+
+	#
+	# Now, unmount /usr
+	#
+	if ! pfexec /sbin/umount "$bi_mnt_usr"; then
+		fail "could not unmount /usr image"
+	fi
+	bi_mnt_usr=
+	if ! pfexec /usr/sbin/lofiadm -d "$bi_lofi_usr"; then
+		fail "could not detach /usr lofi device"
+	fi
+	bi_lofi_usr=
+
+	#
+	# Put the under files in place in the root image
+	#
+	if ! (cd "$bi_mnt_root/usr" && pfexec /usr/bin/tar xbf 512 \
+	    "$fl_tarfile"); then
+		fail "could not copy files under /usr in root image"
+	fi
+
+	#
+	# In our image, ksh93 is a hardlink to isaexec.  Rather than replicate
+	# that arrangement in the root file system, we just symlink to the
+	# 32-bit binary directly.
+	#
+	if ! pfexec /usr/bin/ln -s 'i86/ksh93' "$bi_mnt_root/usr/bin/sh"; then
+		fail "failed to create ksh93 symlink"
+	fi
+
+	bi_emit_done
+}
+
+function bi_compress_usr
+{
+	local usrlzma="$bi_mnt_root/usr.lzma"
+
+	bi_emit_start 'Compressing /usr image to include in root image'
+
+	#
+	# The /usr image is included as a compressed file in the root image.
+	#
+	if ! pfexec /usr/sbin/lofiadm -C lzma "$bi_file_usr"; then
+		fail "could not compress /usr image"
+	fi
+
+	if ! pfexec /usr/bin/mv "$bi_file_usr" "$usrlzma" ||
+	    ! pfexec /usr/bin/chown 0:0 "$usrlzma"; then
+		fail "could not copy /usr image into root image"
+	fi
+
+	bi_emit_done
+}
+
+function bi_finish_archive
+{
+	bi_emit_start 'Finishing ramdisk creation'
+
+	if ! pfexec /sbin/umount "$bi_mnt_root"; then
+		fail "could not unmount root image"
+	fi
+	bi_mnt_root=
+
+	if ! pfexec /usr/sbin/lofiadm -d "$bi_lofi_root"; then
+		fail "could not detach root lofi device"
+	fi
+	bi_lofi_root=
+
+	#
+	# Move the completed boot_archive into the output directory.
+	#
+	if ! /usr/bin/mv "$bi_file_root" "$bi_archive"; then
+		fail "could not move boot_archive into output directory"
+	fi
+
+	#
+	# The boot_archive file was created with mkfile(1), so it probably
+	# has inappropriate permissions.
+	#
+	if ! /usr/bin/chmod 644 "$bi_archive"; then
+		fail "could not set boot_archive permissions"
+	fi
+
+	bi_emit_done
+}
+
+#
+# Process options:
+#
+while getopts "m:o:s:u:" c $@; do
+	case "$c" in
+	m)
+		bi_manifest=$OPTARG
+		;;
+	o)
+		bi_out_dir=$OPTARG
+		;;
+	s)
+		bi_root_size=$OPTARG
+		;;
+	u)
+		bi_usr_size=$OPTARG
+		;;
+	*)
+		usage
+		;;
+	esac
+done
+
+trap 'bi_early_exit' EXIT
+trap 'bi_interrupt' SIGINT SIGHUP
+
+if ! bi_uid=$(/usr/bin/id -u); then
+	fail 'could not determine user id'
+fi
+
+#
+# Gather the remaining positional arguments to form the list of input
+# directories.
+#
+shift "$(( OPTIND - 1 ))"
+
+while (( $# > 0 )); do
+	bi_in_dirs+=( "$1" )
+	shift
+done
+
+#
+# Check to make sure we have all of the arguments that we need:
+#
+if [[ -z $bi_manifest || -z $bi_out_dir || -z $bi_root_size || \
+	-z $bi_usr_size ]]; then
+	fail '-m, -o, -s, and -u are required'
+fi
+
+if (( ${#bi_in_dirs[@]} < 1 )); then
+	fail 'at least one input directory is required'
+fi
+
+bi_big_banner 'Building platform image'
+
+bi_manifest="$(cd "$(dirname "$bi_manifest")" && pwd)/$(basename "$bi_manifest")"
+
+#
+# Get us to the root of the workspace:
+#
+if ! cd "$bi_wsroot"; then
+	fail "could not chdir to workspace root \"$bi_wsroot\""
+fi
+
+#
+# Ensure that the output directory exists, and belongs to the correct
+# user:
+#
+if [[ -d $bi_out_dir ]]; then
+	if ! pfexec /usr/bin/chown -R "$bi_uid" "$bi_out_dir"; then
+		fail "could not fix ownership on output directory"
+	fi
+else
+	if ! /usr/bin/mkdir -p "$bi_out_dir"; then
+		fail "could not create output directory \"$bi_out_dir\""
+	fi
+fi
+
+#
+# Load the build stamp (and potentially a build version), and emit some
+# information about what we're going to do.
+#
+bi_find_buildstamp
+bi_emit_info 'Manifest File' "$bi_manifest"
+bi_emit_info 'Output Directory' "$bi_out_dir"
+for (( i = 0; i < ${#bi_in_dirs[@]}; i++ )); do
+	bi_emit_info "Input Directory[$i]" "${bi_in_dirs[$i]}"
+done
+printf '\n'
+
+#
+# Set up trace logging into a log file:
+#
+if [[ -d "$bi_out_dir/log" ]]; then
+	if ! pfexec /usr/bin/chown -R "$bi_uid" "$bi_out_dir/log"; then
+		fail "could not fix ownership on log directory"
+	fi
+else
+	if ! /usr/bin/mkdir -p "$bi_out_dir/log"; then
+		fail "could not create log directory"
+	fi
+fi
+bi_log_setup "$bi_out_dir/log/build_live.$bi_buildstamp.$(date +%s).log"
+
+bi_setup_work_dir
+
+#
+# Create and mount the "/" (root) ramdisk image:
+#
+bi_file_root="$bi_tmpdir/root.image"
+bi_create_ramdisk "$bi_root_size" "$bi_file_root"
+bi_lofi_root="$bi_lofi_last"
+bi_mnt_root="$bi_tmpdir/a"
+bi_create_ufs 12248 "$bi_lofi_root" "$bi_mnt_root" "/"
+
+#
+# Create the /usr directory in the ramdisk:
+#
+bi_mnt_usr="$bi_mnt_root/usr"
+if ! pfexec mkdir "$bi_mnt_usr"; then
+	fail "could not mkdir \"$bi_mnt_usr\""
+fi
+
+#
+# Create and mount the "/usr" ramdisk image:
+#
+bi_file_usr="$bi_tmpdir/usr.image"
+bi_create_ramdisk "$bi_usr_size" "$bi_file_usr"
+bi_lofi_usr="$bi_lofi_last"
+bi_create_ufs 12248 "$bi_lofi_usr" "$bi_mnt_usr" "/usr"
+
+#
+# Set up the output locations where build artefacts will be stored:
+#
+bi_archive="$bi_out_dir/$bi_prefix/ramdisk.ufs"
+bi_kernel="$bi_out_dir/$bi_prefix/unix"
+
+if ! mkdir -p "$(dirname "$bi_archive")" "$(dirname "$bi_kernel")"; then
+	fail "could not create build output directories"
+fi
+
+#
+# Assemble the boot_archive:
+#
+bi_copy_files
+bi_smf_import
+bi_file_fixups
+bi_compress_usr
+bi_finish_archive
+
+bi_cleanup_work_dir
+
+bi_exit 0

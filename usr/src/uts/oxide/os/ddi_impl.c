@@ -25,6 +25,7 @@
  * Copyright 2014 Pluribus Networks, Inc.
  * Copyright 2016 Nexenta Systems, Inc.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -87,7 +88,7 @@ size_t dma_max_copybuf_size = 0x101000;		/* 1M + 4K */
 
 uint64_t ramdisk_start, ramdisk_end;
 
-int pseudo_isa = 0;
+int pseudo_isa = 1;
 
 /*
  * Forward declarations
@@ -2526,17 +2527,9 @@ impl_bus_initialprobe(void)
 {
 	struct bus_probe *probe;
 
-#if 0	/* XXXBOOT likely just delete */
-	/* load modules to install bus probes */
-	if (modload("misc", "pci_autoconfig") < 0) {
-		panic("failed to load misc/pci_autoconfig");
-	}
-
-	(void) modload("misc", "acpidev");
-
+	/* XXXBOOT needed for the console for now, will be deleted. */
 	if (modload("drv", "isa") < 0)
 		panic("failed to load drv/isa");
-#endif
 
 	probe = bus_probes;
 	while (probe) {

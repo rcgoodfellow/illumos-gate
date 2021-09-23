@@ -1,54 +1,1200 @@
-dev
-devices
-platform/oxide/kernel/amd64/unix
-platform/oxide/kernel/cpu/amd64/cpu.generic
-platform/oxide/kernel/drv/amd64/amd_iommu
-platform/oxide/kernel/drv/amd64/npe
-platform/oxide/kernel/drv/amd64/rootnex
-platform/oxide/kernel/drv/amd_iommu.conf
-platform/oxide/kernel/mach/amd64/apix
-platform/oxide/kernel/kmdb/amd64/unix
-kernel/amd64/genunix
-kernel/drv/amd64/kmdb
-kernel/drv/clone.conf
-kernel/drv/kmdb.conf
-kernel/drv/mm.conf
-kernel/drv/options.conf
-kernel/drv/pseudo.conf
-kernel/drv/ramdisk.conf
-kernel/drv/amd64/clone
-kernel/drv/amd64/mm
-kernel/drv/amd64/nulldriver
-kernel/drv/amd64/options
-kernel/drv/amd64/pseudo
-kernel/drv/amd64/ramdisk
-kernel/fs/amd64/ufs
-kernel/fs/amd64/procfs
-kernel/fs/amd64/specfs
-kernel/fs/amd64/devfs
-kernel/fs/amd64/dev
-kernel/fs/amd64/mntfs
-kernel/fs/amd64/bootfs
-kernel/fs/amd64/objfs
-kernel/fs/amd64/fifofs
-kernel/fs/amd64/namefs
-kernel/kmdb/amd64/genunix
-kernel/misc/amd64/consconfig
-kernel/misc/amd64/ctf
-kernel/misc/amd64/dls
-kernel/misc/amd64/fssnap_if
-kernel/misc/amd64/iommulib
-kernel/misc/amd64/kmdbmod
-kernel/misc/amd64/mac
-kernel/misc/amd64/sha1
-kernel/misc/amd64/strplumb
-kernel/sched/amd64/TS
-kernel/sched/amd64/TS_DPTBL
-usr/kernel/drv/amd64/zcons
-proc
-system
-system/boot
-system/contract
-system/object
-/etc/name_to_major
-etc/name_to_sysnum
+s bin=usr/bin
+d dev 0755 root sys
+s dev/allkmem=../devices/pseudo/mm@0:allkmem
+s dev/arp=../devices/pseudo/arp@0:arp
+s dev/conslog=../devices/pseudo/log@0:conslog
+s dev/console=../devices/pseudo/cn@0:console
+d dev/cpu 0755 root root
+d dev/cpu/self 0755 root root
+s dev/cpu/self/cpuid=../../../devices/pseudo/cpuid@0:self
+s dev/crypto=../devices/pseudo/crypto@0:crypto
+s dev/dld=../devices/pseudo/dld@0:ctl
+d dev/dtrace 0755 root root
+d dev/dtrace/provider 0755 root root
+s dev/dtrace/provider/dcpc=../../../devices/pseudo/dcpc@0:dcpc
+s dev/dtrace/provider/fasttrap=../../../devices/pseudo/fasttrap@0:fasttrap
+s dev/dtrace/provider/fbt=../../../devices/pseudo/fbt@0:fbt
+s dev/dtrace/provider/lockstat=../../../devices/pseudo/lockstat@0:lockstat
+s dev/dtrace/provider/profile=../../../devices/pseudo/profile@0:profile
+s dev/dtrace/provider/sdt=../../../devices/pseudo/sdt@0:sdt
+s dev/dtrace/provider/systrace=../../../devices/pseudo/systrace@0:systrace
+d dev/fd 0555 root root
+s dev/full=../devices/pseudo/mm@0:full
+s dev/icmp=../devices/pseudo/icmp@0:icmp
+s dev/ip=../devices/pseudo/ip@0:ip
+s dev/ipmpstub=../devices/pseudo/dlpistub@0:ipmpstub
+s dev/kmdb=../devices/pseudo/kmdb@0:kmdb
+s dev/kmem=../devices/pseudo/mm@0:kmem
+s dev/kstat=../devices/pseudo/kstat@0:kstat
+s dev/ksyms=../devices/pseudo/ksyms@0:ksyms
+s dev/lo0=../devices/pseudo/ipnet@0:lo0
+s dev/lofictl=../devices/pseudo/lofi@0:ctl
+s dev/log=../devices/pseudo/log@0:log
+s dev/logindmux=../devices/pseudo/clone@0:logindmux
+s dev/mem=../devices/pseudo/mm@0:mem
+s dev/msglog=../devices/pseudo/sysmsg@0:msglog
+s dev/null=../devices/pseudo/mm@0:null
+s dev/openprom=../devices/pseudo/openeepr@0:openprom
+s dev/physmem=../devices/pseudo/physmem@0:physmem
+s dev/poll=../devices/pseudo/poll@0:poll
+s dev/ptmajor=../devices/pseudo/ptm@0:ptmajor
+s dev/ptmx=../devices/pseudo/clone@0:ptm
+s dev/ptyp0=../devices/pseudo/ptc@0:ptyp0
+s dev/ptyp1=../devices/pseudo/ptc@0:ptyp1
+s dev/ptyp2=../devices/pseudo/ptc@0:ptyp2
+s dev/ptyp3=../devices/pseudo/ptc@0:ptyp3
+s dev/ptyp4=../devices/pseudo/ptc@0:ptyp4
+s dev/ptyp5=../devices/pseudo/ptc@0:ptyp5
+s dev/ptyp6=../devices/pseudo/ptc@0:ptyp6
+s dev/ptyp7=../devices/pseudo/ptc@0:ptyp7
+s dev/ptyp8=../devices/pseudo/ptc@0:ptyp8
+s dev/ptyp9=../devices/pseudo/ptc@0:ptyp9
+s dev/ptypa=../devices/pseudo/ptc@0:ptypa
+s dev/ptypb=../devices/pseudo/ptc@0:ptypb
+s dev/ptypc=../devices/pseudo/ptc@0:ptypc
+s dev/ptypd=../devices/pseudo/ptc@0:ptypd
+s dev/ptype=../devices/pseudo/ptc@0:ptype
+s dev/ptypf=../devices/pseudo/ptc@0:ptypf
+s dev/ptyq0=../devices/pseudo/ptc@0:ptyq0
+s dev/ptyq1=../devices/pseudo/ptc@0:ptyq1
+s dev/ptyq2=../devices/pseudo/ptc@0:ptyq2
+s dev/ptyq3=../devices/pseudo/ptc@0:ptyq3
+s dev/ptyq4=../devices/pseudo/ptc@0:ptyq4
+s dev/ptyq5=../devices/pseudo/ptc@0:ptyq5
+s dev/ptyq6=../devices/pseudo/ptc@0:ptyq6
+s dev/ptyq7=../devices/pseudo/ptc@0:ptyq7
+s dev/ptyq8=../devices/pseudo/ptc@0:ptyq8
+s dev/ptyq9=../devices/pseudo/ptc@0:ptyq9
+s dev/ptyqa=../devices/pseudo/ptc@0:ptyqa
+s dev/ptyqb=../devices/pseudo/ptc@0:ptyqb
+s dev/ptyqc=../devices/pseudo/ptc@0:ptyqc
+s dev/ptyqd=../devices/pseudo/ptc@0:ptyqd
+s dev/ptyqe=../devices/pseudo/ptc@0:ptyqe
+s dev/ptyqf=../devices/pseudo/ptc@0:ptyqf
+s dev/ptyr0=../devices/pseudo/ptc@0:ptyr0
+s dev/ptyr1=../devices/pseudo/ptc@0:ptyr1
+s dev/ptyr2=../devices/pseudo/ptc@0:ptyr2
+s dev/ptyr3=../devices/pseudo/ptc@0:ptyr3
+s dev/ptyr4=../devices/pseudo/ptc@0:ptyr4
+s dev/ptyr5=../devices/pseudo/ptc@0:ptyr5
+s dev/ptyr6=../devices/pseudo/ptc@0:ptyr6
+s dev/ptyr7=../devices/pseudo/ptc@0:ptyr7
+s dev/ptyr8=../devices/pseudo/ptc@0:ptyr8
+s dev/ptyr9=../devices/pseudo/ptc@0:ptyr9
+s dev/ptyra=../devices/pseudo/ptc@0:ptyra
+s dev/ptyrb=../devices/pseudo/ptc@0:ptyrb
+s dev/ptyrc=../devices/pseudo/ptc@0:ptyrc
+s dev/ptyrd=../devices/pseudo/ptc@0:ptyrd
+s dev/ptyre=../devices/pseudo/ptc@0:ptyre
+s dev/ptyrf=../devices/pseudo/ptc@0:ptyrf
+s dev/ramdiskctl=../devices/pseudo/ramdisk@1024:ctl
+s dev/random=../devices/pseudo/random@0:random
+s dev/rawip=../devices/pseudo/icmp@0:icmp
+s dev/rts=../devices/pseudo/rts@0:rts
+d dev/sad 0755 root root
+s dev/sad/admin=../../devices/pseudo/sad@0:admin
+s dev/sad/user=../../devices/pseudo/sad@0:user
+s dev/stderr=fd/2
+s dev/stdin=fd/0
+s dev/stdout=fd/1
+s dev/syscon=../devices/pseudo/cn@0:syscon
+s dev/sysevent=../devices/pseudo/sysevent@0:sysevent
+s dev/sysmsg=../devices/pseudo/sysmsg@0:sysmsg
+s dev/systty=../devices/pseudo/cn@0:systty
+s dev/tcp=../devices/pseudo/tcp@0:tcp
+s dev/tty=../devices/pseudo/sy@0:tty
+s dev/ttyp0=../devices/pseudo/ptsl@0:ttyp0
+s dev/ttyp1=../devices/pseudo/ptsl@0:ttyp1
+s dev/ttyp2=../devices/pseudo/ptsl@0:ttyp2
+s dev/ttyp3=../devices/pseudo/ptsl@0:ttyp3
+s dev/ttyp4=../devices/pseudo/ptsl@0:ttyp4
+s dev/ttyp5=../devices/pseudo/ptsl@0:ttyp5
+s dev/ttyp6=../devices/pseudo/ptsl@0:ttyp6
+s dev/ttyp7=../devices/pseudo/ptsl@0:ttyp7
+s dev/ttyp8=../devices/pseudo/ptsl@0:ttyp8
+s dev/ttyp9=../devices/pseudo/ptsl@0:ttyp9
+s dev/ttypa=../devices/pseudo/ptsl@0:ttypa
+s dev/ttypb=../devices/pseudo/ptsl@0:ttypb
+s dev/ttypc=../devices/pseudo/ptsl@0:ttypc
+s dev/ttypd=../devices/pseudo/ptsl@0:ttypd
+s dev/ttype=../devices/pseudo/ptsl@0:ttype
+s dev/ttypf=../devices/pseudo/ptsl@0:ttypf
+s dev/ttyq0=../devices/pseudo/ptsl@0:ttyq0
+s dev/ttyq1=../devices/pseudo/ptsl@0:ttyq1
+s dev/ttyq2=../devices/pseudo/ptsl@0:ttyq2
+s dev/ttyq3=../devices/pseudo/ptsl@0:ttyq3
+s dev/ttyq4=../devices/pseudo/ptsl@0:ttyq4
+s dev/ttyq5=../devices/pseudo/ptsl@0:ttyq5
+s dev/ttyq6=../devices/pseudo/ptsl@0:ttyq6
+s dev/ttyq7=../devices/pseudo/ptsl@0:ttyq7
+s dev/ttyq8=../devices/pseudo/ptsl@0:ttyq8
+s dev/ttyq9=../devices/pseudo/ptsl@0:ttyq9
+s dev/ttyqa=../devices/pseudo/ptsl@0:ttyqa
+s dev/ttyqb=../devices/pseudo/ptsl@0:ttyqb
+s dev/ttyqc=../devices/pseudo/ptsl@0:ttyqc
+s dev/ttyqd=../devices/pseudo/ptsl@0:ttyqd
+s dev/ttyqe=../devices/pseudo/ptsl@0:ttyqe
+s dev/ttyqf=../devices/pseudo/ptsl@0:ttyqf
+s dev/ttyr0=../devices/pseudo/ptsl@0:ttyr0
+s dev/ttyr1=../devices/pseudo/ptsl@0:ttyr1
+s dev/ttyr2=../devices/pseudo/ptsl@0:ttyr2
+s dev/ttyr3=../devices/pseudo/ptsl@0:ttyr3
+s dev/ttyr4=../devices/pseudo/ptsl@0:ttyr4
+s dev/ttyr5=../devices/pseudo/ptsl@0:ttyr5
+s dev/ttyr6=../devices/pseudo/ptsl@0:ttyr6
+s dev/ttyr7=../devices/pseudo/ptsl@0:ttyr7
+s dev/ttyr8=../devices/pseudo/ptsl@0:ttyr8
+s dev/ttyr9=../devices/pseudo/ptsl@0:ttyr9
+s dev/ttyra=../devices/pseudo/ptsl@0:ttyra
+s dev/ttyrb=../devices/pseudo/ptsl@0:ttyrb
+s dev/ttyrc=../devices/pseudo/ptsl@0:ttyrc
+s dev/ttyrd=../devices/pseudo/ptsl@0:ttyrd
+s dev/ttyre=../devices/pseudo/ptsl@0:ttyre
+s dev/ttyrf=../devices/pseudo/ptsl@0:ttyrf
+s dev/ucode=../devices/pseudo/ucode@0:ucode
+s dev/udp=../devices/pseudo/udp@0:udp
+s dev/urandom=../devices/pseudo/random@0:urandom
+s dev/zero=../devices/pseudo/mm@0:zero
+d devices 0755 root sys
+d etc 0755 root sys
+s etc/.syslog_door=../var/run/syslog_door
+s etc/TIMEZONE=default/init
+d etc/crypto 0755 root sys
+f etc/crypto/kcf.conf 0644 root sys
+f etc/crypto/kmf.conf 0644 root sys
+f etc/crypto/pkcs11.conf 0644 root sys
+d etc/default 0755 root sys
+f etc/default/devfsadm 0644 root sys
+f etc/default/init 0644 root sys
+f etc/default/login 0644 root sys
+f etc/default/utmpd 0644 root sys
+d etc/dev 0755 root sys
+f etc/device.tab 0444 root root
+d etc/devices 0755 root sys
+d etc/devices/dli 0755 root root
+f etc/devlink.tab 0644 root sys
+d etc/dladm 0755 dladm netadm
+f etc/dladm/datalink.conf 0644 dladm sys
+f etc/dladm/flowadm.conf 0644 dladm netadm
+f etc/dladm/flowprop.conf 0644 dladm netadm
+f etc/dladm/secobj.conf 0660 dladm netadm
+f etc/driver_aliases 0644 root sys
+f etc/driver_classes 0644 root sys
+d etc/fs 0755 root sys
+d etc/fs/dev 0755 root sys
+f etc/fs/dev/mount 0555 root bin
+d etc/fs/ufs 0755 root sys
+f etc/fs/ufs/mount 0555 root bin
+f etc/group 0644 root sys
+s etc/hosts=inet/hosts
+d etc/inet 0755 root sys
+f etc/inet/hosts 0644 root sys
+s etc/inet/ipnodes=hosts
+f etc/inet/netmasks 0644 root sys
+f etc/inet/networks 0644 root sys
+f etc/inet/protocols 0644 root sys
+f etc/inet/services 0644 root sys
+f etc/inittab 0644 root sys
+f etc/ioctl.syscon 0644 root sys
+d etc/ipadm 0755 netadm netadm
+f etc/ipadm/ipadm.conf 0644 netadm netadm
+f etc/iu.ap 0644 root sys
+f etc/ksh.kshrc 0644 root sys
+s etc/log=../var/adm/log
+f etc/logindevperm 0644 root sys
+f etc/minor_perm 0644 root sys
+f etc/mnttab 0444 root root
+f etc/name_to_major 0644 root sys
+f etc/name_to_sysnum 0644 root sys
+f etc/netconfig 0644 root sys
+s etc/netmasks=inet/netmasks
+s etc/networks=inet/networks
+f etc/nsswitch.conf 0644 root sys
+f etc/pam.conf 0644 root sys
+f etc/passwd 0644 root sys
+f etc/path_to_inst 0444 root root
+f etc/profile 0644 root sys
+f etc/project 0644 root sys
+s etc/protocols=inet/protocols
+d etc/saf 0755 root bin
+f etc/saf/_sactab 0644 root sys
+f etc/saf/_sysconfig 0644 root sys
+d etc/security 0755 root sys
+d etc/security/audit 0755 root sys
+d etc/security/audit/localhost 0755 root sys
+s etc/security/audit/localhost/files=../../../../var/audit
+f etc/security/audit_class 0644 root sys
+f etc/security/audit_event 0644 root sys
+f etc/security/audit_warn 0740 root sys
+f etc/security/auth_attr 0644 root sys
+d etc/security/auth_attr.d 0755 root sys
+f etc/security/auth_attr.d/SUNWcs 0644 root sys
+f etc/security/crypt.conf 0644 root sys
+d etc/security/dev 0755 root sys
+f etc/security/dev/audio 0400 root bin
+f etc/security/dev/fd0 0400 root bin
+f etc/security/dev/sr0 0400 root bin
+f etc/security/dev/st0 0400 root bin
+f etc/security/dev/st1 0400 root bin
+f etc/security/device_policy 0644 root sys
+f etc/security/exec_attr 0644 root sys
+d etc/security/exec_attr.d 0755 root sys
+f etc/security/exec_attr.d/SUNWcs 0644 root sys
+f etc/security/exec_attr.d/SUNWsmbfs 0644 root sys
+f etc/security/extra_privs 0644 root sys
+f etc/security/kmfpolicy.xml 0644 root bin
+d etc/security/lib 0755 root sys
+f etc/security/lib/audio_clean 0555 root sys
+f etc/security/lib/fd_clean 0555 root sys
+f etc/security/lib/sr_clean 0555 root sys
+f etc/security/lib/st_clean 0555 root sys
+f etc/security/policy.conf 0644 root sys
+f etc/security/priv_names 0644 root sys
+f etc/security/prof_attr 0644 root sys
+d etc/security/prof_attr.d 0755 root sys
+f etc/security/prof_attr.d/SUNWcs 0644 root sys
+s etc/services=inet/services
+f etc/shadow 0400 root sys
+d etc/sock2path.d 0755 root sys
+f etc/sock2path.d/driver%2Fnetwork%2Fbpf 0644 root sys
+f etc/sock2path.d/driver%2Fnetwork%2Fsdp 0644 root sys
+f etc/sock2path.d/system%2Fkernel 0644 root sys
+s etc/sulogin=../sbin/sulogin
+d etc/svc 0755 root sys
+d etc/svc/profile 0755 root sys
+f etc/svc/profile/generic.xml 0444 root sys
+f etc/svc/profile/ns_files.xml 0444 root sys
+f etc/svc/profile/ns_none.xml 0444 root sys
+f etc/svc/profile/platform_none.xml 0444 root sys
+d etc/svc/volatile 0755 root sys
+d etc/sysevent 0755 root sys
+d etc/sysevent/config 0755 root sys
+d etc/sysevent/devfsadm_event_channel 0755 root root
+f etc/syslog.conf 0644 root sys
+f etc/system 0644 root sys
+s etc/termcap=../usr/share/lib/termcap
+f etc/ttydefs 0644 root sys
+f etc/user_attr 0644 root sys
+d etc/user_attr.d 0755 root sys
+f etc/user_attr.d/SUNWcs 0644 root sys
+f etc/vfstab 0644 root sys
+d kernel 0755 root sys
+d kernel/amd64 0755 root sys
+f kernel/amd64/genunix 0755 root sys
+d kernel/cc 0755 root sys
+d kernel/cc/amd64 0755 root sys
+f kernel/cc/amd64/cc_cubic 0755 root sys
+f kernel/cc/amd64/cc_newreno 0755 root sys
+f kernel/cc/amd64/cc_sunreno 0755 root sys
+d kernel/crypto 0755 root sys
+d kernel/crypto/amd64 0755 root sys
+f kernel/crypto/amd64/swrand 0755 root sys
+d kernel/drv 0755 root sys
+f kernel/drv/amdzen.conf 0644 root sys
+d kernel/drv/amd64 0755 root sys
+f kernel/drv/amd64/amdzen 0755 root sys
+f kernel/drv/amd64/amdzen_stub 0755 root sys
+f kernel/drv/amd64/amdnbtemp 0755 root sys
+f kernel/drv/amd64/arp 0755 root sys
+f kernel/drv/amd64/asy 0755 root sys
+f kernel/drv/amd64/blkdev 0755 root sys
+f kernel/drv/amd64/clone 0755 root sys
+f kernel/drv/amd64/cn 0755 root sys
+f kernel/drv/amd64/cpuid 0755 root sys
+f kernel/drv/amd64/cpunex 0755 root sys
+f kernel/drv/amd64/crypto 0755 root sys
+f kernel/drv/amd64/cxgbe 0755 root sys
+h kernel/drv/amd64/dcpc=kernel/dtrace/amd64/dcpc
+f kernel/drv/amd64/devinfo 0755 root sys
+f kernel/drv/amd64/dld 0755 root sys
+f kernel/drv/amd64/dlpistub 0755 root sys
+f kernel/drv/amd64/dtrace 0755 root sys
+f kernel/drv/amd64/e1000g 0755 root sys
+h kernel/drv/amd64/fasttrap=kernel/dtrace/amd64/fasttrap
+h kernel/drv/amd64/fbt=kernel/dtrace/amd64/fbt
+f kernel/drv/amd64/icmp 0755 root sys
+f kernel/drv/amd64/ip 0755 root sys
+f kernel/drv/amd64/ipnet 0755 root sys
+f kernel/drv/amd64/kmdb 0755 root sys
+h kernel/drv/amd64/lockstat=kernel/dtrace/amd64/lockstat
+f kernel/drv/amd64/lofi 0755 root sys
+f kernel/drv/amd64/log 0755 root sys
+f kernel/drv/amd64/mm 0755 root sys
+f kernel/drv/amd64/nulldriver 0755 root sys
+f kernel/drv/amd64/nvme 0755 root sys
+f kernel/drv/amd64/openeepr 0755 root sys
+f kernel/drv/amd64/options 0755 root sys
+f kernel/drv/amd64/pcieb 0755 root sys
+f kernel/drv/amd64/physmem 0755 root sys
+f kernel/drv/amd64/poll 0755 root sys
+h kernel/drv/amd64/profile=kernel/dtrace/amd64/profile
+f kernel/drv/amd64/pseudo 0755 root sys
+f kernel/drv/amd64/ptc 0755 root sys
+f kernel/drv/amd64/ptsl 0755 root sys
+f kernel/drv/amd64/ramdisk 0755 root sys
+f kernel/drv/amd64/random 0755 root sys
+f kernel/drv/amd64/sad 0755 root sys
+h kernel/drv/amd64/sdt=kernel/dtrace/amd64/sdt
+f kernel/drv/amd64/smntemp 0755 root sys
+f kernel/drv/amd64/spdsock 0755 root sys
+f kernel/drv/amd64/sy 0755 root sys
+f kernel/drv/amd64/sysevent 0755 root sys
+f kernel/drv/amd64/sysmsg 0755 root sys
+h kernel/drv/amd64/systrace=kernel/dtrace/amd64/systrace
+f kernel/drv/amd64/t4nex 0755 root sys
+f kernel/drv/amd64/tcp 0755 root sys
+f kernel/drv/amd64/ucode 0755 root sys
+f kernel/drv/amd64/udp 0755 root sys
+f kernel/drv/arp.conf 0644 root sys
+f kernel/drv/asy.conf 0644 root sys
+f kernel/drv/clone.conf 0644 root sys
+f kernel/drv/cn.conf 0644 root sys
+f kernel/drv/cpuid.conf 0644 root sys
+f kernel/drv/crypto.conf 0644 root sys
+f kernel/drv/dcpc.conf 0644 root sys
+f kernel/drv/devinfo.conf 0644 root sys
+f kernel/drv/dld.conf 0644 root sys
+f kernel/drv/dlpistub.conf 0644 root sys
+f kernel/drv/dtrace.conf 0644 root sys
+f kernel/drv/e1000g.conf 0644 root sys
+f kernel/drv/fasttrap.conf 0644 root sys
+f kernel/drv/fbt.conf 0644 root sys
+f kernel/drv/icmp.conf 0644 root sys
+f kernel/drv/ip.conf 0644 root sys
+f kernel/drv/ipnet.conf 0644 root sys
+f kernel/drv/kmdb.conf 0644 root sys
+f kernel/drv/lockstat.conf 0644 root sys
+f kernel/drv/lofi.conf 0644 root sys
+f kernel/drv/log.conf 0644 root sys
+f kernel/drv/mm.conf 0644 root sys
+f kernel/drv/nvme.conf 0644 root sys
+f kernel/drv/openeepr.conf 0644 root sys
+f kernel/drv/options.conf 0644 root sys
+f kernel/drv/pcieb.conf 0644 root sys
+f kernel/drv/physmem.conf 0644 root sys
+f kernel/drv/poll.conf 0644 root sys
+f kernel/drv/profile.conf 0644 root sys
+f kernel/drv/pseudo.conf 0644 root sys
+f kernel/drv/ptc.conf 0644 root sys
+f kernel/drv/ptsl.conf 0644 root sys
+f kernel/drv/ramdisk.conf 0644 root sys
+f kernel/drv/random.conf 0644 root sys
+f kernel/drv/sad.conf 0644 root sys
+f kernel/drv/sdt.conf 0644 root sys
+f kernel/drv/spdsock.conf 0644 root sys
+f kernel/drv/sy.conf 0644 root sys
+f kernel/drv/sysevent.conf 0644 root sys
+f kernel/drv/sysmsg.conf 0644 root sys
+f kernel/drv/systrace.conf 0644 root sys
+f kernel/drv/tcp.conf 0644 root sys
+f kernel/drv/ucode.conf 0644 root sys
+f kernel/drv/udp.conf 0644 root sys
+d kernel/dtrace 0755 root sys
+d kernel/dtrace/amd64 0755 root sys
+f kernel/dtrace/amd64/dcpc 0755 root sys
+f kernel/dtrace/amd64/fasttrap 0755 root sys
+f kernel/dtrace/amd64/fbt 0755 root sys
+f kernel/dtrace/amd64/lockstat 0755 root sys
+f kernel/dtrace/amd64/profile 0755 root sys
+f kernel/dtrace/amd64/sdt 0755 root sys
+f kernel/dtrace/amd64/systrace 0755 root sys
+d kernel/exec 0755 root sys
+d kernel/exec/amd64 0755 root sys
+f kernel/exec/amd64/elfexec 0755 root sys
+f kernel/exec/amd64/intpexec 0755 root sys
+d kernel/fs 0755 root sys
+d kernel/fs/amd64 0755 root sys
+f kernel/fs/amd64/ctfs 0755 root sys
+f kernel/fs/amd64/dev 0755 root sys
+f kernel/fs/amd64/devfs 0755 root sys
+f kernel/fs/amd64/fifofs 0755 root sys
+f kernel/fs/amd64/lofs 0755 root sys
+f kernel/fs/amd64/mntfs 0755 root sys
+f kernel/fs/amd64/namefs 0755 root sys
+f kernel/fs/amd64/objfs 0755 root sys
+f kernel/fs/amd64/procfs 0755 root sys
+f kernel/fs/amd64/sockfs 0755 root sys
+f kernel/fs/amd64/specfs 0755 root sys
+f kernel/fs/amd64/tmpfs 0755 root sys
+f kernel/fs/amd64/ufs 0755 root sys
+d kernel/kmdb 0755 root sys
+d kernel/kmdb/amd64 0755 root sys
+f kernel/kmdb/amd64/genunix 0555 root sys
+f kernel/kmdb/amd64/krtld 0555 root sys
+f kernel/kmdb/amd64/mm 0555 root sys
+f kernel/kmdb/amd64/specfs 0555 root sys
+f kernel/kmdb/amd64/ufs 0555 root sys
+d kernel/mac 0755 root sys
+d kernel/mac/amd64 0755 root sys
+f kernel/mac/amd64/mac_ether 0755 root sys
+f kernel/mac/amd64/mac_ipv4 0755 root sys
+d kernel/misc 0755 root sys
+d kernel/misc/amd64 0755 root sys
+f kernel/misc/amd64/busra 0755 root sys
+f kernel/misc/amd64/cc 0755 root sys
+f kernel/misc/amd64/cmlb 0755 root sys
+f kernel/misc/amd64/consconfig 0755 root sys
+f kernel/misc/amd64/ctf 0755 root sys
+f kernel/misc/amd64/dls 0755 root sys
+f kernel/misc/amd64/fssnap_if 0755 root sys
+f kernel/misc/amd64/gld 0755 root sys
+f kernel/misc/amd64/hook 0755 root sys
+f kernel/misc/amd64/iommulib 0755 root sys
+f kernel/misc/amd64/ipc 0755 root sys
+f kernel/misc/amd64/kcf 0755 root sys
+f kernel/misc/amd64/kmdbmod 0755 root sys
+f kernel/misc/amd64/mac 0755 root sys
+f kernel/misc/amd64/md5 0755 root sys
+f kernel/misc/amd64/mii 0755 root sys
+f kernel/misc/amd64/neti 0755 root sys
+f kernel/misc/amd64/pcicfg 0755 root sys
+f kernel/misc/amd64/pcie 0755 root sys
+f kernel/misc/amd64/pcihp 0755 root sys
+f kernel/misc/amd64/sha1 0755 root sys
+f kernel/misc/amd64/strplumb 0755 root sys
+d kernel/pcbe 0755 root sys
+d kernel/pcbe/amd64 0755 root sys
+r kernel/pcbe/amd64/pcbe.AuthenticAMD=usr/kernel/pcbe/amd64/pcbe.AuthenticAMD 0755 root sys
+d kernel/sched 0755 root sys
+d kernel/sched/amd64 0755 root sys
+f kernel/sched/amd64/TS 0755 root sys
+f kernel/sched/amd64/TS_DPTBL 0755 root sys
+d kernel/socketmod 0755 root sys
+d kernel/socketmod/amd64 0755 root sys
+h kernel/socketmod/amd64/icmp=kernel/drv/amd64/icmp
+f kernel/socketmod/amd64/rts 0755 root sys
+f kernel/socketmod/amd64/sockrds 0755 root sys
+h kernel/socketmod/amd64/tcp=kernel/drv/amd64/tcp
+h kernel/socketmod/amd64/udp=kernel/drv/amd64/udp
+d kernel/strmod 0755 root sys
+d kernel/strmod/amd64 0755 root sys
+f kernel/strmod/amd64/arp 0755 root sys
+h kernel/strmod/amd64/icmp=kernel/drv/amd64/icmp
+f kernel/strmod/amd64/ip 0755 root sys
+f kernel/strmod/amd64/ldterm 0755 root sys
+f kernel/strmod/amd64/pipemod 0755 root sys
+f kernel/strmod/amd64/ptem 0755 root sys
+h kernel/strmod/amd64/tcp=kernel/drv/amd64/tcp
+f kernel/strmod/amd64/ttcompat 0755 root sys
+h kernel/strmod/amd64/udp=kernel/drv/amd64/udp
+d kernel/sys 0755 root sys
+d kernel/sys/amd64 0755 root sys
+f kernel/sys/amd64/doorfs 0755 root sys
+f kernel/sys/amd64/inst_sync 0755 root sys
+f kernel/sys/amd64/msgsys 0755 root sys
+f kernel/sys/amd64/pipe 0755 root sys
+f kernel/sys/amd64/portfs 0755 root sys
+f kernel/sys/amd64/pset 0755 root sys
+f kernel/sys/amd64/semsys 0755 root sys
+f kernel/sys/amd64/shmsys 0755 root sys
+d lib 0755 root bin
+s lib/32=.
+s lib/64=amd64
+d lib/amd64 0755 root bin
+f lib/amd64/ld.so.1 0755 root bin
+f lib/amd64/libavl.so.1 0755 root bin
+f lib/amd64/libc.so.1 0755 root bin
+f lib/amd64/libc_db.so.1 0755 root bin
+f lib/amd64/libctf.so.1 0755 root bin
+f lib/amd64/libcurses.so.1 0755 root bin
+f lib/amd64/libcustr.so.1 0755 root bin
+f lib/amd64/libdevinfo.so.1 0755 root bin
+f lib/amd64/libdwarf.so.1 0755 root bin
+f lib/amd64/libelf.so.1 0755 root bin
+f lib/amd64/libgen.so.1 0755 root bin
+f lib/amd64/libm.so.2 0755 root bin
+f lib/amd64/libmd.so.1 0755 root bin
+f lib/amd64/libmp.so.2 0755 root bin
+f lib/amd64/libnsl.so.1 0755 root bin
+f lib/amd64/libnvpair.so.1 0755 root bin
+f lib/amd64/libofmt.so.1 0755 root bin
+f lib/amd64/libproc.so.1 0755 root bin
+f lib/amd64/libpthread.so.1 0755 root bin
+f lib/amd64/librtld.so.1 0755 root bin
+f lib/amd64/librtld_db.so.1 0755 root bin
+f lib/amd64/libscf.so.1 0755 root bin
+f lib/amd64/libsec.so.1 0755 root bin
+f lib/amd64/libsecdb.so.1 0755 root bin
+f lib/amd64/libsocket.so.1 0755 root bin
+f lib/amd64/libtsnet.so.1 0755 root bin
+f lib/amd64/libumem.so.1 0755 root bin
+f lib/amd64/libuutil.so.1 0755 root bin
+f lib/amd64/libvmmapi.so.1 0755 root bin
+f lib/amd64/libxml2.so.2 0755 root bin
+f lib/amd64/libz.so.1 0755 root bin
+s lib/amd64/libzfs_core.so.1=../../usr/lib/amd64/libzfs_core.so.1
+f lib/amd64/nss_files.so.1 0755 root bin
+d lib/fm 0755 root bin
+f lib/fm/libfmevent.so.1 0755 root bin
+d lib/fs 0755 root sys
+d lib/fs/dev 0755 root sys
+h lib/fs/dev/mount=etc/fs/dev/mount
+d lib/fs/ufs 0755 root sys
+h lib/fs/ufs/mount=etc/fs/ufs/mount
+d lib/inet 0755 root bin
+f lib/inet/ipmgmtd 0555 root bin
+f lib/ld.so.1 0755 root bin
+f lib/libadm.so.1 0755 root bin
+f lib/libavl.so.1 0755 root bin
+f lib/libbsm.so.1 0755 root bin
+f lib/libc.so.1 0755 root bin
+f lib/libc_db.so.1 0755 root bin
+f lib/libcmdutils.so.1 0755 root bin
+f lib/libcontract.so.1 0755 root bin
+f lib/libcryptoutil.so.1 0755 root bin
+f lib/libctf.so.1 0755 root bin
+f lib/libcurses.so.1 0755 root bin
+f lib/libcustr.so.1 0755 root bin
+f lib/libdevid.so.1 0755 root bin
+f lib/libdevinfo.so.1 0755 root bin
+f lib/libdhcpagent.so.1 0755 root bin
+f lib/libdhcputil.so.1 0755 root bin
+f lib/libdladm.so.1 0755 root bin
+f lib/libdlpi.so.1 0755 root bin
+f lib/libdwarf.so.1 0755 root bin
+f lib/libefi.so.1 0755 root bin
+f lib/libelf.so.1 0755 root bin
+f lib/libgen.so.1 0755 root bin
+f lib/libinetutil.so.1 0755 root bin
+f lib/libipadm.so.1 0755 root bin
+f lib/libipmp.so.1 0755 root bin
+f lib/libkstat.so.1 0755 root bin
+f lib/libld.so.4 0755 root bin
+f lib/liblddbg.so.4 0755 root bin
+f lib/libm.so.2 0755 root bin
+f lib/libmd.so.1 0755 root bin
+f lib/libmd5.so.1 0755 root bin
+f lib/libmp.so.2 0755 root bin
+f lib/libnsl.so.1 0755 root bin
+f lib/libnvpair.so.1 0755 root bin
+f lib/libofmt.so.1 0755 root bin
+f lib/libpam.so.1 0755 root bin
+f lib/libproc.so.1 0755 root bin
+f lib/libpthread.so.1 0755 root bin
+f lib/librcm.so.1 0755 root bin
+f lib/librestart.so.1 0755 root bin
+f lib/librtld.so.1 0755 root bin
+f lib/librtld_db.so.1 0755 root bin
+f lib/libscf.so.1 0755 root bin
+f lib/libsec.so.1 0755 root bin
+f lib/libsecdb.so.1 0755 root bin
+f lib/libsocket.so.1 0755 root bin
+f lib/libsqlite-sys.so.2.8.15 0755 root bin
+f lib/libsysevent.so.1 0755 root bin
+f lib/libtsnet.so.1 0755 root bin
+f lib/libtsol.so.2 0755 root bin
+f lib/libumem.so.1 0755 root bin
+f lib/libuuid.so.1 0755 root bin
+f lib/libuutil.so.1 0755 root bin
+f lib/libxml2.so.2 0755 root bin
+f lib/libxnet.so.1 0755 root bin
+f lib/libz.so.1 0755 root bin
+s lib/libzfs_core.so.1=../usr/lib/libzfs_core.so.1
+f lib/libzutil.so.1 0755 root bin
+f lib/nss_files.so.1 0755 root bin
+d lib/svc 0755 root bin
+d lib/svc/bin 0755 root bin
+f lib/svc/bin/lsvcrun 0555 root sys
+f lib/svc/bin/mfstscan 0555 root sys
+f lib/svc/bin/restore_repository 0555 root sys
+f lib/svc/bin/sqlite 0555 root sys
+f lib/svc/bin/svc.configd 0555 root sys
+f lib/svc/bin/svc.startd 0555 root sys
+d lib/svc/capture 0755 root bin
+d lib/svc/manifest 0755 root sys
+d lib/svc/manifest/milestone 0755 root sys
+f lib/svc/manifest/milestone/multi-user-server.xml 0444 root sys
+f lib/svc/manifest/milestone/multi-user.xml 0444 root sys
+f lib/svc/manifest/milestone/name-services.xml 0444 root sys
+f lib/svc/manifest/milestone/network.xml 0444 root sys
+f lib/svc/manifest/milestone/single-user.xml 0444 root sys
+f lib/svc/manifest/milestone/sysconfig.xml 0444 root sys
+d lib/svc/manifest/network 0755 root sys
+f lib/svc/manifest/network/dlmgmt.xml 0444 root sys
+f lib/svc/manifest/network/network-initial.xml 0444 root sys
+f lib/svc/manifest/network/network-install.xml 0444 root sys
+f lib/svc/manifest/network/network-ipmgmt.xml 0444 root sys
+f lib/svc/manifest/network/network-loopback.xml 0444 root sys
+f lib/svc/manifest/network/network-netmask.xml 0444 root sys
+f lib/svc/manifest/network/network-physical.xml 0444 root sys
+f lib/svc/manifest/network/network-routing-setup.xml 0444 root sys
+f lib/svc/manifest/network/network-service.xml 0444 root sys
+d lib/svc/manifest/system 0755 root sys
+f lib/svc/manifest/system/boot-archive.xml 0444 root sys
+f lib/svc/manifest/system/console-login.xml 0444 root sys
+f lib/svc/manifest/system/coreadm.xml 0444 root sys
+d lib/svc/manifest/system/device 0755 root sys
+f lib/svc/manifest/system/device/allocate.xml 0444 root sys
+f lib/svc/manifest/system/device/devices-local.xml 0444 root sys
+f lib/svc/manifest/system/early-manifest-import.xml 0444 root sys
+d lib/svc/manifest/system/filesystem 0755 root sys
+f lib/svc/manifest/system/filesystem/local-fs.xml 0444 root sys
+f lib/svc/manifest/system/filesystem/minimal-fs.xml 0444 root sys
+f lib/svc/manifest/system/filesystem/root-fs.xml 0444 root sys
+f lib/svc/manifest/system/filesystem/usr-fs.xml 0444 root sys
+f lib/svc/manifest/system/hostid.xml 0444 root sys
+f lib/svc/manifest/system/hotplug.xml 0444 root sys
+f lib/svc/manifest/system/identity.xml 0444 root sys
+f lib/svc/manifest/system/manifest-import.xml 0444 root sys
+f lib/svc/manifest/system/sac.xml 0444 root sys
+d lib/svc/manifest/system/svc 0755 root sys
+f lib/svc/manifest/system/svc/global.xml 0444 root sys
+f lib/svc/manifest/system/svc/restarter.xml 0444 root sys
+f lib/svc/manifest/system/sysevent.xml 0444 root sys
+f lib/svc/manifest/system/system-log.xml 0444 root sys
+f lib/svc/manifest/system/utmp.xml 0444 root sys
+d lib/svc/method 0755 root bin
+f lib/svc/method/boot-archive 0555 root bin
+f lib/svc/method/console-login 0555 root bin
+f lib/svc/method/devices-local 0555 root bin
+f lib/svc/method/fs-local 0555 root bin
+f lib/svc/method/fs-minimal 0555 root bin
+f lib/svc/method/fs-root 0555 root bin
+f lib/svc/method/fs-usr 0555 root bin
+f lib/svc/method/identity-domain 0555 root bin
+f lib/svc/method/identity-node 0555 root bin
+f lib/svc/method/manifest-import 0555 root bin
+f lib/svc/method/net-init 0555 root bin
+f lib/svc/method/net-install 0555 root bin
+f lib/svc/method/net-ipmgmt 0555 root bin
+f lib/svc/method/net-loc 0555 root bin
+f lib/svc/method/net-loopback 0555 root bin
+f lib/svc/method/net-netmask 0555 root bin
+f lib/svc/method/net-physical 0555 root sys
+f lib/svc/method/net-routing-setup 0555 root bin
+f lib/svc/method/net-svc 0555 root bin
+f lib/svc/method/svc-allocate 0555 root bin
+f lib/svc/method/svc-dlmgmtd 0555 root bin
+f lib/svc/method/svc-hostid 0555 root bin
+f lib/svc/method/svc-hotplug 0555 root bin
+f lib/svc/method/svc-intrd 0555 root sys
+f lib/svc/method/svc-route 0555 root bin
+f lib/svc/method/svc-scheduler 0555 root sys
+f lib/svc/method/svc-syseventd 0555 root sys
+f lib/svc/method/svc-utmpd 0555 root bin
+f lib/svc/method/system-log 0555 root bin
+d lib/svc/share 0755 root bin
+f lib/svc/share/README 0444 root bin
+f lib/svc/share/fs_include.sh 0444 root bin
+f lib/svc/share/ipf_include.sh 0444 root bin
+f lib/svc/share/mfsthistory 0444 root bin
+f lib/svc/share/net_include.sh 0444 root bin
+f lib/svc/share/routing_include.sh 0444 root bin
+f lib/svc/share/sendmail_include.sh 0444 root sys
+f lib/svc/share/smf_include.sh 0444 root bin
+d mnt 0755 root sys
+d platform 0755 root sys
+d platform/oxide 0755 root sys
+d platform/oxide/kernel 0755 root sys
+d platform/oxide/kernel/amd64 0755 root sys
+f platform/oxide/kernel/amd64/unix 0755 root sys
+d platform/oxide/kernel/cpu 0755 root sys
+d platform/oxide/kernel/cpu/amd64 0755 root sys
+f platform/oxide/kernel/cpu/amd64/cpu.generic 0755 root sys
+d platform/oxide/kernel/dacf 0755 root sys
+d platform/oxide/kernel/dacf/amd64 0755 root sys
+f platform/oxide/kernel/dacf/amd64/consconfig_dacf 0755 root sys
+d platform/oxide/kernel/drv 0755 root sys
+d platform/oxide/kernel/drv/amd64 0755 root sys
+f platform/oxide/kernel/drv/amd64/cpc 0755 root sys
+f platform/oxide/kernel/drv/amd64/cpudrv 0755 root sys
+f platform/oxide/kernel/drv/amd64/isa 0755 root sys
+f platform/oxide/kernel/drv/amd64/npe 0755 root sys
+f platform/oxide/kernel/drv/amd64/rootnex 0755 root sys
+f platform/oxide/kernel/drv/cpc.conf 0644 root sys
+d platform/oxide/kernel/kmdb 0755 root sys
+d platform/oxide/kernel/kmdb/amd64 0755 root sys
+f platform/oxide/kernel/kmdb/amd64/apix 0555 root sys
+f platform/oxide/kernel/kmdb/amd64/unix 0555 root sys
+d platform/oxide/kernel/mach 0755 root sys
+d platform/oxide/kernel/mach/amd64 0755 root sys
+f platform/oxide/kernel/mach/amd64/apix 0755 root sys
+d proc 0755 root root
+d root 0755 root root
+f root/.hushlogin 0600 root root
+f root/.profile 0600 root root
+d sbin 0755 root sys
+f sbin/autopush 0555 root bin
+f sbin/devprop 0555 root bin
+f sbin/dladm 0555 root bin
+f sbin/dlmgmtd 0555 root bin
+f sbin/dlstat 0555 root bin
+f sbin/flowadm 0555 root bin
+f sbin/ifconfig 0555 root bin
+f sbin/init 0555 root sys
+f sbin/ipadm 0555 root bin
+f sbin/mount 0555 root bin
+f sbin/mountall 0555 root sys
+f sbin/netstrategy 0555 root bin
+s sbin/pfsh=../usr/bin/pfexec
+f sbin/rc0 0744 root sys
+f sbin/rc1 0744 root sys
+f sbin/rc2 0744 root sys
+f sbin/rc3 0744 root sys
+h sbin/rc5=sbin/rc0
+h sbin/rc6=sbin/rc0
+f sbin/rcS 0744 root sys
+f sbin/route 0555 root bin
+f sbin/routeadm 0555 root bin
+s sbin/sh=../usr/bin/i86/ksh93
+f sbin/soconfig 0555 root bin
+f sbin/su.static 0555 root sys
+s sbin/su=../usr/bin/su
+f sbin/sulogin 0555 root bin
+f sbin/umount 0555 root bin
+f sbin/uname 0555 root bin
+f sbin/zonename 0555 root bin
+d system 0755 root root
+d system/contract 0555 root root
+d system/object 0555 root root
+d tmp 1777 root root
+d usr 0755 root sys
+s usr/adm=../var/adm
+d usr/bin 0755 root bin
+h usr/bin/[=usr/bin/alias
+f usr/bin/alias 0555 root bin
+d usr/bin/amd64 0755 root bin
+f usr/bin/amd64/ksh93 0555 root bin
+h usr/bin/amd64/ksh=usr/bin/amd64/ksh93
+f usr/bin/amd64/ldd 0555 root bin
+f usr/bin/amd64/mdb 0555 root bin
+f usr/bin/amd64/pargs 0555 root bin
+h usr/bin/amd64/pauxv=usr/bin/amd64/pargs
+f usr/bin/amd64/pcred 0555 root bin
+h usr/bin/amd64/penv=usr/bin/amd64/pargs
+f usr/bin/amd64/pfiles 0555 root bin
+f usr/bin/amd64/pflags 0555 root bin
+f usr/bin/amd64/pldd 0555 root bin
+f usr/bin/amd64/plgrp 0555 root bin
+f usr/bin/amd64/plimit 0555 root bin
+f usr/bin/amd64/pmadvise 0555 root bin
+f usr/bin/amd64/pmap 0555 root bin
+f usr/bin/amd64/ppgsz 0555 root bin
+f usr/bin/amd64/ppriv 0555 root bin
+f usr/bin/amd64/prctl 0555 root bin
+f usr/bin/amd64/preap 0555 root bin
+f usr/bin/amd64/prun 0555 root bin
+f usr/bin/amd64/prstat 0555 root bin
+f usr/bin/amd64/psecflags 0555 root bin
+f usr/bin/amd64/psig 0555 root bin
+f usr/bin/amd64/pstack 0555 root bin
+f usr/bin/amd64/pstop 0555 root bin
+f usr/bin/amd64/ptime 0555 root bin
+f usr/bin/amd64/ptree 0555 root bin
+f usr/bin/amd64/pwait 0555 root bin
+f usr/bin/amd64/sort 0555 root bin
+f usr/bin/amd64/truss 0555 root bin
+h usr/bin/awk=usr/bin/nawk
+f usr/bin/cat 0555 root bin
+f usr/bin/cp 0555 root bin
+f usr/bin/chgrp 0555 root bin
+f usr/bin/chmod 0555 root bin
+f usr/bin/chown 0555 root bin
+f usr/bin/clear 0555 root bin
+f usr/bin/coreadm 0555 root bin
+h usr/bin/cut=usr/bin/alias
+f usr/bin/date 0555 root bin
+s usr/bin/df=../sbin/df
+f usr/bin/grep 0555 root bin
+f usr/bin/head 0555 root bin
+f usr/bin/hostname 0555 root bin
+d usr/bin/i86 0755 root bin
+f usr/bin/i86/ksh93 0555 root bin
+f usr/bin/i86/mdb 0555 root bin
+f usr/bin/isainfo 0555 root bin
+f usr/bin/isalist 0555 root bin
+h usr/bin/ksh=usr/lib/isaexec
+h usr/bin/ksh93=usr/lib/isaexec
+f usr/bin/kstat 0555 root bin
+f usr/bin/ldd 0555 root bin
+h usr/bin/ln=usr/bin/cp
+f usr/bin/login 4555 root bin
+f usr/bin/lrz 0555 root bin
+f usr/bin/ls 0555 root bin
+h usr/bin/mdb=usr/lib/isaexec
+f usr/bin/mkdir 0555 root bin
+f usr/bin/moe 0555 root bin
+f usr/bin/mpstat 0555 root bin
+h usr/bin/mv=usr/bin/cp
+f usr/bin/nawk 0555 root bin
+h usr/bin/pargs=usr/lib/isaexec
+h usr/bin/pauxv=usr/lib/isaexec
+h usr/bin/pcred=usr/lib/isaexec
+h usr/bin/penv=usr/lib/isaexec
+h usr/bin/pfiles=usr/lib/isaexec
+f usr/bin/pgrep 0555 root bin
+h usr/bin/pkill=usr/bin/pgrep
+h usr/bin/pldd=usr/lib/isaexec
+h usr/bin/plgrp=usr/lib/isaexec
+h usr/bin/plimit=usr/lib/isaexec
+h usr/bin/pmadvise=usr/lib/isaexec
+h usr/bin/pmap=usr/lib/isaexec
+h usr/bin/ppgsz=usr/lib/isaexec
+h usr/bin/ppriv=usr/lib/isaexec
+h usr/bin/prctl=usr/lib/isaexec
+h usr/bin/preap=usr/lib/isaexec
+h usr/bin/prstat=usr/lib/isaexec
+h usr/bin/prun=usr/lib/isaexec
+h usr/bin/psecflags=usr/lib/isaexec
+h usr/bin/psig=usr/lib/isaexec
+h usr/bin/pstack=usr/lib/isaexec
+h usr/bin/pstop=usr/lib/isaexec
+h usr/bin/ptime=usr/lib/isaexec
+h usr/bin/ptree=usr/lib/isaexec
+h usr/bin/pwait=usr/lib/isaexec
+f usr/bin/ps 0555 root bin
+f usr/bin/rm 0555 root bin
+s usr/bin/rx=lrz
+f usr/bin/rmdir 0555 root bin
+s usr/bin/rz=lrz
+f usr/bin/sed 0555 root bin
+s usr/bin/sh=ksh93
+h usr/bin/sort=usr/lib/isaexec
+f usr/bin/stty 0555 root bin
+f usr/bin/su 4555 root sys
+f usr/bin/svcprop 0555 root bin
+f usr/bin/svcs 0555 root bin
+f usr/bin/tput 0555 root bin
+h usr/bin/truss=usr/lib/isaexec
+s usr/bin/uname=../../sbin/uname
+s usr/bin/zonename=../../sbin/zonename
+d usr/kernel 0755 root sys
+d usr/kernel/drv 0755 root sys
+d usr/kernel/drv/amd64 0755 root sys
+f usr/kernel/drv/amd64/kstat 0755 root sys
+f usr/kernel/drv/amd64/ksyms 0755 root sys
+f usr/kernel/drv/amd64/ptm 0755 root sys
+f usr/kernel/drv/amd64/pts 0755 root sys
+f usr/kernel/drv/amd64/zcons 0755 root sys
+f usr/kernel/drv/kstat.conf 0644 root sys
+f usr/kernel/drv/ksyms.conf 0644 root sys
+f usr/kernel/drv/ptm.conf 0644 root sys
+f usr/kernel/drv/pts.conf 0644 root sys
+d usr/kernel/fs 0755 root sys
+d usr/kernel/fs/amd64 0755 root sys
+f usr/kernel/fs/amd64/fdfs 0755 root sys
+d usr/lib 0755 root bin
+s usr/lib/32=.
+s usr/lib/64=amd64
+d usr/lib/amd64 0755 root bin
+f usr/lib/amd64/lddstub 0555 root bin
+f usr/lib/amd64/libast.so.1 0755 root bin
+f usr/lib/amd64/libcmd.so.1 0755 root bin
+f usr/lib/amd64/libcpc.so.1 0755 root bin
+f usr/lib/amd64/libdemangle-sys.so.1 0755 root bin
+f usr/lib/amd64/libdisasm.so.1 0755 root bin
+f usr/lib/amd64/libdll.so.1 0755 root bin
+f usr/lib/amd64/libdtrace.so.1 0755 root bin
+f usr/lib/amd64/libexacct.so.1 0755 root bin
+f usr/lib/amd64/libidmap.so.1 0755 root bin
+f usr/lib/amd64/libkvm.so.1 0755 root bin
+f usr/lib/amd64/libpcidb.so.1 0755 root bin
+f usr/lib/amd64/libpctx.so.1 0755 root bin
+f usr/lib/amd64/libpool.so.1 0755 root bin
+f usr/lib/amd64/libproject.so.1 0755 root bin
+f usr/lib/amd64/libsaveargs.so.1 0755 root bin
+f usr/lib/amd64/libshell.so.1 0755 root bin
+f usr/lib/amd64/libsmbios.so.1 0755 root bin
+s usr/lib/amd64/libz.so.1=../../../lib/amd64/libz.so.1
+f usr/lib/amd64/libzfsbootenv.so.1 0755 root bin
+f usr/lib/amd64/libzfs_core.so.1 755 root bin
+d usr/lib/devfsadm 0755 root sys
+s usr/lib/devfsadm/devfsadmd=../../sbin/devfsadm
+d usr/lib/devfsadm/linkmod 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_cfg_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_disk_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_dtrace_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_lofi_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_misc_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_misc_link_i386.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_port_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_ramdisk_link.so 0755 root sys
+f usr/lib/devfsadm/linkmod/SUNW_zut_link.so 0755 root sys
+d usr/lib/dtrace 0755 root bin
+d usr/lib/dtrace/64 0755 root bin
+f usr/lib/dtrace/64/drti.o 0644 root bin
+f usr/lib/dtrace/64/libdtrace_forceload.so 0644 root bin
+f usr/lib/dtrace/drti.o 0644 root bin
+f usr/lib/dtrace/errno.d 0644 root bin
+f usr/lib/dtrace/fc.d 0644 root bin
+f usr/lib/dtrace/io.d 0644 root bin
+f usr/lib/dtrace/ip.d 0644 root bin
+f usr/lib/dtrace/iscsit.d 0644 root bin
+f usr/lib/dtrace/libdtrace_forceload.so 0644 root bin
+f usr/lib/dtrace/net.d 0644 root bin
+f usr/lib/dtrace/nfs.d 0644 root bin
+f usr/lib/dtrace/procfs.d 0644 root bin
+f usr/lib/dtrace/regs.d 0644 root bin
+f usr/lib/dtrace/sched.d 0644 root bin
+f usr/lib/dtrace/scsi.d 0644 root bin
+f usr/lib/dtrace/signal.d 0644 root bin
+f usr/lib/dtrace/smb.d 0644 root bin
+f usr/lib/dtrace/srp.d 0644 root bin
+f usr/lib/dtrace/sysevent.d 0644 root bin
+f usr/lib/dtrace/tcp.d 0644 root bin
+f usr/lib/dtrace/udp.d 0644 root bin
+f usr/lib/dtrace/unistd.d 0644 root bin
+d usr/lib/fm 0755 root bin
+d usr/lib/fm/amd64 0755 root bin
+f usr/lib/fm/amd64/libtopo.so.1 0755 root bin
+s usr/lib/fm/libfmevent.so.1=../../../lib/fm/libfmevent.so.1
+f usr/lib/fm/libtopo.so.1 0755 root bin
+d usr/lib/fs 0755 root sys
+d usr/lib/fs/ctfs 0755 root sys
+f usr/lib/fs/ctfs/mount 0555 root bin
+d usr/lib/fs/dev 0755 root sys
+s usr/lib/fs/dev/mount=../../../../etc/fs/dev/mount
+d usr/lib/fs/lofs 0755 root sys
+f usr/lib/fs/lofs/mount 0555 root bin
+d usr/lib/fs/mntfs 0755 root sys
+f usr/lib/fs/mntfs/mount 0555 root bin
+d usr/lib/fs/objfs 0755 root sys
+f usr/lib/fs/objfs/mount 0555 root bin
+d usr/lib/fs/proc 0755 root sys
+f usr/lib/fs/proc/mount 0555 root bin
+d usr/lib/fs/tmpfs 0755 root sys
+f usr/lib/fs/tmpfs/mount 0555 root bin
+d usr/lib/fs/ufs 0755 root sys
+f usr/lib/fs/ufs/df 0555 root bin
+s usr/lib/fs/ufs/mount=../../../../etc/fs/ufs/mount
+f usr/lib/hotplugd 0555 root bin
+f usr/lib/isaexec 0555 root bin
+f usr/lib/libast.so.1 0755 root bin
+f usr/lib/libbe.so.1 0755 root bin
+f usr/lib/libbrand.so.1 0755 root bin
+f usr/lib/libcmd.so.1 0755 root bin
+f usr/lib/libcpc.so.1 0755 root bin
+f usr/lib/libdisasm.so.1 0755 root bin
+f usr/lib/libdll.so.1 0755 root bin
+f usr/lib/libdtrace.so.1 0755 root bin
+f usr/lib/libexacct.so.1 0755 root bin
+f usr/lib/libficl-sys.so.4.1.0 0755 root bin
+f usr/lib/libidmap.so.1 0755 root bin
+f usr/lib/libidspace.so.1 0755 root bin
+f usr/lib/libinstzones.so.1 0755 root bin
+f usr/lib/libipmi.so.1 0755 root bin
+f usr/lib/libpcidb.so.1 0755 root bin
+f usr/lib/libpkcs11.so.1 0755 root bin
+f usr/lib/libkvm.so.1 0755 root bin
+f usr/lib/libl.so.1 0755 root bin
+f usr/lib/libpctx.so.1 0755 root bin
+f usr/lib/libpool.so.1 0755 root bin
+f usr/lib/libproject.so.1 0755 root bin
+f usr/lib/librename.so.1 0755 root bin
+f usr/lib/librstp.so.1 0755 root bin
+f usr/lib/libsasl.so.1 0755 root bin
+f usr/lib/libshell.so.1 0755 root bin
+f usr/lib/libsmbios.so.1 0755 root bin
+f usr/lib/libsum.so.1 0755 root bin
+f usr/lib/libtecla.so.1 0755 root bin
+s usr/lib/libz.so.1=../../lib/libz.so.1
+f usr/lib/libzfsbootenv.so.1 0755 root bin
+f usr/lib/libzfs_core.so.1 755 root bin
+f usr/lib/libzonecfg.so.1 0755 root bin
+f usr/lib/lddstub 0555 root bin
+d usr/lib/mdb 0755 root sys
+d usr/lib/mdb/kvm 0755 root sys
+d usr/lib/mdb/kvm/amd64 0755 root sys
+f usr/lib/mdb/kvm/amd64/genunix.so 0555 root sys
+f usr/lib/mdb/kvm/amd64/mdb_ks.so 0555 root sys
+d usr/lib/mdb/proc 0755 root sys
+d usr/lib/mdb/proc/amd64 0755 root sys
+f usr/lib/mdb/proc/amd64/ld.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libavl.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libc.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libnvpair.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libproc.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libsmbios.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libsysevent.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libtopo.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libumem.so 0555 root sys
+f usr/lib/mdb/proc/amd64/libuutil.so 0555 root sys
+f usr/lib/mdb/proc/amd64/list.so 0555 root sys
+f usr/lib/mdb/proc/amd64/mdb_ds.so 0555 root sys
+f usr/lib/mdb/proc/ld.so 0555 root sys
+f usr/lib/mdb/proc/libavl.so 0555 root sys
+f usr/lib/mdb/proc/libc.so 0555 root sys
+f usr/lib/mdb/proc/libnvpair.so 0555 root sys
+f usr/lib/mdb/proc/libproc.so 0555 root sys
+f usr/lib/mdb/proc/libsmbios.so 0555 root sys
+f usr/lib/mdb/proc/libsysevent.so 0555 root sys
+f usr/lib/mdb/proc/libtopo.so 0555 root sys
+f usr/lib/mdb/proc/libumem.so 0555 root sys
+f usr/lib/mdb/proc/libuutil.so 0555 root sys
+f usr/lib/mdb/proc/list.so 0555 root sys
+f usr/lib/mdb/proc/mdb_ds.so 0555 root sys
+f usr/lib/mdb/proc/svc.configd.so 0555 root sys
+f usr/lib/mdb/proc/svc.startd.so 0555 root sys
+d usr/lib/mdb/raw 0755 root sys
+d usr/lib/mdb/raw/amd64 0755 root sys
+f usr/lib/mdb/raw/amd64/disk_label.so 0555 root sys
+f usr/lib/mdb/raw/disk_label.so 0555 root sys
+d usr/lib/mps 0755 root bin
+f usr/lib/mps/libnspr4.so 0755 root bin
+f usr/lib/mps/libnss3.so 0755 root bin
+f usr/lib/mps/libnssutil3.so 0755 root bin
+f usr/lib/mps/libplc4.so 0755 root bin
+f usr/lib/mps/libplds4.so 0755 root bin
+f usr/lib/mps/libssl3.so 0755 root bin
+d usr/lib/mps/secv1 0755 root bin
+s usr/lib/mps/secv1/libnspr4.so=../libnspr4.so
+s usr/lib/mps/secv1/libnss3.so=../libnss3.so
+s usr/lib/mps/secv1/libnssutil3.so=../libnssutil3.so
+s usr/lib/mps/secv1/libplc4.so=../libplc4.so
+s usr/lib/mps/secv1/libplds4.so=../libplds4.so
+s usr/lib/mps/secv1/libssl3.so=../libssl3.so
+f usr/lib/passwdutil.so.1 0755 root bin
+d usr/lib/pci 0755 root bin
+f usr/lib/pci/pcidb 0555 root bin
+f usr/lib/pci/pcidr 0555 root bin
+f usr/lib/pci/pcidr_plugin.so 0755 root bin
+f usr/lib/pci/pcieadm 0555 root bin
+f usr/lib/pci/pcieb 0555 root bin
+d usr/lib/saf 0755 root bin
+f usr/lib/saf/listen 0755 root sys
+f usr/lib/saf/sac 0555 root sys
+f usr/lib/saf/ttymon 0555 root sys
+d usr/lib/security 0755 root bin
+f usr/lib/security/pam_authtok_check.so.1 0755 root bin
+s usr/lib/security/pam_authtok_check.so=pam_authtok_check.so.1
+f usr/lib/security/pam_authtok_get.so.1 0755 root bin
+s usr/lib/security/pam_authtok_get.so=pam_authtok_get.so.1
+f usr/lib/security/pam_authtok_store.so.1 0755 root bin
+s usr/lib/security/pam_authtok_store.so=pam_authtok_store.so.1
+f usr/lib/security/pam_dhkeys.so.1 0755 root bin
+s usr/lib/security/pam_dhkeys.so=pam_dhkeys.so.1
+f usr/lib/security/pam_dial_auth.so.1 0755 root bin
+s usr/lib/security/pam_dial_auth.so=pam_dial_auth.so.1
+f usr/lib/security/pam_roles.so.1 0755 root bin
+s usr/lib/security/pam_roles.so=pam_roles.so.1
+f usr/lib/security/pam_unix_account.so.1 0755 root bin
+s usr/lib/security/pam_unix_account.so=pam_unix_account.so.1
+f usr/lib/security/pam_unix_auth.so.1 0755 root bin
+s usr/lib/security/pam_unix_auth.so=pam_unix_auth.so.1
+f usr/lib/security/pam_unix_cred.so.1 0755 root bin
+s usr/lib/security/pam_unix_cred.so=pam_unix_cred.so.1
+f usr/lib/security/pam_unix_session.so.1 0755 root bin
+s usr/lib/security/pam_unix_session.so=pam_unix_session.so.1
+d usr/lib/sysevent 0755 root bin
+d usr/lib/sysevent/modules 0755 root bin
+f usr/lib/sysevent/modules/datalink_mod.so 0755 root bin
+f usr/lib/sysevent/modules/devfsadmd_mod.so 0755 root bin
+f usr/lib/sysevent/modules/picl_slm.so 0755 root bin
+f usr/lib/sysevent/modules/sysevent_conf_mod.so 0755 root bin
+f usr/lib/sysevent/modules/sysevent_reg_mod.so 0755 root bin
+f usr/lib/sysevent/syseventconfd 0555 root bin
+f usr/lib/sysevent/syseventd 0555 root bin
+f usr/lib/utmpd 0555 root bin
+d usr/platform 0755 root sys
+d usr/platform/oxide 0755 root sys
+d usr/platform/oxide/lib 0755 root sys
+d usr/platform/oxide/lib/mdb 0755 root sys
+d usr/platform/oxide/lib/mdb/kvm 0755 root sys
+d usr/platform/oxide/lib/mdb/kvm/amd64 0755 root sys
+f usr/platform/oxide/lib/mdb/kvm/amd64/apix.so 0555 root sys
+f usr/platform/oxide/lib/mdb/kvm/amd64/unix.so 0555 root sys
+d usr/sbin 0755 root bin
+f usr/sbin/add_drv 0555 root bin
+f usr/sbin/allocate 4555 root bin
+d usr/sbin/amd64 0755 root bin
+f usr/sbin/amd64/dtrace 0555 root bin
+f usr/sbin/cpustat 0555 root bin
+f usr/sbin/cxgbetool 0555 root sys
+f usr/sbin/devfsadm 0755 root sys
+f usr/sbin/devinfo 0555 root bin
+h usr/sbin/devlinks=usr/sbin/devfsadm
+f usr/sbin/df 0555 root bin
+s usr/sbin/dladm=../../sbin/dladm
+s usr/sbin/dlstat=../../sbin/dlstat
+h usr/sbin/dtrace=usr/lib/isaexec
+s usr/sbin/ipadm=../../sbin/ipadm
+f usr/sbin/lofiadm 0555 root bin
+f usr/sbin/mknod 0555 root bin
+f usr/sbin/modinfo 0555 root sys
+f usr/sbin/modload 0555 root sys
+f usr/sbin/modunload 0555 root sys
+f usr/sbin/nvmeadm 0555 root bin
+f usr/sbin/pcitool 0555 root bin
+f usr/sbin/ping 4555 root bin
+f usr/sbin/pmadm 0555 root sys
+f usr/sbin/prtconf 2555 root sys
+f usr/sbin/psradm 0555 root sys
+f usr/sbin/psrinfo 0555 root sys
+f usr/sbin/psrset 0555 root sys
+f usr/sbin/svcadm 0555 root bin
+f usr/sbin/svccfg 0555 root bin
+f usr/sbin/syslogd 0555 root sys
+f usr/sbin/ucodeadm 0555 root bin
+f usr/sbin/update_drv 0555 root sys
+d usr/share 0755 root sys
+d usr/share/hwdata 0755 root sys
+f usr/share/hwdata/pci.ids 0444 root bin
+d usr/share/lib 0755 root sys
+f usr/share/lib/termcap 0644 root bin
+d usr/share/lib/terminfo 0755 root bin
+d usr/share/lib/terminfo/3 0755 root bin
+f usr/share/lib/terminfo/3/386at 0644 root bin
+d usr/share/lib/terminfo/A 0755 root bin
+d usr/share/lib/terminfo/a 0755 root bin
+f usr/share/lib/terminfo/a/ansi 0644 root bin
+f usr/share/lib/terminfo/a/ansi+arrows 0644 root bin
+f usr/share/lib/terminfo/a/at386 0644 root bin
+d usr/share/lib/terminfo/r 0755 root bin
+f usr/share/lib/terminfo/r/rxvt-unicode 0644 root bin
+f usr/share/lib/terminfo/r/rxvt-unicode-256color 0644 root bin
+d usr/share/lib/terminfo/s 0755 root bin
+f usr/share/lib/terminfo/s/screen 0644 root bin
+f usr/share/lib/terminfo/s/screen-256color 0644 root bin
+f usr/share/lib/terminfo/s/screen-w 0644 root bin
+f usr/share/lib/terminfo/s/sun 0644 root bin
+f usr/share/lib/terminfo/s/sun-color 0644 root bin
+d usr/share/lib/terminfo/u 0755 root bin
+f usr/share/lib/terminfo/u/unknown 0644 root bin
+d usr/share/lib/terminfo/v 0755 root bin
+f usr/share/lib/terminfo/v/vt100 0644 root bin
+f usr/share/lib/terminfo/v/vt220 0644 root bin
+d usr/share/lib/terminfo/x 0755 root bin
+f usr/share/lib/terminfo/x/xterm 0644 root bin
+f usr/share/lib/terminfo/x/xterm-256color 0644 root bin
+f usr/share/lib/terminfo/x/xterm-color 0644 root bin
+f usr/share/lib/terminfo/x/xtermc 0644 root bin
+f usr/share/lib/terminfo/x/xtermm 0644 root bin
+f usr/share/lib/terminfo/x/xterms 0644 root bin
+d usr/share/lib/xml 0755 root sys
+d usr/share/lib/xml/dtd 0755 root sys
+f usr/share/lib/xml/dtd/service_bundle.dtd.1 0444 root sys
+f usr/share/lib/xml/dtd/topology.dtd.1 0444 root bin
+d var 0755 root sys
+d var/adm 0775 root sys
+d var/log 0755 root sys
+d var/run 0755 root sys
+d var/saf 0755 root bin
+d var/saf/zsmon 0755 root sys
+d var/svc 0755 root sys
+d var/svc/log 0755 root sys
+d var/svc/manifest 0755 root sys
+d var/svc/manifest/application 0755 root sys
+d var/svc/manifest/application/management 0755 root sys
+d var/svc/manifest/application/security 0755 root sys
+d var/svc/manifest/device 0755 root sys
+d var/svc/manifest/milestone 0755 root sys
+d var/svc/manifest/network 0755 root sys
+d var/svc/manifest/network/dns 0755 root sys
+d var/svc/manifest/network/ipsec 0755 root sys
+d var/svc/manifest/network/ldap 0755 root sys
+d var/svc/manifest/network/nfs 0755 root sys
+d var/svc/manifest/network/nis 0755 root sys
+d var/svc/manifest/network/routing 0755 root sys
+d var/svc/manifest/network/rpc 0755 root sys
+d var/svc/manifest/network/security 0755 root sys
+d var/svc/manifest/network/shares 0755 root sys
+d var/svc/manifest/network/ssl 0755 root sys
+d var/svc/manifest/platform 0755 root sys
+d var/svc/manifest/site 0755 root sys
+d var/svc/manifest/system 0755 root sys
+d var/svc/manifest/system/device 0755 root sys
+d var/svc/manifest/system/filesystem 0755 root sys
+d var/svc/manifest/system/security 0755 root sys
+d var/svc/manifest/system/svc 0755 root sys
+d var/svc/profile 0755 root sys
+d var/tmp 1777 root sys

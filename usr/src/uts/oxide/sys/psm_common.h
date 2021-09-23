@@ -26,8 +26,6 @@
 #ifndef	_SYS_PSM_COMMON_H
 #define	_SYS_PSM_COMMON_H
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/cmn_err.h>
@@ -102,7 +100,7 @@ typedef struct acpi_irqlist {
 
 #define	ACPI_PSM_SUCCESS	0
 #define	ACPI_PSM_FAILURE	-1
-#define	ACPI_PSM_PARTIAL 	-2
+#define	ACPI_PSM_PARTIAL	-2
 
 /* verbose flags definitions */
 #define	PSM_VERBOSE_IRQ_FLAG			0x00000001
@@ -142,6 +140,8 @@ extern int acpi_poweroff(void);
 extern void psm_set_elcr(int vecno, int val);
 extern int psm_get_elcr(int vecno);
 extern intr_exit_fn_t psm_intr_exit_fn(void);
+
+extern int get_bdf(dev_info_t *, int *, int *, int *);
 
 #ifdef	__cplusplus
 }

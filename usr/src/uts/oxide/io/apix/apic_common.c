@@ -26,6 +26,7 @@
  * Copyright 2021 Joyent, Inc.
  * Copyright (c) 2016, 2017 by Delphix. All rights reserved.
  * Copyright 2019 Joshua M. Clulow <josh@sysmgr.org>
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -898,219 +899,16 @@ apic_get_next_processorid(processorid_t cpu_id)
 int
 apic_cpu_add(psm_cpu_request_t *reqp)
 {
-	int i, rv = 0;
-	ulong_t iflag;
-	boolean_t first = B_TRUE;
-	uchar_t localver = 0;
-	uint32_t localid, procid;
-	processorid_t cpuid = (processorid_t)-1;
-	mach_cpu_add_arg_t *ap;
-
 	ASSERT(reqp != NULL);
 	reqp->req.cpu_add.cpuid = (processorid_t)-1;
 
-	/* Check whether CPU hotplug is supported. */
-	if (!plat_dr_support_cpu() || apic_max_nproc == -1) {
-		return (ENOTSUP);
-	}
-
-	ap = (mach_cpu_add_arg_t *)reqp->req.cpu_add.argp;
-	switch (ap->type) {
-	case MACH_CPU_ARG_LOCAL_APIC:
-		localid = ap->arg.apic.apic_id;
-		procid = ap->arg.apic.proc_id;
-		if (localid >= 255 || procid > 255) {
-			cmn_err(CE_WARN,
-			    "!apic: apicid(%u) or procid(%u) is invalid.",
-			    localid, procid);
-			return (EINVAL);
-		}
-		break;
-
-	case MACH_CPU_ARG_LOCAL_X2APIC:
-		localid = ap->arg.apic.apic_id;
-		procid = ap->arg.apic.proc_id;
-		if (localid >= UINT32_MAX) {
-			cmn_err(CE_WARN,
-			    "!apic: x2apicid(%u) is invalid.", localid);
-			return (EINVAL);
-		} else if (localid >= 255 && apic_mode == LOCAL_APIC) {
-			cmn_err(CE_WARN, "!apic: system is in APIC mode, "
-			    "can't support x2APIC processor.");
-			return (ENOTSUP);
-		}
-		break;
-
-	default:
-		cmn_err(CE_WARN,
-		    "!apic: unknown argument type %d to apic_cpu_add().",
-		    ap->type);
-		return (EINVAL);
-	}
-
-	/* Use apic_ioapic_lock to sync with apic_get_next_bind_cpu. */
-	iflag = intr_clear();
-	lock_set(&apic_ioapic_lock);
-
-	/* Check whether local APIC id already exists. */
-	for (i = 0; i < apic_nproc; i++) {
-		if (!CPU_IN_SET(apic_cpumask, i))
-			continue;
-		if (apic_cpus[i].aci_local_id == localid) {
-			lock_clear(&apic_ioapic_lock);
-			intr_restore(iflag);
-			cmn_err(CE_WARN,
-			    "!apic: local apic id %u already exists.",
-			    localid);
-			return (EEXIST);
-		} else if (apic_cpus[i].aci_processor_id == procid) {
-			lock_clear(&apic_ioapic_lock);
-			intr_restore(iflag);
-			cmn_err(CE_WARN,
-			    "!apic: processor id %u already exists.",
-			    (int)procid);
-			return (EEXIST);
-		}
-
-		/*
-		 * There's no local APIC version number available in MADT table,
-		 * so assume that all CPUs are homogeneous and use local APIC
-		 * version number of the first existing CPU.
-		 */
-		if (first) {
-			first = B_FALSE;
-			localver = apic_cpus[i].aci_local_ver;
-		}
-	}
-	ASSERT(first == B_FALSE);
-
-	/*
-	 * Try to assign the same cpuid if APIC id exists in the dirty cache.
-	 */
-	for (i = 0; i < apic_max_nproc; i++) {
-		if (CPU_IN_SET(apic_cpumask, i)) {
-			ASSERT((apic_cpus[i].aci_status & APIC_CPU_FREE) == 0);
-			continue;
-		}
-		ASSERT(apic_cpus[i].aci_status & APIC_CPU_FREE);
-		if ((apic_cpus[i].aci_status & APIC_CPU_DIRTY) &&
-		    apic_cpus[i].aci_local_id == localid &&
-		    apic_cpus[i].aci_processor_id == procid) {
-			cpuid = i;
-			break;
-		}
-	}
-
-	/* Avoid the dirty cache and allocate fresh slot if possible. */
-	if (cpuid == (processorid_t)-1) {
-		for (i = 0; i < apic_max_nproc; i++) {
-			if ((apic_cpus[i].aci_status & APIC_CPU_FREE) &&
-			    (apic_cpus[i].aci_status & APIC_CPU_DIRTY) == 0) {
-				cpuid = i;
-				break;
-			}
-		}
-	}
-
-	/* Try to find any free slot as last resort. */
-	if (cpuid == (processorid_t)-1) {
-		for (i = 0; i < apic_max_nproc; i++) {
-			if (apic_cpus[i].aci_status & APIC_CPU_FREE) {
-				cpuid = i;
-				break;
-			}
-		}
-	}
-
-	if (cpuid == (processorid_t)-1) {
-		lock_clear(&apic_ioapic_lock);
-		intr_restore(iflag);
-		cmn_err(CE_NOTE,
-		    "!apic: failed to allocate cpu id for processor %u.",
-		    procid);
-		rv = EAGAIN;
-	} else if (ACPI_FAILURE(acpica_map_cpu(cpuid, procid))) {
-		lock_clear(&apic_ioapic_lock);
-		intr_restore(iflag);
-		cmn_err(CE_NOTE,
-		    "!apic: failed to build mapping for processor %u.",
-		    procid);
-		rv = EBUSY;
-	} else {
-		ASSERT(cpuid >= 0 && cpuid < NCPU);
-		ASSERT(cpuid < apic_max_nproc && cpuid < max_ncpus);
-		bzero(&apic_cpus[cpuid], sizeof (apic_cpus[0]));
-		apic_cpus[cpuid].aci_processor_id = procid;
-		apic_cpus[cpuid].aci_local_id = localid;
-		apic_cpus[cpuid].aci_local_ver = localver;
-		CPUSET_ATOMIC_ADD(apic_cpumask, cpuid);
-		if (cpuid >= apic_nproc) {
-			apic_nproc = cpuid + 1;
-		}
-		lock_clear(&apic_ioapic_lock);
-		intr_restore(iflag);
-		reqp->req.cpu_add.cpuid = cpuid;
-	}
-
-	return (rv);
+	return (ENOTSUP);
 }
 
 int
 apic_cpu_remove(psm_cpu_request_t *reqp)
 {
-	int i;
-	ulong_t iflag;
-	processorid_t cpuid;
-
-	/* Check whether CPU hotplug is supported. */
-	if (!plat_dr_support_cpu() || apic_max_nproc == -1) {
-		return (ENOTSUP);
-	}
-
-	cpuid = reqp->req.cpu_remove.cpuid;
-
-	/* Use apic_ioapic_lock to sync with apic_get_next_bind_cpu. */
-	iflag = intr_clear();
-	lock_set(&apic_ioapic_lock);
-
-	if (!apic_cpu_in_range(cpuid)) {
-		lock_clear(&apic_ioapic_lock);
-		intr_restore(iflag);
-		cmn_err(CE_WARN,
-		    "!apic: cpuid %d doesn't exist in apic_cpus array.",
-		    cpuid);
-		return (ENODEV);
-	}
-	ASSERT((apic_cpus[cpuid].aci_status & APIC_CPU_FREE) == 0);
-
-	if (ACPI_FAILURE(acpica_unmap_cpu(cpuid))) {
-		lock_clear(&apic_ioapic_lock);
-		intr_restore(iflag);
-		return (ENOENT);
-	}
-
-	if (cpuid == apic_nproc - 1) {
-		/*
-		 * We are removing the highest numbered cpuid so we need to
-		 * find the next highest cpuid as the new value for apic_nproc.
-		 */
-		for (i = apic_nproc; i > 0; i--) {
-			if (CPU_IN_SET(apic_cpumask, i - 1)) {
-				apic_nproc = i;
-				break;
-			}
-		}
-		/* at least one CPU left */
-		ASSERT(i > 0);
-	}
-	CPUSET_ATOMIC_DEL(apic_cpumask, cpuid);
-	/* mark slot as free and keep it in the dirty cache */
-	apic_cpus[cpuid].aci_status = APIC_CPU_FREE | APIC_CPU_DIRTY;
-
-	lock_clear(&apic_ioapic_lock);
-	intr_restore(iflag);
-
-	return (0);
+	return (ENOTSUP);
 }
 
 /*
@@ -1428,20 +1226,6 @@ apic_shutdown(int cmd, int fcn)
 	/* remainder of function is for shutdown cases only */
 	if (cmd != A_SHUTDOWN)
 		return;
-
-	/*
-	 * Switch system back into Legacy-Mode if using ACPI and
-	 * not powering-off.  Some BIOSes need to remain in ACPI-mode
-	 * for power-off to succeed (Dell Dimension 4600)
-	 * Do not disable ACPI while doing fastreboot
-	 */
-	if (apic_enable_acpi && fcn != AD_POWEROFF && fcn != AD_FASTREBOOT)
-		(void) AcpiDisable();
-
-	if (fcn == AD_FASTREBOOT) {
-		apic_reg_ops->apic_write(APIC_INT_CMD1,
-		    AV_ASSERT | AV_RESET | AV_SH_ALL_EXCSELF);
-	}
 
 	/* remainder of function is for shutdown+poweroff case only */
 	if (fcn != AD_POWEROFF)

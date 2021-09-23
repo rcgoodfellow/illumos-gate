@@ -32,6 +32,7 @@
 #include <sys/pci_cap.h>
 #include <sys/bootconf.h>
 #include <sys/ddidmareq.h>
+#include <sys/psm_common.h>
 
 #include "amd_iommu_impl.h"
 #include "amd_iommu_acpi.h"
@@ -954,7 +955,7 @@ amd_iommu_init(dev_info_t *dip, ddi_acc_handle_t handle, int idx,
 	iommu->aiomt_dip = dip;
 	iommu->aiomt_idx = idx;
 
-	if (acpica_get_bdf(iommu->aiomt_dip, &bus, &device, &func)
+	if (get_bdf(iommu->aiomt_dip, &bus, &device, &func)
 	    != DDI_SUCCESS) {
 		cmn_err(CE_WARN, "%s: %s%d: Failed to get BDF"
 		    "Unable to use IOMMU unit idx=%d - skipping ...",
@@ -1448,7 +1449,7 @@ amd_iommu_probe(iommulib_handle_t handle, dev_info_t *rdip)
 		return (DDI_FAILURE);
 	}
 
-	if (acpica_get_bdf(pci_dip, &bus, &device, &func) != DDI_SUCCESS) {
+	if (get_bdf(pci_dip, &bus, &device, &func) != DDI_SUCCESS) {
 		cmn_err(CE_WARN, "%s: %s%d: idx = %d, failed to get BDF "
 		    "for rdip=%p, path = %s",
 		    f, idriver, instance, iommu->aiomt_idx, (void *)rdip,

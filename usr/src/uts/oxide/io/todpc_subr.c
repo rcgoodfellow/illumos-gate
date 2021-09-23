@@ -29,7 +29,7 @@
 
 /*	Copyright (c) 1990, 1991 UNIX System Laboratories, Inc.	*/
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989, 1990 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 /*	Copyright (c) 1987, 1988 Microsoft Corporation	*/
 /*	  All Rights Reserved	*/
@@ -174,9 +174,6 @@ todpc_get(tod_ops_t *top)
 	timestruc_t ts;
 	todinfo_t tod;
 	struct rtc_t rtc;
-	int compute_century;
-	static int century_warn = 1; /* only warn once, not each time called */
-	static int range_warn = 1;
 
 	ASSERT(MUTEX_HELD(&tod_lock));
 
@@ -185,31 +182,8 @@ todpc_get(tod_ops_t *top)
 		return (hrestime);
 	}
 
-	/* assume that we wrap the rtc year back to zero at 2000 */
-	tod.tod_year	= BCD_TO_BYTE(rtc.rtc_yr);
-	if (tod.tod_year < 69) {
-		if (range_warn && tod.tod_year > 38) {
-			cmn_err(CE_WARN, "hardware real-time clock is out "
-			    "of range -- time needs to be reset");
-			range_warn = 0;
-		}
-		tod.tod_year += 100 + YRBASE; /* 20xx year */
-		compute_century = 20;
-	} else {
-		/* LINTED: YRBASE = 0 for x86 */
-		tod.tod_year += YRBASE; /* 19xx year */
-		compute_century = 19;
-	}
-	if (century_warn && BCD_TO_BYTE(rtc.rtc_century) != compute_century) {
-		cmn_err(CE_NOTE,
-		    "The hardware real-time clock appears to have the "
-		    "wrong century: %d.\nSolaris will still operate "
-		    "correctly, but other OS's/firmware agents may "
-		    "not.\nUse date(1) to set the date to the current "
-		    "time to correct the RTC.",
-		    BCD_TO_BYTE(rtc.rtc_century));
-		century_warn = 0;
-	}
+	/* It's always after 2000 on this architecture. */
+	tod.tod_year	= BCD_TO_BYTE(rtc.rtc_yr) + 100 + YRBASE;
 	tod.tod_month	= BCD_TO_BYTE(rtc.rtc_mon);
 	tod.tod_day	= BCD_TO_BYTE(rtc.rtc_dom);
 	tod.tod_dow	= rtc.rtc_dow;	/* dow < 10, so no conversion needed */

@@ -26,6 +26,7 @@
 # Copyright (c) 2013 Andrew Stormont.  All rights reserved.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 # Copyright 2019 Joyent, Inc.
+# Copyright 2022 Oxide Computer Co.
 #
 #
 #	This makefile contains the common definitions for the oxide unix
@@ -230,6 +231,7 @@ MACH_NOT_YET_KMODS	= $(AUTOCONF_OBJS)
 #	DRV_KMODS_64 are built only 64-bit
 #
 DRV_KMODS	+= rootnex
+DRV_KMODS	+= isa
 DRV_KMODS	+= apix
 DRV_KMODS	+= cpc
 DRV_KMODS	+= pci
@@ -285,7 +287,7 @@ MISC_KMODS	+= pcie
 #
 #	'Dacf' modules (/kernel/dacf)
 #
-#DACF_KMODS	+= consconfig_dacf
+DACF_KMODS	+= consconfig_dacf
 
 #
 #	'Mach' Modules (/kernel/mach):

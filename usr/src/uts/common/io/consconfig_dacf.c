@@ -26,6 +26,7 @@
 
 /*
  * Copyright 2019 Peter Tribble.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -218,7 +219,7 @@ static cons_state_t	*consconfig_sp;
  * consconfig_errlevel:  debug verbosity; smaller numbers are more
  * verbose.
  */
-int consconfig_errlevel = DPRINT_L3;
+int consconfig_errlevel = DPRINT_L0;
 
 /*
  * Baud rate table
@@ -812,6 +813,7 @@ consconfig_relink_wc(cons_state_t *sp, ldi_handle_t new_lh, int *muxid)
 	return (err);
 }
 
+#if !defined(oxide)
 static void
 cons_build_upper_layer(cons_state_t *sp)
 {
@@ -948,10 +950,12 @@ cons_build_upper_layer(cons_state_t *sp)
 		    "consconfig: terminal emulator failed to initialize");
 	(void) ldi_close(wc_lh, FREAD|FWRITE, kcred);
 }
+#endif	/* !oxide */
 
 static void
 consconfig_load_drivers(cons_state_t *sp)
 {
+#if !defined(oxide)
 	/*
 	 * Calling ddi_pathname_to_dev_t may cause the USB Host Controller
 	 * drivers to be loaded. Here we make sure that EHCI is loaded
@@ -978,6 +982,7 @@ consconfig_load_drivers(cons_state_t *sp)
 	(void) ddi_hold_installed_driver(ddi_name_to_major("ehci"));
 	(void) ddi_hold_installed_driver(ddi_name_to_major("uhci"));
 	(void) ddi_hold_installed_driver(ddi_name_to_major("ohci"));
+#endif	/* !oxide */
 
 	/*
 	 * The attaching of the drivers will cause the creation of the
@@ -1010,9 +1015,10 @@ consconfig_load_drivers(cons_state_t *sp)
 	/*
 	 * On x86, make sure the fb driver is loaded even if we don't use it
 	 * for the console. This will ensure that we create a /dev/fb link
-	 * which is required to start Xorg.
+	 * which is required to start Xorg.  None of this is supported on the
+	 * oxide architecture, however.
 	 */
-#if defined(__x86)
+#if defined(__x86) && !defined(oxide)
 	if (sp->cons_fb_path != NULL)
 		fbdev = ddi_pathname_to_dev_t(sp->cons_fb_path);
 #endif
@@ -1524,8 +1530,10 @@ dynamic_console_config(void)
 	consconfig_sp = consconfig_state_init();
 	ASSERT(consconfig_sp);
 
+#if !defined(oxide)
 	/* Build upper layer of console stream */
 	cons_build_upper_layer(consconfig_sp);
+#endif
 
 	/*
 	 * Load keyboard/mouse drivers. The dacf routines will
@@ -1538,9 +1546,10 @@ dynamic_console_config(void)
 	consconfig_load_drivers(consconfig_sp);
 	consconfig_sp->cons_input_type = cons_get_input_type(consconfig_sp);
 
-	rwsconsvp = consconfig_sp->cons_wc_vp;
-	rwsconsdev = consconfig_sp->cons_wc_vp->v_rdev;
-
+	if (consconfig_sp->cons_wc_vp != NULL) {
+		rwsconsvp = consconfig_sp->cons_wc_vp;
+		rwsconsdev = consconfig_sp->cons_wc_vp->v_rdev;
+	}
 
 	/* initialize framebuffer, console input, and redirection device  */
 	consconfig_init_framebuffer(consconfig_sp);

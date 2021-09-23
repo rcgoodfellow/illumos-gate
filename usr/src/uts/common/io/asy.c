@@ -892,7 +892,7 @@ asyattach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	/* establish default usage */
 	asy->asy_mcr |= RTS|DTR;		/* do use RTS/DTR after open */
 	asy->asy_lcr = STOP1|BITS8;		/* default to 1 stop 8 bits */
-	asy->asy_bidx = B9600;			/* default to 9600  */
+	asy->asy_bidx = B115200;		/* default to 115200  */
 #ifdef DEBUG
 	asy->asy_msint_cnt = 0;			/* # of times in async_msint */
 #endif

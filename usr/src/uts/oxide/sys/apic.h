@@ -22,6 +22,7 @@
  * Copyright (c) 1993, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 Joyent, Inc.
  * Copyright (c) 2017 by Delphix. All rights reserved.
+ * Copyright 2022 Oxide Computer Co.
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -58,6 +59,12 @@ extern "C" {
 /* Task Priority register */
 #define	APIC_TASK_REG		0x20
 
+/* Arbitration Priority register */
+#define	APIC_ARB_PRI_REG	0x24
+
+/* Processor Priority register */
+#define	APIC_PROC_PRI_REG	0x28
+
 /* EOI register */
 #define	APIC_EOI_REG		0x2c
 
@@ -72,6 +79,10 @@ extern "C" {
 
 /* Spurious Interrupt Vector register */
 #define	APIC_SPUR_INT_REG	0x3c
+
+#define	APIC_IN_SVC_BASE_REG	0x40
+#define	APIC_TM_BASE_REG	0x60
+#define	APIC_REQUEST_BASE_REG	0x80
 
 /* Error Status Register */
 #define	APIC_ERROR_STATUS	0xa0
@@ -103,6 +114,16 @@ extern "C" {
 /* Divider Configuration Register */
 #define	APIC_DIVIDE_REG		0xf8
 
+#define	APIC_EXTD_FEATURE_REG	0x100
+#define	APIC_EXTD_CTRL_REG	0x104
+#define	APIC_EXTD_SEOI_REG	0x108
+#define	APIC_EXTD_IER_BASE_REG	0x120
+#define	APIC_EXTD_LVT_BASE_REG	0x140
+
+#define	APIC_EXTF_IER		0x1
+#define	APIC_EXTF_SEOI		0x2
+#define	APIC_EXTF_8BIT_ID	0x4
+
 /* Various mode for local APIC. Modes are mutually exclusive  */
 typedef enum apic_mode {
 	APIC_IS_DISABLED = 0,
@@ -117,6 +138,7 @@ typedef enum apic_mode {
 /* General x2APIC constants used at various places */
 #define	APIC_SVR_SUPPRESS_BROADCAST_EOI		0x1000
 #define	APIC_DIRECTED_EOI_BIT			0x1000000
+#define	APIC_EXTENDED_BIT			0x80000000UL
 
 /* x2APIC enable bit in REG_APIC_BASE_MSR (Intel: Extd, AMD: x2ApicEn) */
 #define	X2APIC_ENABLE_BIT	10
@@ -159,6 +181,7 @@ typedef enum apic_mode {
 
 #define	APIC_ID_CMD		0x0
 #define	APIC_VERS_CMD		0x1
+#define	APIC_ARB_CMD		0x2
 #define	APIC_RDT_CMD		0x10
 #define	APIC_RDT_CMD2		0x11
 
@@ -172,11 +195,6 @@ typedef enum apic_mode {
 #define	APIC_IMCR_SELECT 0x70		/* select imcr by writing into P1 */
 #define	APIC_IMCR_PIC	0x0		/* selects PIC mode (8259-> BSP) */
 #define	APIC_IMCR_APIC	0x1		/* selects APIC mode (8259->APIC) */
-
-#define	APIC_CT_VECT	0x4ac		/* conf table vector		*/
-#define	APIC_CT_SIZE	1024		/* conf table size		*/
-
-#define	APIC_ID		'MPAT'		/* conf table signature 	*/
 
 #define	VENID_AMD		0x1022
 #define	DEVID_8131_IOAPIC	0x7451
@@ -358,6 +376,7 @@ struct apic_io_intr {
 #define	AV_SH_ALL_EXCSELF	0xc0000 /* All excluding self */
 /* spurious interrupt vector register					*/
 #define	AV_UNIT_ENABLE	0x100
+#define	AV_FOCUS_DISABLE	0x200
 
 #define	APIC_MAXVAL	0xffffffffUL
 #define	APIC_TIME_MIN	0x5000
@@ -549,7 +568,7 @@ typedef struct apic_cpus_info {
  */
 typedef	struct apic_regs_ops {
 	uint64_t	(*apic_read)(uint32_t);
-	void 		(*apic_write)(uint32_t, uint64_t);
+	void		(*apic_write)(uint32_t, uint64_t);
 	int		(*apic_get_pri)(void);
 	void		(*apic_write_task_reg)(uint64_t);
 	void		(*apic_write_int_cmd)(uint32_t, uint32_t);

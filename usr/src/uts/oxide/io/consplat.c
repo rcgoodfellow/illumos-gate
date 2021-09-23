@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2012 Gary Mills
+ * Copyright 2022 Oxide Computer Co.
  *
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
@@ -66,23 +67,31 @@ plat_stdout_is_framebuffer(void)
 	return (0);
 }
 
-static char *
-plat_ttypath(int inum)
+char *
+plat_fbpath(void)
 {
-	/* XXX Fix this so it refers to the correct DW UART driver. */
-	static char *defaultpath[] = {
-	    "/isa/asy@1,3f8:a",
-	    "/isa/asy@1,2f8:b",
-	    "/isa/asy@1,3e8:c",
-	    "/isa/asy@1,2e8:d"
-	};
+	return (NULL);
+}
+
+char *
+plat_mousepath(void)
+{
+	return (NULL);
+}
+
+char *
+plat_kbdpath(void)
+{
+	return (NULL);
+}
+
+static char *
+plat_conspath(void)
+{
 	static char path[MAXPATHLEN];
 	char *bp;
 	major_t major;
 	dev_info_t *dip;
-
-	if (pseudo_isa)
-		return (defaultpath[inum]);
 
 	if ((major = ddi_name_to_major("asy")) == (major_t)-1)
 		return (NULL);
@@ -94,12 +103,13 @@ plat_ttypath(int inum)
 		if (i_ddi_attach_node_hierarchy(dip) != DDI_SUCCESS)
 			return (NULL);
 
-		if (DEVI(dip)->devi_minor->ddm_name[0] == ('a' + (char)inum))
+		if (DEVI(dip)->devi_minor->ddm_name[0] == 'a')
 			break;
 	}
 	if (dip == NULL)
 		return (NULL);
 
+	/* XXX This comes from i86pc and it's not safe there either. */
 	(void) ddi_pathname(dip, path);
 	bp = path + strlen(path);
 	(void) snprintf(bp, 3, ":%s", DEVI(dip)->devi_minor->ddm_name);
@@ -107,24 +117,20 @@ plat_ttypath(int inum)
 	return (path);
 }
 
-/*
- * Another possible enhancement could be to use properties
- * for the port mapping rather than simply hard-code them.
- */
 char *
 plat_stdinpath(void)
 {
-	return (plat_ttypath(0));
+	return (plat_conspath());
 }
 
 char *
 plat_stdoutpath(void)
 {
-	return (plat_ttypath(0));
+	return (plat_conspath());
 }
 
 char *
 plat_diagpath(void)
 {
-	return (plat_ttypath(0));
+	return (plat_conspath());
 }

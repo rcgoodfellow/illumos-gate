@@ -25,7 +25,7 @@
 # Copyright (c) 2010, Intel Corporation.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 # Copyright 2019 Joyent, Inc.
-# Copyright 2021 Oxide Computer Co.
+# Copyright 2022 Oxide Computer Co.
 #
 #	This Makefile defines file modules in the directory uts/oxide
 #	and its children. These are the source files which are oxide
@@ -136,6 +136,7 @@ SPECIAL_OBJS +=			\
 	syscall_asm_amd64.o	\
 	kpti_trampolines.o
 
+ISANEXUS_OBJS += isa.o
 PCIE_MISC_OBJS += pcie_acpi.o pciehpc_acpi.o pcie_x86.o
 PCI_E_NEXUS_OBJS += npe.o npe_misc.o
 PCI_E_NEXUS_OBJS += pci_common.o pci_kstats.o pci_tools.o

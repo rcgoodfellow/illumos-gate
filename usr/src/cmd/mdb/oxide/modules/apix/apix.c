@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include "intr_common.h"
@@ -154,13 +155,23 @@ static const mdb_dcmd_t dcmds[] = {
 	{ "softint", "?[-d]", "print soft interrupts", soft_interrupt_dump,
 	    soft_interrupt_help},
 #ifdef _KMDB
-	{ "apic", NULL, "print apic register contents", apic },
-	{ "ioapic", NULL, "print ioapic register contents", ioapic },
+	{ "apic", "[-bef]", "print apic register contents", apic,
+	    apic_dcmd_help },
+	{ "ioapic", "?[-e]", "print ioapic register contents", ioapic,
+	    ioapic_dcmd_help },
 #endif /* _KMDB */
 	{ NULL }
 };
 
-static const mdb_modinfo_t modinfo = { MDB_API_VERSION, dcmds, NULL };
+static const mdb_walker_t walkers[] = {
+#ifdef _KMDB
+	{ "ioapic", "walk ioapic register window addresses",
+	    ioapic_walk_init, ioapic_walk_step, NULL, NULL },
+#endif /* _KMDB */
+	{ NULL }
+};
+
+static const mdb_modinfo_t modinfo = { MDB_API_VERSION, dcmds, walkers };
 
 const mdb_modinfo_t *
 _mdb_init(void)

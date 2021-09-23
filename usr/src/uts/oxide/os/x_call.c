@@ -206,17 +206,7 @@ xc_init_cpu(struct cpu *cpup)
 	 * Allocate message buffers for the new CPU.
 	 */
 	for (c = 0; c < max_ncpus; ++c) {
-		if (plat_dr_support_cpu()) {
-			/*
-			 * Allocate a message buffer for every CPU possible
-			 * in system, including our own, and add them to our xc
-			 * message queue.
-			 */
-			msg = kmem_zalloc(sizeof (*msg), KM_SLEEP);
-			msg->xc_command = XC_MSG_FREE;
-			msg->xc_master = cpup->cpu_id;
-			xc_insert(&cpup->cpu_m.xc_free, msg);
-		} else if (cpu[c] != NULL && cpu[c] != cpup) {
+		if (cpu[c] != NULL && cpu[c] != cpup) {
 			/*
 			 * Add a new message buffer to each existing CPU's free
 			 * list, as well as one for my list for each of them.
@@ -236,15 +226,13 @@ xc_init_cpu(struct cpu *cpup)
 		}
 	}
 
-	if (!plat_dr_support_cpu()) {
-		/*
-		 * Add one for self messages if CPU hotplug is disabled.
-		 */
-		msg = kmem_zalloc(sizeof (*msg), KM_SLEEP);
-		msg->xc_command = XC_MSG_FREE;
-		msg->xc_master = cpup->cpu_id;
-		xc_insert(&cpup->cpu_m.xc_free, msg);
-	}
+	/*
+	 * Add one for self messages (note: CPU hotplug is unsupported).
+	 */
+	msg = kmem_zalloc(sizeof (*msg), KM_SLEEP);
+	msg->xc_command = XC_MSG_FREE;
+	msg->xc_master = cpup->cpu_id;
+	xc_insert(&cpup->cpu_m.xc_free, msg);
 
 	if (!xc_initialized)
 		xc_initialized = 1;

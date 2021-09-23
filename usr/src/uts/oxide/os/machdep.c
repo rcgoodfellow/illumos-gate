@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 1992, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -151,16 +152,6 @@ int force_shutdown_method = AD_UNKNOWN;
  * The panicbuf array is used to record messages and state:
  */
 char panicbuf[PANICBUFSIZE];
-
-/*
- * Flags to control Dynamic Reconfiguration features.
- */
-uint64_t plat_dr_options;
-
-/*
- * Maximum physical address for memory DR operations.
- */
-uint64_t plat_dr_physmax;
 
 /*
  * maxphys - used during physio
@@ -1234,36 +1225,6 @@ void
 lbolt_softint_post(void)
 {
 	(*setsoftint)(CBE_LOCK_PIL, lbolt_softint_hdl.ih_pending);
-}
-
-boolean_t
-plat_dr_check_capability(uint64_t features)
-{
-	return ((plat_dr_options & features) == features);
-}
-
-boolean_t
-plat_dr_support_cpu(void)
-{
-	return (plat_dr_options & PLAT_DR_FEATURE_CPU);
-}
-
-boolean_t
-plat_dr_support_memory(void)
-{
-	return (plat_dr_options & PLAT_DR_FEATURE_MEMORY);
-}
-
-void
-plat_dr_enable_capability(uint64_t features)
-{
-	atomic_or_64(&plat_dr_options, features);
-}
-
-void
-plat_dr_disable_capability(uint64_t features)
-{
-	atomic_and_64(&plat_dr_options, ~features);
 }
 
 /*

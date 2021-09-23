@@ -57,11 +57,6 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 DEBUG_FLGS      =
 $(NOT_RELEASE_BUILD)DEBUG_DEFS	+= $(DEBUG_FLGS)
 
-#
-# Depends on ACPI CA interpreter
-#
-LDFLAGS		+= -N misc/acpica
-
 # needs work
 $(OBJS_DIR)/psm_common.o := SMOFF += deref_check
 

@@ -30,6 +30,7 @@
  * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2013 Pluribus Networks, Inc.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/processor.h>
@@ -1841,7 +1842,7 @@ ioapix_setup_intr(int irqno, iflag_t *flagp)
 	ulong_t iflag;
 	struct autovec *avp;
 
-	ioapicindex = acpi_find_ioapic(irqno);
+	ioapicindex = irq_to_ioapic_index(irqno);
 	ASSERT(ioapicindex != 0xFF);
 	ipin = irqno - apic_io_vectbase[ioapicindex];
 

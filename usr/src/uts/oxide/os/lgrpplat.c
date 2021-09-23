@@ -28,6 +28,10 @@
  */
 
 /*
+ * Copyright 2022 Oxide Computer Co.
+ */
+
+/*
  * LOCALITY GROUP (LGROUP) PLATFORM SUPPORT FOR X86/AMD64 PLATFORMS
  * ================================================================
  * Multiprocessor AMD and Intel systems may have Non Uniform Memory Access
@@ -914,11 +918,6 @@ lgrp_plat_init(lgrp_init_stages_t stage)
 		 * to support memory DR operations if memory DR is enabled.
 		 */
 		lgrp_plat_max_mem_node = lgrp_plat_node_cnt;
-		if (plat_dr_support_memory() && lgrp_plat_node_cnt != 1) {
-			max_mem_nodes = MAX_MEM_NODES_PER_LGROUP *
-			    lgrp_plat_node_cnt;
-			ASSERT(max_mem_nodes <= MAX_MEM_NODES);
-		}
 		break;
 
 	case LGRP_INIT_STAGE3:
@@ -980,19 +979,11 @@ lgrp_plat_latency(lgrp_handle_t from, lgrp_handle_t to)
 		 * for DR operations. Something is wrong if reaches here.
 		 * For safety, flatten lgrp topology to two levels.
 		 */
-		if (plat_dr_support_cpu() || plat_dr_support_memory()) {
-			ASSERT(lgrp_plat_lat_stats.latencies[src][src]);
-			cmn_err(CE_WARN,
-			    "lgrp: failed to get latency information, "
-			    "fall back to two-level topology.");
-			lgrp_plat_2level_setup(&lgrp_plat_lat_stats);
-		} else {
-			node = lgrp_plat_cpu_to_node(CPU, lgrp_plat_cpu_node,
-			    lgrp_plat_cpu_node_nentries);
-			ASSERT(node >= 0 && node < lgrp_plat_node_cnt);
-			if (node == src)
-				lgrp_plat_probe();
-		}
+		node = lgrp_plat_cpu_to_node(CPU, lgrp_plat_cpu_node,
+		    lgrp_plat_cpu_node_nentries);
+		ASSERT(node >= 0 && node < lgrp_plat_node_cnt);
+		if (node == src)
+			lgrp_plat_probe();
 	}
 
 	return (lgrp_plat_lat_stats.latencies[src][dest]);
@@ -1011,8 +1002,7 @@ lgrp_plat_latency(lgrp_handle_t from, lgrp_handle_t to)
 int
 lgrp_plat_max_lgrps(void)
 {
-	if (!lgrp_topo_initialized || plat_dr_support_cpu() ||
-	    plat_dr_support_memory()) {
+	if (!lgrp_topo_initialized) {
 		return (lgrp_plat_node_cnt * (lgrp_plat_node_cnt - 1) + 1);
 	} else {
 		return (lgrp_alloc_max + 1);
@@ -1137,10 +1127,6 @@ lgrp_plat_probe(void)
 
 	if (!(lgrp_plat_probe_flags & LGRP_PLAT_PROBE_ENABLE) ||
 	    max_mem_nodes == 1 || lgrp_topo_ht_limit() <= 2)
-		return;
-
-	/* SRAT and SLIT should be enabled if DR operations are enabled. */
-	if (plat_dr_support_cpu() || plat_dr_support_memory())
 		return;
 
 	/*
@@ -1365,11 +1351,7 @@ lgrp_plat_get_numa_config(void)
 	 * of NUMA nodes by reading ACPI System Resource Affinity Table (SRAT)
 	 */
 	if (lgrp_plat_apic_ncpus > 0) {
-		/* Reserve enough resources if CPU DR is enabled. */
-		if (plat_dr_support_cpu() && max_ncpus > lgrp_plat_apic_ncpus)
-			lgrp_plat_cpu_node_nentries = max_ncpus;
-		else
-			lgrp_plat_cpu_node_nentries = lgrp_plat_apic_ncpus;
+		lgrp_plat_cpu_node_nentries = lgrp_plat_apic_ncpus;
 
 		/*
 		 * Temporarily allocate boot memory to use for CPU to node
@@ -1427,21 +1409,6 @@ lgrp_plat_get_numa_config(void)
 	 */
 	lgrp_plat_lat_stats.latency_min = -1;
 	lgrp_plat_lat_stats.latency_max = 0;
-
-	/*
-	 * Disable support of CPU/memory DR operations if multiple locality
-	 * domains exist in system and either of following is true.
-	 * 1) Failed to process SLIT table.
-	 * 2) Latency probing is enabled by user.
-	 */
-	if (lgrp_plat_node_cnt > 1 &&
-	    (plat_dr_support_cpu() || plat_dr_support_memory())) {
-			cmn_err(CE_CONT,
-			    "?lgrp: failed to process ACPI SRAT/SLIT table, "
-			    "disable support of CPU/memory DR operations.");
-			plat_dr_disable_cpu();
-			plat_dr_disable_memory();
-	}
 
 	/*
 	 * Probe to determine latency between NUMA nodes when SLIT
@@ -2365,7 +2332,7 @@ lgrp_plat_process_cpu_apicids(cpu_node_map_t *cpu_node)
 	 * system has only one CPU and doesn't support CPU hotplug.
 	 */
 	n = boot_prop_len / sizeof (*cpu_apicid_array);
-	if (n == 1 && !plat_dr_support_cpu())
+	if (n == 1)
 		return (-2);
 
 	cpu_apicid_array = (uint32_t *)BOP_ALLOC(bootops, NULL, boot_prop_len,
@@ -2382,20 +2349,13 @@ lgrp_plat_process_cpu_apicids(cpu_node_map_t *cpu_node)
 	 * NULL
 	 */
 	if (cpu_node == NULL) {
-		if (plat_dr_support_cpu() && n >= boot_ncpus) {
-			return (boot_ncpus);
-		} else {
-			return (n);
-		}
+		return (n);
 	}
 
 	/*
 	 * Fill in CPU to node ID mapping table with APIC ID for each CPU
 	 */
 	for (i = 0; i < n; i++) {
-		/* Only add boot CPUs into the map if CPU DR is enabled. */
-		if (plat_dr_support_cpu() && i >= boot_ncpus)
-			break;
 		cpu_node[i].exists = 1;
 		cpu_node[i].apicid = cpu_apicid_array[i];
 		cpu_node[i].prox_domain = UINT32_MAX;

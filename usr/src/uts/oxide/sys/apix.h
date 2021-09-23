@@ -235,7 +235,7 @@ extern int	apic_irq_translate;
 extern int apic_max_reps_clear_pending;
 
 extern int apic_probe_common(char *modname);
-extern uchar_t acpi_find_ioapic(int irq);
+extern uchar_t irq_to_ioapic_index(int irq);
 extern int apic_find_bus_id(int bustype);
 extern int apic_find_intin(uchar_t ioapic, uchar_t intin);
 extern struct apic_io_intr *apic_find_io_intr_w_busid(int irqno, int busid);

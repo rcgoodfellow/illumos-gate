@@ -24,7 +24,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2018 Joyent, Inc.
- * Copyright 2021 Oxide Computer Co.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/types.h>
@@ -328,11 +328,19 @@ kbm_init(void)
 
 	PT_USED(top_page_table);
 
+	/*
+	 * The loader doesn't set PT_USER in PTPs, but the htable code later on
+	 * wants it set.  For convenience we set it here for all PTPs.  XXX
+	 * consider either changing PT_PTPBITS or making the loader set this
+	 * (creates a flag day).
+	 */
 	for (i = 0; i < ptes_per_table; i++) {
 		pteval = get_pteval(top_page_table, i);
 		if ((pteval & PT_VALID) == 0) {
 			continue;
 		}
+		pteval |= PT_USER;
+		set_pteval(top_page_table, i, 3, pteval);
 		l2_pa = pteval & IPTE_PAMASK;
 		PT_USED(l2_pa);
 		if (l2_pa > loader_pt_last)
@@ -344,6 +352,8 @@ kbm_init(void)
 			    (pteval & PT_PAGESIZE) != 0) {
 				continue;
 			}
+			pteval |= PT_USER;
+			set_pteval(l2_pa, j, 2, pteval);
 			l1_pa = pteval & IPTE_PAMASK;
 			PT_USED(l1_pa);
 			if (l1_pa > loader_pt_last)
@@ -355,7 +365,8 @@ kbm_init(void)
 				    (pteval & PT_PAGESIZE) != 0) {
 					continue;
 				}
-
+				pteval |= PT_USER;
+				set_pteval(l1_pa, k, 1, pteval);
 				l0_pa = pteval & IPTE_PAMASK;
 				PT_USED(l0_pa);
 				if (l0_pa > loader_pt_last)

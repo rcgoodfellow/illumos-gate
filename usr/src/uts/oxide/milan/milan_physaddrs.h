@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _MILAN_MILAN_PHYSADDRS_H
@@ -172,11 +172,15 @@ extern "C" {
 #define	MILAN_PHYSADDR_MMIO_END	0xfffd00000000
 
 /*
- * XXX This is the MMIO Address for the IOAPIC. It can really be anywhere;
- * however, has to be routed to IOMS 3. This address is fairly arbitrary
- * (Ethanol-X default which for some reason isn't the reset default).
+ * These are the MMIO Addresses for the IOAPICs.  One of them is in the FCH
+ * and cannot be moved, the other is in the IOH/NBIO3.  The latter can be put
+ * almost anywhere, as long as it is part of the non-PCI range routed to IOMS3.
+ * That link is necessitated by the connection between NBIO3 and the FCH. This
+ * address is fairly arbitrary; AGESA on Ethanol-X puts it here by default; we
+ * may wish to change it to something else.
  */
-#define	MILAN_PHYSADDR_IOAPIC	0xfec01000
+#define	MILAN_PHYSADDR_FCH_IOAPIC	0xfec00000
+#define	MILAN_PHYSADDR_IOHC_IOAPIC	0xfec01000
 
 #ifdef __cplusplus
 }

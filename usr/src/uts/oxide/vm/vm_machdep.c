@@ -25,6 +25,7 @@
  * Copyright (c) 2010, Intel Corporation.
  * All rights reserved.
  * Copyright 2019, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /* Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T */
@@ -1511,18 +1512,12 @@ void
 plat_slice_add(pfn_t start, pfn_t end)
 {
 	mem_node_add_slice(start, end);
-	if (plat_dr_enabled()) {
-		mnode_range_add(PFN_2_MEM_NODE(start));
-	}
 }
 
 void
 plat_slice_del(pfn_t start, pfn_t end)
 {
-	ASSERT(PFN_2_MEM_NODE(start) == PFN_2_MEM_NODE(end));
-	ASSERT(plat_dr_enabled());
-	mnode_range_del(PFN_2_MEM_NODE(start));
-	mem_node_del_slice(start, end);
+	ASSERT(0);
 }
 
 /*ARGSUSED*/
@@ -1741,13 +1736,8 @@ page_coloring_init(uint_t l2_sz, int l2_linesz, int l2_assoc)
 	/*
 	 * Reduce the memory ranges lists if we don't have large amounts
 	 * of memory. This avoids searching known empty free lists.
-	 * To support memory DR operations, we need to keep memory ranges
-	 * for possible memory hot-add operations.
 	 */
-	if (plat_dr_physmax > physmax)
-		i = memrange_num(plat_dr_physmax);
-	else
-		i = memrange_num(physmax);
+	i = memrange_num(physmax);
 
 	/* physmax greater than 4g */
 	if (i == MRI_4G)
@@ -1843,16 +1833,7 @@ page_coloring_init(uint_t l2_sz, int l2_linesz, int l2_assoc)
 	/* size for mnoderanges */
 	for (mnoderangecnt = 0, i = 0; i < max_mem_nodes; i++)
 		mnoderangecnt += mnode_range_cnt(i);
-	if (plat_dr_support_memory()) {
-		/*
-		 * Reserve enough space for memory DR operations.
-		 * Two extra mnoderanges for possbile fragmentations,
-		 * one for the 2G boundary and the other for the 4G boundary.
-		 * We don't expect a memory board crossing the 16M boundary
-		 * for memory hot-add operations on x86 platforms.
-		 */
-		mnoderangecnt += 2 + max_mem_nodes - lgrp_plat_node_cnt;
-	}
+
 	colorsz = mnoderangecnt * sizeof (mnoderange_t);
 
 	/* size for fpc_mutex and cpc_mutex */

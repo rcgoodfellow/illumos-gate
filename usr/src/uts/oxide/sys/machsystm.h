@@ -178,37 +178,6 @@ extern int dtrace_linear_pc(struct regs *rp, proc_t *p, caddr_t *linearp);
 
 extern int force_shutdown_method;
 
-/* Dynamic Reconfiguration capability interface. */
-#define	PLAT_DR_OPTIONS_NAME		"plat-dr-options"
-#define	PLAT_DR_PHYSMAX_NAME		"plat-dr-physmax"
-#define	PLAT_MAX_NCPUS_NAME		"plat-max-ncpus"
-#define	BOOT_MAX_NCPUS_NAME		"boot-max-ncpus"
-#define	BOOT_NCPUS_NAME			"boot-ncpus"
-
-#define	PLAT_DR_FEATURE_CPU		0x1
-#define	PLAT_DR_FEATURE_MEMORY		0x2
-#define	PLAT_DR_FEATURE_ENABLED		0x1000000
-
-#define	plat_dr_enabled()		\
-	plat_dr_check_capability(PLAT_DR_FEATURE_ENABLED)
-
-#define	plat_dr_enable()		\
-	plat_dr_enable_capability(PLAT_DR_FEATURE_ENABLED)
-
-#define	plat_dr_disable_cpu()		\
-	plat_dr_disable_capability(PLAT_DR_FEATURE_CPU)
-#define	plat_dr_disable_memory()	\
-	plat_dr_disable_capability(PLAT_DR_FEATURE_MEMORY)
-
-extern boolean_t plat_dr_support_cpu(void);
-extern boolean_t plat_dr_support_memory(void);
-extern boolean_t plat_dr_check_capability(uint64_t features);
-extern void plat_dr_enable_capability(uint64_t features);
-extern void plat_dr_disable_capability(uint64_t features);
-
-#pragma	weak plat_dr_support_cpu
-#pragma	weak plat_dr_support_memory
-
 /*
  * Used to communicate DR updates to platform lgroup framework
  */

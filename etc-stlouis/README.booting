@@ -1,11 +1,11 @@
 You will need:
 
-- An Ethanol-X, almost certainly
+- A supportable Gimlet, or an Ethanol-X (for now)
 - Milan, possibly; I believe this should also work on Rome but have not tried
   it yet
 - illumos-gate stlouis a368956d97835cacf0266ab9ff2fe7b7944afa09 or later
-- nanobl-rs 0.4.0 or later
-- mkrd.bash, mkrd-helper.bash, and ramdisk.manifest from this directory
+- nanobl-rs 0.4.1 or later
+- The tools in this directory
 
 Steps:
 
@@ -16,12 +16,12 @@ working, that should work fine for building all the modules you need.  If you
 want to build on an arbitrary build machine using adjuncts, consider applying
 illumos-build-fixes.diff from this directory.
 
-2. Build a small ramdisk.  The size in mkrd.bash must match the end address
-property value in usr/src/uts/oxide/os/boot_data.c; if you need to grow the
-ramdisk, change both of these!  This program outputs the name of the ramdisk
-image; it uses a temporary name because even though these are internal build
-machines and basically single-user we try to avoid glaring security holes; if
-you want to use a fixed name you can do something like:
+2. Build a ramdisk.  The size in mkrd.bash must match the end address property
+value in usr/src/uts/oxide/os/boot_data.c; if you need to grow the ramdisk,
+change both of these!  This program outputs the name of the ramdisk image; it
+uses a temporary name because even though these are internal build machines
+and basically single-user we try to avoid glaring security holes; if you want
+to use a fixed name you can do something like:
 
 	$ mv $(./mkrd.bash) /path/to/ramdisk.ufs
 
@@ -29,9 +29,9 @@ you want to use a fixed name you can do something like:
 instructions in that repo's README.
 
 4. At this point you should have:
-	- An Eth-X sitting at the > prompt in your terminal emulator (see
+	- A box sitting at the > prompt in your terminal emulator (see
 	  nanobl-rs repo for notes on configuring it)
-	- A copy unix from $ROOT/platform/kernel/oxide/amd64/unix
+	- A copy of unix from $ROOT/platform/kernel/oxide/amd64/unix
 	- A copy of ramdisk.ufs or whatever you called it
 
 Note that we currently need unix in the ramdisk and outside it; this
@@ -42,47 +42,41 @@ the file in the ramdisk MUST MATCH the kernel you boot; otherwise krtld will
 complain and you will not get very far.
 
 5. Now issue the following sequence of loader commands:
-	> 100000000::recv -m
-
-	Send unix via your terminal emulator's Xmodem upload command at this
-time.  This command places the kernel into memory at 1_0000_0000.  You are
-free to put this almost anywhere that the loader will let you, except for the
-area the kernel wants to be loaded in and the area you need for the ramdisk.
-This is a convenient, out of the way location for now.
 
 	> 101000000::recv -m
 
-	Send ramdisk.ufs in the same manner at this time.  This command places
-the ramdisk into memory at 1_0100_0000.  If you want to change this, you must
-also change the ramdisk start and end addresses in oxide/os/boot_data.c to
-match the physical address range you select.  Eventually this requirement can
-be relaxed by passing the address to the kernel as an argument or boot
-property.
+	Send the ramdisk you built previously via your terminal emulator's
+Xmodem upload command at this time.  This command places the ramdisk into
+memory at 1_0100_0000, which must match the address in oxide/os/boot_data.c.
+Note that if you build a ramdisk larger than 64 MiB, you will also need to map
+memory manually or specify the size in bytes on the loader command line.  See
+the help for ::recv's -m option.
 
-	> 100000000::load
-
-	This interprets the ELF kernel and maps and copies its segments to the
-appropriate locations in memory.  It will spit out the virtual address of the
-entry point, which you should keep around in your terminal because you'll need
-it momentarily.
-
-	> fffffffffb828d30::call 0
-
-	The address used here may not be correct for you; it is the entry
-point given to you by ::load previously.  This is the moment of truth; it
-executes a call to _start(), passing it a NULL pointer so it will use the
-built-in boot data instead of expecting the loader to provide boot-time
-properties.  The semantics of the arguments will change later, and these
-instructions will be updated to match.
-
-Note that the order of loading the ramdisk and kernel does not matter, so if
-you have nanobl-rs 0.4.1 or later, you may replace three of these command
-invocations with a single pipeline, like so:
-
-	> 101000000::recv -m
-	(send ramdisk)
 	> 100000000::recv -m | ::load | ::call
-	(send kernel)
+
+	Send unix in the same manner at this time.  You are free to put this
+almost anywhere that the loader will let you, except for the area the ramdisk
+already occupies and the regions the kernel itself wants to be loaded into.
+The suggested address is convenient and out of the way and should work on
+every supportable Gimlet and Ethanol-X.  When the file receiption completes,
+::load and ::call will interpret the kernel and an ELF object and transfer
+control to its entry point, booting the OS.  NOTE: This syntax is available
+only in nanobl-rs 0.4.1 and later.  If you have 0.4.0, you can still boot but
+will need to issue three separate commands instead of a single pipeline.
+
+6. If you wish to proceed to userland, utter ':c' when kmdb loads, ignoring
+any errors about failure to load kmods.  Otherwise, begin your debug session.
+
+7. Upon reaching userland, the SMF daemons will blow assertions in libc and
+fail to start because of an as-yet-unknown bug.  You will be presented with a
+prompt to log in for maintenance; log in as root with no password.  To set up
+the basic debugging environment, utter './startup', then log out and back in.
+The collection of available system software is very limited and heavily skewed
+toward debugging tools.  If you wish to re-enter kmdb, send a BREAK using your
+terminal emulator (picocom default: C-a C-|).
+
+8. There is currently no way to reboot.  On Gimlet, use humility to cycle
+through A2.  On Eth-X, ipmitool or the web UI may be used.
 
 Notes:
 
@@ -98,6 +92,13 @@ managed.
 the rebooting path expects ACPI/UEFI.  This is going to be replaced with code
 to make an RPC call to a fake SP, which will do the right thing.  For now we
 halt instead, since that's a thing we can do.
+
+3. Userland pro-tips: /usr/bin/rz (or rx) can receive files via Zmodem or
+Xmodem into /tmp, which is set up as tmpfs after you run /root/startup.  In
+the absence of a working netstack, this is much faster than taking a lap.  If
+you are replacing an existing file, you can lofs-mount it on top.  Files can
+be copied into / or symlinked if they're too large to copy (/ is small).  I
+know of no direct means of adding files to /usr, sorry.  Kludges are possible.
 
 Next steps:
 
@@ -124,10 +125,7 @@ particular, how offsets/pointers internally to the properties are represented.
 Doing 1275 is an option here though a read through that standard suggests far
 more complexity than we want or need.
 
-- Add code to the loader to provide boot time properties.  Ultimately these
-  need to come from the SP if we are doing Heliosboot, and maybe if we're
-doing tiny HBS too.  Then delete most of boot_data.c.  Or decide we don't want
-the loader passing properties at all and just get them all from the fake SP.
+- Replace boot_data.c with RPC calls to the SP.
 
 - We can remove more of the bootaux code if we want.  The kernel's ELF object
   is in memory, and we could have the loader tell us where it is if we wanted
@@ -169,6 +167,3 @@ multiple machine architectures).
 both earlyboot and a normal working system (i.e., this can't rely solely on
 STREAMS or something like that).  Stuff like `pc_reset` needs to move to
 i86pc.
-
-- Play around in kmdb and find things that break.  <TAB><TAB> seems to run out
-  of memory and blow up, for example.  Then fix them.

@@ -27,6 +27,7 @@
  * Copyright 2012 Garrett D'Amore <garrett@damore.org>.  All rights reserved.
  * Copyright 2017 Joyent, Inc.
  * Copyright 2020 Ryan Zezeski
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -282,7 +283,7 @@ static struct dev_ops rootnex_ops = {
 
 static struct modldrv rootnex_modldrv = {
 	&mod_driverops,
-	"i86pc root nexus",
+	"oxide root nexus",
 	&rootnex_ops
 };
 
@@ -4696,7 +4697,8 @@ immu_init(void)
 {
 }
 
-void immu_startup(void)
+void
+immu_startup(void)
 {
 }
 

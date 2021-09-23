@@ -26,6 +26,7 @@
  * Copyright (c) 2010, Intel Corporation.
  * All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -48,8 +49,6 @@
 #include <sys/psm.h>
 #include <sys/smp_impldefs.h>
 #include <sys/cram.h>
-#include <sys/acpi/acpi.h>
-#include <sys/acpica.h>
 #include <sys/psm_common.h>
 #include <sys/pit.h>
 #include <sys/ddi.h>
@@ -2255,9 +2254,9 @@ apix_intx_setup(dev_info_t *dip, int inum, int irqno,
 		if ((newirq = apic_find_intin(ioapicindex, ipin)) != -1)
 			return (newirq);
 
-	} else if (iflagp != NULL) {	/* ACPI */
+	} else if (iflagp != NULL) {
 		intr_index = ACPI_INDEX;
-		ioapicindex = acpi_find_ioapic(irqno);
+		ioapicindex = irq_to_ioapic_index(irqno);
 		ASSERT(ioapicindex != 0xFF);
 		ioapic = apic_io_id[ioapicindex];
 		ipin = irqno - apic_io_vectbase[ioapicindex];
@@ -2316,58 +2315,8 @@ apix_intx_setup_nonpci(dev_info_t *dip, int inum, int bustype,
     struct intrspec *ispec)
 {
 	int irqno = ispec->intrspec_vec;
-	int newirq, i;
 	iflag_t intr_flag;
-	ACPI_SUBTABLE_HEADER	*hp;
-	ACPI_MADT_INTERRUPT_OVERRIDE *isop;
-	struct apic_io_intr *intrp;
 
-	if (!apic_enable_acpi || apic_use_acpi_madt_only) {
-		int busid;
-
-		if (bustype == 0)
-			bustype = eisa_level_intr_mask ? BUS_EISA : BUS_ISA;
-
-		/* loop checking BUS_ISA/BUS_EISA */
-		for (i = 0; i < 2; i++) {
-			if (((busid = apic_find_bus_id(bustype)) != -1) &&
-			    ((intrp = apic_find_io_intr_w_busid(irqno, busid))
-			    != NULL)) {
-				return (apix_intx_setup(dip, inum, irqno,
-				    intrp, ispec, NULL));
-			}
-			bustype = (bustype == BUS_EISA) ? BUS_ISA : BUS_EISA;
-		}
-
-		/* fall back to default configuration */
-		return (-1);
-	}
-
-	/* search iso entries first */
-	if (acpi_iso_cnt != 0) {
-		hp = (ACPI_SUBTABLE_HEADER *)acpi_isop;
-		i = 0;
-		while (i < acpi_iso_cnt) {
-			if (hp->Type == ACPI_MADT_TYPE_INTERRUPT_OVERRIDE) {
-				isop = (ACPI_MADT_INTERRUPT_OVERRIDE *) hp;
-				if (isop->Bus == 0 &&
-				    isop->SourceIrq == irqno) {
-					newirq = isop->GlobalIrq;
-					intr_flag.intr_po = isop->IntiFlags &
-					    ACPI_MADT_POLARITY_MASK;
-					intr_flag.intr_el = (isop->IntiFlags &
-					    ACPI_MADT_TRIGGER_MASK) >> 2;
-					intr_flag.bustype = BUS_ISA;
-
-					return (apix_intx_setup(dip, inum,
-					    newirq, NULL, ispec, &intr_flag));
-				}
-				i++;
-			}
-			hp = (ACPI_SUBTABLE_HEADER *)(((char *)hp) +
-			    hp->Length);
-		}
-	}
 	intr_flag.intr_po = INTR_PO_ACTIVE_HIGH;
 	intr_flag.intr_el = INTR_EL_EDGE;
 	intr_flag.bustype = BUS_ISA;
@@ -2388,7 +2337,7 @@ apix_intx_setup_pci(dev_info_t *dip, int inum, int bustype,
 	iflag_t intr_flag;
 	struct apic_io_intr *intrp;
 
-	if (acpica_get_bdf(dip, &busid, &devid, NULL) != 0)
+	if (get_bdf(dip, &busid, &devid, NULL) != 0)
 		return (-1);
 
 	if (busid == 0 && apic_pci_bus_total == 1)

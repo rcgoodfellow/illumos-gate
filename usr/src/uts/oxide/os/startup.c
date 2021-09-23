@@ -25,7 +25,7 @@
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright (c) 2020 Joyent, Inc.
  * Copyright (c) 2015 by Delphix. All rights reserved.
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  * Copyright (c) 2020 Carlos Neira <cneirabustos@gmail.com>
  */
 /*
@@ -906,11 +906,6 @@ startup_memlist(void)
 	PRM_DEBUG(memblocks);
 
 	/*
-	 * We no longer support any form of memory DR.
-	 */
-	plat_dr_physmax = 0;
-
-	/*
 	 * Examine the reserved memory to find out:
 	 * - the number of discontiguous segments of memory.
 	 */
@@ -1295,10 +1290,6 @@ startup_kmem(void)
 	}
 #endif
 
-	if (plat_dr_support_memory()) {
-		mem_config_init();
-	}
-
 	PRM_POINT("startup_kmem() done");
 }
 
@@ -1307,6 +1298,7 @@ startup_modules(void)
 {
 	int serial_proplen;
 	char serial_prop[HW_HOSTID_LEN] = "FFFFFFFFFF";
+	static const char vendor_oxide[] = "Oxide Computer Company";
 	extern void prom_setup(void);
 	cmi_hdl_t hdl;
 
@@ -1369,6 +1361,8 @@ startup_modules(void)
 	 * then invoke bus specific code to probe devices.
 	 */
 	setup_ddi();
+
+	(void) strcpy(hw_provider, vendor_oxide);
 
 	serial_proplen = BOP_GETPROPLEN(bootops, BTPROP_NAME_BOARD_IDENT);
 	if (serial_proplen <= 0) {

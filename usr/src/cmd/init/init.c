@@ -419,7 +419,7 @@ static struct	pidlist {
 static struct termios	dflt_termios = {
 	.c_iflag = BRKINT|ICRNL|IXON|IMAXBEL,
 	.c_oflag = OPOST|ONLCR|TAB3,
-	.c_cflag = CS8|CREAD|B9600,
+	.c_cflag = CS8|CREAD|B115200,
 	.c_lflag = ISIG|ICANON|ECHO|ECHOE|ECHOK|ECHOCTL|ECHOKE|IEXTEN,
 	.c_cc = { CINTR, CQUIT, CERASE, CKILL, CEOF, 0, 0, 0,
 	    CSTART, CSTOP, CSWTCH, CDSUSP, CRPRNT, CFLUSH, CWERASE, CLNEXT,
@@ -2920,6 +2920,9 @@ write_ioctl_syscon()
 	(void) link(SYSTTY, SYSCON);
 	(void) umask(022);
 	fp = fopen(IOCTLSYSCON, "w");
+
+	if (fp == NULL)
+		return;
 
 	(void) fprintf(fp, "%x:%x:%x:%x:0", stored_syscon_termios.c_iflag,
 	    stored_syscon_termios.c_oflag, stored_syscon_termios.c_cflag,

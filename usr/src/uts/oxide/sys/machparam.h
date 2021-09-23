@@ -65,7 +65,7 @@ extern "C" {
  * The value defined below could grow to 16. hat structure and
  * page_t have room for 16 nodes.
  */
-#define	MAXNODES 	4
+#define	MAXNODES	4
 #define	NUMA_NODEMASK	0x0f
 
 /*
@@ -125,8 +125,8 @@ extern "C" {
  * more than a traditional stack and given that we don't have that many
  * interrupt threads, the memory costs end up being more than worthwhile.
  */
-#define        LL_INTR_STKSZ_NPGS      8
-#define        LL_INTR_STKSZ           (LL_INTR_STKSZ_NPGS * PAGESIZE)
+#define	LL_INTR_STKSZ_NPGS	8
+#define	LL_INTR_STKSZ		(LL_INTR_STKSZ_NPGS * PAGESIZE)
 
 /*
  * During intial boot we limit heap to the top 4Gig.

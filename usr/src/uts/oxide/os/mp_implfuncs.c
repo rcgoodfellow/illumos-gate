@@ -329,7 +329,7 @@ mod_infopsm(struct modlpsm *modl, struct modlinkage *modlp, int *p0)
 	return (0);
 }
 
-#define	DEFAULT_PSM_MODULE	"uppc"
+#define	DEFAULT_PSM_MODULE	"apix"
 
 static char *
 psm_get_impl_module(int first)

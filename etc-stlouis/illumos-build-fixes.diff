@@ -25,7 +25,7 @@ index 08a803f44e..8d20a0a900 100644
  	@set -- `ls -l $@`; x=$$(($(ISOBOOTSIZE)-$$5)); \
  	    echo "$$x bytes available"; test $$x -ge 0
 diff --git a/usr/src/cmd/Makefile b/usr/src/cmd/Makefile
-index 8159ad677b..95add292dd 100644
+index 4f496112e8..e3966f4378 100644
 --- a/usr/src/cmd/Makefile
 +++ b/usr/src/cmd/Makefile
 @@ -233,7 +233,6 @@ COMMON_SUBDIRS=		\
@@ -126,7 +126,7 @@ index 7a30bdc609..dca444f35b 100644
  #include <zlib.h>
  #include "pnglite.h"
 diff --git a/usr/src/lib/Makefile b/usr/src/lib/Makefile
-index aa163cc3bf..4d5b9d82af 100644
+index d1a33d262d..0a8c029045 100644
 --- a/usr/src/lib/Makefile
 +++ b/usr/src/lib/Makefile
 @@ -259,9 +259,6 @@ SUBDIRS +=				\
@@ -139,7 +139,7 @@ index aa163cc3bf..4d5b9d82af 100644
  	raidcfg_plugins	\
  	rpcsec_gss	\
  	sasl_plugins	\
-@@ -354,7 +351,6 @@ MSGSUBDIRS=		\
+@@ -355,7 +352,6 @@ MSGSUBDIRS=		\
  	madv		\
  	mpss		\
  	pam_modules	\

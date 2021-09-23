@@ -52,10 +52,7 @@ include $(UTSBASE)/oxide/Makefile.oxide
 ALL_TARGET	= $(BINARY) $(SRC_CONFILE)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOT_CONFFILE)
 
-#
-# depends on misc/iommulib and misc/acpica
-#
-LDFLAGS         += -Nmisc/iommulib -Nmisc/acpica
+LDFLAGS         += -Nmisc/iommulib
 
 CERRWARN	+= $(CNOWARN_UNINIT)
 CERRWARN	+= -_gcc=-Wno-parentheses
