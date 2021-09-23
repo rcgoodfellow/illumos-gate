@@ -9622,23 +9622,16 @@ ip_sioctl_prefix(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 	ill_t *ill;
 	int i;
 
-	printf("HWR 1\n");
 	ip1dbg(("ip_sioctl_prefix(%s:%u %p)\n",
 	    ipif->ipif_ill->ill_name, ipif->ipif_id, (void *)ipif));
 
 	ASSERT(IAM_WRITER_IPIF(ipif));
 
-	printf("HWR 2\n");
-
 	if (!ipif->ipif_isv6)
 		return (EINVAL);
 
-	printf("HWR 3\n");
-
 	if (sin->sin_family != AF_INET6)
 		return (EAFNOSUPPORT);
-
-	printf("HWR 4\n");
 
 	sin6 = (sin6_t *)sin;
 	v6addr = sin6->sin6_addr;
@@ -9648,14 +9641,11 @@ ip_sioctl_prefix(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 	    IN6_IS_ADDR_UNSPECIFIED(&ill->ill_token))
 		return (EADDRNOTAVAIL);
 
-	printf("HWR 5\n");
 	for (i = 0; i < 4; i++)
 		sin6->sin6_addr.s6_addr32[i] |= ill->ill_token.s6_addr32[i];
 
-	printf("HWR 6\n");
 	err = ip_sioctl_addr(ipif, sin, q, mp,
 	    &ip_ndx_ioctl_table[SIOCLIFADDR_NDX], dummy_ifreq);
-	printf("HWR 7\n");
 	return (err);
 }
 
@@ -9691,17 +9681,13 @@ ip_sioctl_addr(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 	ip1dbg(("ip_sioctl_addr(%s:%u %p)\n",
 	    ipif->ipif_ill->ill_name, ipif->ipif_id, (void *)ipif));
 
-	printf("RWH 1\n");
-
 	ASSERT(IAM_WRITER_IPIF(ipif));
 
 	ill = ipif->ipif_ill;
-	printf("RWH 2\n");
 	if (ipif->ipif_isv6) {
 		sin6_t *sin6;
 		phyint_t *phyi;
 
-	printf("RWH 3\n");
 		if (sin->sin_family != AF_INET6)
 			return (EAFNOSUPPORT);
 
@@ -9728,14 +9714,10 @@ ip_sioctl_addr(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 			 * if default link-local was not created by kernel for
 			 * this ill, allow setting :: as the address on ipif:0.
 			 */
-		printf("RWH 4\n");
 			if (ill->ill_flags & ILLF_NOLINKLOCAL) {
-		printf("RWH 5\n");
 				if (!IN6_IS_ADDR_UNSPECIFIED(&v6addr))
 					return (EADDRNOTAVAIL);
-		printf("RWH 6\n");
 			} else {
-		printf("RWH 7\n");
 				return (EADDRNOTAVAIL);
 			}
 		}
@@ -9745,39 +9727,27 @@ ip_sioctl_addr(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 		 * unless they also have the IPIF_NOLOCAL flags set and
 		 * have a subnet assigned.
 		 */
-		printf("RWH 8\n");
 		if ((ipif->ipif_flags & IPIF_UP) &&
 		    IN6_IS_ADDR_UNSPECIFIED(&v6addr) &&
 		    (!(ipif->ipif_flags & IPIF_NOLOCAL) ||
 		    IN6_IS_ADDR_UNSPECIFIED(&ipif->ipif_v6subnet))) {
-		printf("RWH 9\n");
 			return (EADDRNOTAVAIL);
 		}
 
-		printf("RWH 10\n");
-
-		if (!ip_local_addr_ok_v6(&v6addr, &ipif->ipif_v6net_mask)) {
-		printf("RWH 11\n");
+		if (!ip_local_addr_ok_v6(&v6addr, &ipif->ipif_v6net_mask))
 			return (EADDRNOTAVAIL);
-		}
 	} else {
 		ipaddr_t addr;
 
-		printf("RWH 12\n");
-		if (sin->sin_family != AF_INET) {
-		printf("RWH 13\n");
+		if (sin->sin_family != AF_INET)
 			return (EAFNOSUPPORT);
-		}
 
 		addr = sin->sin_addr.s_addr;
 
-		printf("RWH 14\n");
 		/* Allow INADDR_ANY as the local address. */
 		if (addr != INADDR_ANY &&
-		    !ip_addr_ok_v4(addr, ipif->ipif_net_mask)) {
-		printf("RWH 14\n");
+		    !ip_addr_ok_v4(addr, ipif->ipif_net_mask))
 			return (EADDRNOTAVAIL);
-		}
 
 		IN6_IPADDR_TO_V4MAPPED(addr, &v6addr);
 	}
@@ -9785,35 +9755,22 @@ ip_sioctl_addr(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 	 * verify that the address being configured is permitted by the
 	 * ill_allowed_ips[] for the interface.
 	 */
-		printf("RWH 15\n");
-		printf("%s (%d) has %d allowed-ips\n",
-		ill->ill_phyint->phyint_name, 
-		ill->ill_phyint->phyint_ifindex, 
-		ill->ill_allowed_ips_cnt
-	);
 	if (ill->ill_allowed_ips_cnt > 0) {
-		printf("RWH 16\n");
-		pr_addr_dbg("allowed addr %s\n", AF_INET6, &ill->ill_allowed_ips[i]);
 		for (i = 0; i < ill->ill_allowed_ips_cnt; i++) {
-			if (IN6_ARE_ADDR_EQUAL(&ill->ill_allowed_ips[i], &v6addr)) {
-				printf("RWH 17\n");
+			if (IN6_ARE_ADDR_EQUAL(&ill->ill_allowed_ips[i],
+			    &v6addr))
 				break;
-			}
 		}
-		printf("RWH 18\n");
 		if (i == ill->ill_allowed_ips_cnt) {
-		printf("RWH 19\n");
 			pr_addr_dbg("!allowed addr %s\n", AF_INET6, &v6addr);
 			return (EPERM);
 		}
-		printf("RWH 20\n");
 	}
 	/*
 	 * Even if there is no change we redo things just to rerun
 	 * ipif_set_default.
 	 */
 	if (ipif->ipif_flags & IPIF_UP) {
-		printf("RWH 21\n");
 		/*
 		 * Setting a new local address, make sure
 		 * we have net and subnet bcast ire's for
@@ -9826,20 +9783,13 @@ ip_sioctl_addr(ipif_t *ipif, sin_t *sin, queue_t *q, mblk_t *mp,
 		 * up based on the old interface address.
 		 */
 		err = ipif_logical_down(ipif, q, mp);
-		printf("RWH 22\n");
-		if (err == EINPROGRESS) {
-		printf("RWH 23\n");
+		if (err == EINPROGRESS)
 			return (err);
-		}
-		printf("RWH 24\n");
 		(void) ipif_down_tail(ipif);
-		printf("RWH 25\n");
 		need_up = 1;
 	}
 
-		printf("RWH 26\n");
 	err = ip_sioctl_addr_tail(ipif, sin, q, mp, need_up);
-		printf("RWH 27\n");
 	return (err);
 }
 

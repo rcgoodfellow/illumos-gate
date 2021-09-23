@@ -2656,9 +2656,8 @@ ipadm_create_addr(ipadm_handle_t iph, ipadm_addrobj_t addr, uint32_t flags)
 	boolean_t		is_boot = (iph->iph_flags & IPH_IPMGMTD);
 
 	/* check for solaris.network.interface.config authorization */
-	if (!ipadm_check_auth()) {
+	if (!ipadm_check_auth())
 		return (IPADM_EAUTH);
-	} 
 
 	/* Validate the addrobj. This also fills in addr->ipadm_ifname. */
 	status = i_ipadm_validate_create_addr(iph, addr, flags);
@@ -2696,7 +2695,6 @@ ipadm_create_addr(ipadm_handle_t iph, ipadm_addrobj_t addr, uint32_t flags)
 			return (status);
 		}
 	}
-	printf("create_addr_1\n");
 
 	af = addr->ipadm_af;
 	/*
@@ -2715,7 +2713,6 @@ ipadm_create_addr(ipadm_handle_t iph, ipadm_addrobj_t addr, uint32_t flags)
 		if (status != IPADM_SUCCESS)
 			return (status);
 	}
-	printf("create_addr_2\n");
 
 	is_6to4 = i_ipadm_is_6to4(iph, ifname);
 	/* Plumb the IP interfaces if necessary */
@@ -2736,7 +2733,6 @@ ipadm_create_addr(ipadm_handle_t iph, ipadm_addrobj_t addr, uint32_t flags)
 		if (status == IPADM_SUCCESS)
 			created_other_af = B_TRUE;
 	}
-	printf("create_addr_3\n");
 
 	/*
 	 * Some input validation based on the interface flags:
@@ -2784,7 +2780,6 @@ ipadm_create_addr(ipadm_handle_t iph, ipadm_addrobj_t addr, uint32_t flags)
 				return (IPADM_INVALID_ARG);
 		}
 	}
-	printf("create_addr_4\n");
 
 	/*
 	 * For 6to4 interfaces, kernel configures a default link-local
@@ -2802,27 +2797,23 @@ ipadm_create_addr(ipadm_handle_t iph, ipadm_addrobj_t addr, uint32_t flags)
 		if (sockaddrcmp(&lifr.lifr_addr, &addr->ipadm_static_addr))
 			return (IPADM_SUCCESS);
 	}
-	printf("create_addr_5\n");
 
 	/* Create the address. */
 	type = addr->ipadm_atype;
 	switch (type) {
 	case IPADM_ADDR_STATIC:
 		status = i_ipadm_create_addr(iph, addr, flags);
-		printf("create_addr_fail_static %d\n", status);
 		break;
 	case IPADM_ADDR_DHCP:
 		status = i_ipadm_create_dhcp(iph, addr, flags);
 		break;
 	case IPADM_ADDR_IPV6_ADDRCONF:
 		status = i_ipadm_create_ipv6addrs(iph, addr, flags);
-		printf("create_addr_fail_addrconf %d\n", status);
 		break;
 	default:
 		status = IPADM_INVALID_ARG;
 		break;
 	}
-	printf("create_addr_6\n");
 
 	/*
 	 * If address was not created successfully, unplumb the interface

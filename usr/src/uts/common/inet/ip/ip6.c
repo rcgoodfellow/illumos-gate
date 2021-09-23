@@ -4387,7 +4387,7 @@ pr_addr_dbg(char *fmt1, int af, const void *addr)
 	 * to check the appropriate debug-level before calling
 	 * this function.
 	 */
-	if (ip_debug >= 0) {
+	if (ip_debug > 0) {
 		printf(fmt1, inet_ntop(af, addr, buf, sizeof (buf)));
 	}
 
