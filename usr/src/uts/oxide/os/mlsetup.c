@@ -250,9 +250,7 @@ mlsetup(struct regs *rp)
 	 * lgrp_init() and possibly cpuid_pass1() need PCI config
 	 * space access
 	 */
-#if 0	/* XXXBOOT relies on a BIOS and needs to be rewritten for oxide */
 	pci_cfgspace_init();
-#endif
 
 	/*
 	 * Initialize the platform type from CPU 0 to ensure that

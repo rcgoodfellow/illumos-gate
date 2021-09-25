@@ -125,8 +125,6 @@ milan_apob_init(uint64_t apob_pa)
 	uintptr_t base;
 	size_t to_map;
 
-	bop_printf(NULL, "APOB PA is %lx as pa\n", apob_pa);
-
 	base = alloc_vaddr(milan_apob_size_cap, MMU_PAGESIZE);
 	if (base == 0) {
 		bop_panic("failed to allocate %u bytes of VA for the APOB",
@@ -139,7 +137,7 @@ milan_apob_init(uint64_t apob_pa)
 	 * things check out before we do anything else. Yes, this means that we
 	 * lose 4 KiB pages and are eating up more memory for PTEs, but since
 	 * this will all get thrown away when we're done with boot, let's not
-	 * worry about optimize. XXX It'd be nice if this could be R/O.
+	 * worry about optimize.
 	 */
 	kbm_map(base, apob_pa, 0, 0);
 

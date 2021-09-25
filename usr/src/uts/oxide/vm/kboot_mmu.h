@@ -27,8 +27,6 @@
 #ifndef	_KBOOT_MMU_H
 #define	_KBOOT_MMU_H
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -61,7 +59,7 @@ extern int kbm_probe(uintptr_t *va, size_t *len, pfn_t *pfn, uint_t *prot);
 /*
  * Add a new mapping
  */
-extern void kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel);
+extern void kbm_map(uintptr_t va, paddr_t pa, uint_t level, x86pte_t flags);
 
 /*
  * unmap a single 4K page at VA

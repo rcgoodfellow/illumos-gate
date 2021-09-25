@@ -95,7 +95,7 @@ kbm_init(const struct bsys_mem *memlists)
 	/*
 	 * XXX For now we just grab the existing table the loader set up, but
 	 * we may want to create our own from scratch and then switch to it.
- 	 */
+	 */
 	top_page_table = getcr3();
 	DBG(top_page_table);
 	window = (caddr_t)MMU_PAGESIZE;
@@ -126,7 +126,7 @@ kbm_remap_window(paddr_t physaddr, int writeable)
  * Add a mapping for the physical page at the given virtual address.
  */
 void
-kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
+kbm_map(uintptr_t va, paddr_t pa, uint_t level, x86pte_t flags)
 {
 	x86pte_t *ptep;
 	paddr_t pte_physaddr;
@@ -135,13 +135,11 @@ kbm_map(uintptr_t va, paddr_t pa, uint_t level, uint_t is_kernel)
 	if (khat_running)
 		panic("kbm_map() called too late");
 
-	DBG_MSG("kbm_map(%lx, %lx, %x, %x)\n", va, pa, level, is_kernel);
+	DBG_MSG("kbm_map(%lx, %lx, %x, %lx)\n", va, pa, level, flags);
 
-	pteval = pa | PT_NOCONSIST | PT_VALID | PT_WRITABLE;
+	pteval = pa | PT_NOCONSIST | PT_VALID | flags;
 	if (level >= 1)
 		pteval |= PT_PAGESIZE;
-	if (is_kernel)
-		pteval |= PT_GLOBAL;
 
 	/*
 	 * Find the pte that will map this address. This creates any

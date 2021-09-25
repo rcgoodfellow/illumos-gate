@@ -766,6 +766,8 @@ extern "C" {
 #define	PCIE_ARI_CTRL_FUNC_GRP_SHIFT	4
 #define	PCIE_ARI_CTRL_FUNC_GRP_MASK	0x7
 
+#define	PCIE_ARI_MAX_FUNCTIONS		0x100
+
 /*
  * PCI-E Common TLP Header Fields
  */

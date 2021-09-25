@@ -605,6 +605,16 @@ extern "C" {
 #define	IA32_PKG_THERM_INTERRUPT_TR2_IE		0x00800000
 #define	IA32_PKG_THERM_INTERRUPT_PL_NE		0x01000000
 
+/*
+ * Definitions for accessing and setting AMD's PCIe MMIO configuration space
+ * base address, e.g. 'Core::X86::Msr::MmioCfgBaseAddr'.
+ */
+#define	MSR_AMD_MMIOCFG_BASEADDR		0xc0010058
+#define	AMD_MMIOCFG_BASEADDR_ENABLE		0x1
+#define	AMD_MMIOCFG_BASEADDR_BUSRANGE_SHIFT	2
+#define	AMD_MMIOCFG_BASEADDR_BUSRANGE_256	8
+#define	AMD_MMIOCFG_BASEADDR_ADDR_SHIFT		20
+#define	AMD_MMIOCFG_BASEADDR_MASK		0xfffffff00000
 
 #define	MCI_CTL_VALUE		0xffffffff
 

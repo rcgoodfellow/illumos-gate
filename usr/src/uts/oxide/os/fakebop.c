@@ -230,7 +230,12 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	uintptr_t va;
 	ssize_t s;		/* the aligned size */
 	uint_t level;
-	uint_t is_kernel = (virthint != 0);
+	x86pte_t pte_flags = PT_WRITABLE;
+	boolean_t is_kernel = (virthint != 0);
+
+	if (is_kernel) {
+		pte_flags |= PT_GLOBAL;
+	}
 
 	if (a < MMU_PAGESIZE)
 		a = MMU_PAGESIZE;
@@ -272,7 +277,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	if ((a & ((1UL << 21) - 1)) == 0) { /* XXX shift_amt */
 		while (IS_P2ALIGNED(pa, pgsize) && IS_P2ALIGNED(va, pgsize) &&
 		    s >= pgsize) {
-			kbm_map(va, pa, level, is_kernel);
+			kbm_map(va, pa, level, pte_flags);
 			va += pgsize;
 			pa += pgsize;
 			s -= pgsize;
@@ -285,7 +290,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	level = 0;
 	pgsize = MMU_PAGESIZE;
 	while (s > 0) {
-		kbm_map(va, pa, level, is_kernel);
+		kbm_map(va, pa, level, pte_flags);
 		va += pgsize;
 		pa += pgsize;
 		s -= pgsize;

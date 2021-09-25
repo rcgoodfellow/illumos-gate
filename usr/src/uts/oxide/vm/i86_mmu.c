@@ -205,7 +205,7 @@ hat_kern_alloc(
 				}
 
 				kbm_map((uintptr_t)kpm_vbase + paddr, paddr,
-				    l, 1);
+				    l, PT_GLOBAL | PT_WRITABLE);
 				paddr += LEVEL_SIZE(l);
 				psize -= LEVEL_SIZE(l);
 			}
@@ -237,7 +237,8 @@ hat_kern_alloc(
 		ASSERT(paddr != 0);
 		ASSERT((paddr & MMU_PAGEOFFSET) == 0);
 		mmu.pwin_pte_pa = paddr;
-		kbm_map((uintptr_t)mmu.pwin_pte_va, mmu.pwin_pte_pa, 0, 1);
+		kbm_map((uintptr_t)mmu.pwin_pte_va, mmu.pwin_pte_pa, 0,
+		    PT_GLOBAL | PT_WRITABLE);
 	}
 
 	/*

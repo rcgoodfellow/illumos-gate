@@ -83,7 +83,8 @@ pci_cfgacc_map(paddr_t phys_addr)
 			pci_cfgacc_virt_base =
 			    (caddr_t)alloc_vaddr(MMU_PAGESIZE, MMU_PAGESIZE);
 
-		kbm_map((uintptr_t)pci_cfgacc_virt_base, pa_base, 0, 0);
+		kbm_map((uintptr_t)pci_cfgacc_virt_base, pa_base, 0,
+		    PT_NOCACHE | PT_WRITABLE);
 	}
 
 	return (pci_cfgacc_virt_base + (phys_addr & MMU_PAGEOFFSET));

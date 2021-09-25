@@ -96,11 +96,7 @@ CORE_OBJS +=			\
 	mpcore.o		\
 	notes.o			\
 	pci_cfgacc.o		\
-	pci_cfgacc_x86.o	\
-	pci_cfgspace.o		\
-	pci_mech1.o		\
-	pci_mech1_amd.o		\
-	pci_mech2.o		\
+	pcie_cfgspace.o		\
 	pmem.o			\
 	ppage.o			\
 	pwrnow.o		\
@@ -119,7 +115,7 @@ CORE_OBJS +=			\
 
 MILAN_OBJS +=			\
 	milan_apob.o		\
-	milan_init.o
+	milan_ccx.o
 
 CORE_OBJS += $(SMBIOS_OBJS) $(MILAN_OBJS)
 
