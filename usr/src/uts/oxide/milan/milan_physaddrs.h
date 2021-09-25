@@ -13,8 +13,8 @@
  * Copyright 2021 Oxide Computer Company
  */
 
-#ifndef _PROTOTYPE_H
-#define	_PROTOTYPE_H
+#ifndef _MILAN_MILAN_PHYSADDRS_H
+#define	_MILAN_MILAN_PHYSADDRS_H
 
 /*
  * This header contains a bunch of information about physical addresses in the
@@ -97,4 +97,4 @@ extern "C" {
 }
 #endif
 
-#endif /* _PROTOTYPE_H */
+#endif /* _MILAN_MILAN_PHYSADDRS_H */

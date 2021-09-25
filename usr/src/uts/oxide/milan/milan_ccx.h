@@ -13,8 +13,8 @@
  * Copyright 2021 Oxide Computer Company
  */
 
-#ifndef _MILAN_CCX_H
-#define	_MILAN_CCX_H
+#ifndef _MILAN_MILAN_CCX_H
+#define	_MILAN_MILAN_CCX_H
 
 /*
  * Misc. functions that are required to initialize the Milan core complexes.
@@ -33,4 +33,4 @@ extern void milan_ccx_mmio_init(uint64_t);
 }
 #endif
 
-#endif /* _MILAN_CCX_H */
+#endif /* _MILAN_MILAN_CCX_H */

@@ -13,8 +13,8 @@
  * Copyright 2021 Oxide Computer Company
  */
 
-#ifndef _MILAN_APOB_H
-#define	_MILAN_APOB_H
+#ifndef _MILAN_MILAN_APOB_H
+#define	_MILAN_MILAN_APOB_H
 
 /*
  * Definitions that relate to parsing and understanding the Milan APOB
@@ -44,4 +44,4 @@ extern const void *milan_apob_find(milan_apob_group_t, uint32_t, uint32_t,
 }
 #endif
 
-#endif /* _MILAN_APOB_H */
+#endif /* _MILAN_MILAN_APOB_H */
