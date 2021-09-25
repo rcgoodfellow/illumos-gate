@@ -133,6 +133,8 @@
 
 #include <sys/memlist_impl.h>
 
+#include <milan/milan_fabric.h>
+
 extern void mem_config_init(void);
 
 extern void progressbar_init(void);
@@ -627,6 +629,13 @@ startup(void)
 	 * the default TSC-based gethrtime()) as required.
 	 */
 	startup_tsc();
+
+	/*
+	 * At this point in time, go through and initialize the Milan SoC's I/O
+	 * fabric. This includes the SMU, DXIO, NBIO, etc.
+	 */
+	milan_fabric_init();
+
 #if 0 /* XXX replacement? */
 	/*
 	 * Note we need to do this even on fast reboot in order to access

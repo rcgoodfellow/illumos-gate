@@ -606,8 +606,18 @@ extern "C" {
 #define	IA32_PKG_THERM_INTERRUPT_PL_NE		0x01000000
 
 /*
+ * AMD TOM and TOM2 MSRs. These control the split between DRAM and MMIO below
+ * and above 4 GiB respectively. These have existed since family 0xf.
+ */
+#define	MSR_AMD_TOM				0xc001001a
+#define	MSR_AMD_TOM_MASK(x)			((x) & 0xffffff800000)
+#define	MSR_AMD_TOM2				0xc001001d
+#define	MSR_AMD_TOM2_MASK(x)			((x) & 0xffffff800000)
+
+/*
  * Definitions for accessing and setting AMD's PCIe MMIO configuration space
- * base address, e.g. 'Core::X86::Msr::MmioCfgBaseAddr'.
+ * base address, e.g. 'Core::X86::Msr::MmioCfgBaseAddr'. This has existed since
+ * family 0x10.
  */
 #define	MSR_AMD_MMIOCFG_BASEADDR		0xc0010058
 #define	AMD_MMIOCFG_BASEADDR_ENABLE		0x1

@@ -89,6 +89,7 @@ CHKHDRS=			\
 	auxv_SPARC.h		\
 	avl.h			\
 	avl_impl.h		\
+	bitext.h		\
 	bitmap.h		\
 	bitset.h		\
 	bl.h			\

@@ -66,6 +66,7 @@
 #include <sys/bootvfs.h>
 #include <sys/tsc.h>
 #include <sys/smt.h>
+#include <milan/milan_fabric.h>
 
 /*
  * some globals for patching the result of cpuid
@@ -251,6 +252,12 @@ mlsetup(struct regs *rp)
 	 * space access
 	 */
 	pcie_cfgspace_init();
+
+	/*
+	 * with PCIe up and running, set up our data structures for tracking the
+	 * Milan topology so we can use the at later parts of the build.
+	 */
+	milan_fabric_topo_init();
 
 	/*
 	 * Initialize the platform type from CPU 0 to ensure that

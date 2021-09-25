@@ -38,6 +38,8 @@ typedef enum milan_apob_group {
 	MILAN_APOB_GROUP_FABRIC
 } milan_apob_group_t;
 
+#define	MILAN_APOB_FABRIC_PHY_OVERRIDE		21
+
 /*
  * This section constitutes an undocumented AMD interface.  Do not modify
  * these definitions nor remove this packing pragma.

@@ -134,6 +134,17 @@ typedef enum {
 #define	AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(x)	BITX(x, 7, 0)
 
 /*
+ * This registers contians the mapping of PCI buses to different targets on the
+ * data fabric.
+ */
+#define	AMDZEN_DF_F0_CFG_ADDR_MAP	0xa0
+#define	AMDZEN_DF_F0_CFG_ADDR_MAP_RE(x)		BITX(x, 0, 0)
+#define	AMDZEN_DF_F0_CFG_ADDR_MAP_WE(x)		BITX(x, 1, 1)
+#define	AMDZEN_DF_F0_CFG_ADDR_MAP_DEST(x)	BITX(x, 4, 13)
+#define	AMDZEN_DF_F0_CFG_ADDR_MAP_BUS_BASE(x)	BITX(x, 16, 23)
+#define	AMDZEN_DF_F0_CFG_ADDR_MAP_BUS_LIMIT(x)	BITx(x, 24, 31)
+
+/*
  * Registers that describe how the system is actually put together.
  */
 #define	AMDZEN_DF_F1_SYSCFG	0x200
@@ -148,6 +159,15 @@ typedef enum {
 #define	AMDZEN_DF_F1_SYSCFG_OTHERDIE_TYPE(x)	BITX(x, 26, 25)
 #define	AMDZEN_DF_F1_SYSCFG_OTHERSOCK(x)	BITX(x, 27, 27)
 #define	AMDZEN_DF_F1_SYSCFG_NODEID(x)		BITX(x, 30, 28)
+
+/*
+ * This register describes the total number of components that exist across all
+ * sockets.
+ */
+#define	AMDZEN_DF_F1_SYSCOMP	0x204
+#define	AMDZEN_DF_F1_SYSCOMP_PIE(x)		BITX(x, 7, 0)
+#define	AMDZEN_DF_F1_SYSCOMP_GCM(X)		BITX(x, 15, 8)
+#define	AMDZEN_DF_F1_SYSCOMP_IOMS(x)		BITX(x, 23, 16)
 
 #define	AMDZEN_DF_F1_FIDMASK0	0x208
 #define	AMDZEN_DF_F1_FIDMASK0_COMP_MASK(x)	BITX(x, 9, 0)
@@ -192,6 +212,8 @@ typedef enum {
 /*
  * Northbridge registers that are relevant for the nexus, mostly for SMN.
  */
+#define	AMDZEN_NB_SMN_DEVNO	0x00
+#define	AMDZEN_NB_SMN_FUNCNO	0x00
 #define	AMDZEN_NB_SMN_ADDR	0x60
 #define	AMDZEN_NB_SMN_DATA	0x64
 

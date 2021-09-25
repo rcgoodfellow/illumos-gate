@@ -115,7 +115,9 @@ CORE_OBJS +=			\
 
 MILAN_OBJS +=			\
 	milan_apob.o		\
-	milan_ccx.o
+	milan_ccx.o		\
+	milan_dxio_data.o	\
+	milan_fabric.o
 
 CORE_OBJS += $(SMBIOS_OBJS) $(MILAN_OBJS)
 
