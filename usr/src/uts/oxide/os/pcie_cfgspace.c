@@ -37,12 +37,16 @@
 
 #include <sys/machparam.h>
 #include <vm/kboot_mmu.h>
+#include <vm/as.h>
+#include <vm/hat.h>
+#include <sys/mman.h>
 #include <sys/bootconf.h>
 #include <sys/spl.h>
 #include <sys/boot_debug.h>
 #include <sys/pci.h>
 #include <sys/pcie.h>
 #include <sys/pci_cfgacc.h>
+#include <sys/machsystm.h>
 
 #include <milan/milan_ccx.h>
 #include <milan/milan_physaddrs.h>
@@ -321,7 +325,7 @@ pcie_cfgspace_acc(pci_cfgacc_req_t *req)
 }
 
 void
-pci_cfgspace_init(void)
+pcie_cfgspace_init(void)
 {
 	/*
 	 * This ensures that the boot CPU will be programmed with everything
@@ -329,6 +333,11 @@ pci_cfgspace_init(void)
 	 */
 	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG);
 
+	/*
+	 * This is a temporary VA range that we'll use during bootstrapping.
+	 * Once we get vmem set up and the device arena allocated, this will be
+	 * remapped to a final address.
+	 */
 	pcie_cfgspace_vaddr = alloc_vaddr(PCIE_CFGSPACE_SIZE,
 	    PCIE_CFGSPACE_ALIGN);
 	DBG_MSG("PCIe configuration space mapped at 0x%lx\n",
@@ -353,4 +362,21 @@ pci_cfgspace_init(void)
 	 * XXX Now that config space is mapped we need to come back and actually
 	 * do things like configure completion timeouts and related.
 	 */
+}
+
+/*
+ * This is called once the device arena has been set up. We don't bother
+ * unmapping the original bootstrap address range because it will just be torn
+ * down when we tear down that hat.
+ */
+void
+pcie_cfgspace_remap(void)
+{
+	void *new_va = device_arena_alloc(PCIE_CFGSPACE_SIZE, VM_SLEEP);
+	pfn_t pfn = mmu_btop(MILAN_PHYSADDR_PCIECFG);
+
+	hat_devload(kas.a_hat, new_va, PCIE_CFGSPACE_SIZE, pfn,
+	    PROT_READ | PROT_WRITE | HAT_STRICTORDER,
+	    HAT_LOAD_LOCK | HAT_LOAD_NOCONSIST);
+	pcie_cfgspace_vaddr = (uintptr_t)new_va;
 }

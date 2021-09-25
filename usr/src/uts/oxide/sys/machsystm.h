@@ -227,6 +227,18 @@ extern uint64_t plat_dr_physmax;
 extern hrtime_t tsc_gethrtime_tick_delta(void);
 extern hrtime_t tsc_gethrtime_params(uint64_t *, uint32_t *, uint8_t *);
 
+/*
+ * PCIe Initialization functions
+ */
+extern void pcie_cfgspace_init(void);
+extern void pcie_cfgspace_remap(void);
+
+/*
+ * Device virual address mapping functions.
+ */
+extern void *device_arena_alloc(size_t, int);
+extern void device_arena_free(void *, size_t);
+
 #endif /* _KERNEL */
 
 #ifdef __cplusplus

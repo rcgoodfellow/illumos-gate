@@ -250,7 +250,7 @@ mlsetup(struct regs *rp)
 	 * lgrp_init() and possibly cpuid_pass1() need PCI config
 	 * space access
 	 */
-	pci_cfgspace_init();
+	pcie_cfgspace_init();
 
 	/*
 	 * Initialize the platform type from CPU 0 to ensure that

@@ -500,16 +500,19 @@ int	l2cache_assoc = 1;
 static size_t	textrepl_min_gb = 10;
 
 /*
- * on 64 bit we use a predifined VA range for mapping devices in the kernel
+ * On 64 bit we use a predefined VA range for mapping devices in the kernel. We
+ * allocate 1.25 GiB for this purpose. The 256 MiB exists here for extended PCIe
+ * configuration space memory mappings to allow the whole of it to be mapped.
+ * The 1 GiB is the traditional size that we have used.
  */
 vmem_t		*device_arena;
 uintptr_t	toxic_addr = (uintptr_t)NULL;
-size_t		toxic_size = 1024 * 1024 * 1024; /* Sparc uses 1 gig too */
+size_t		toxic_size = (256 + 1024) * 1024 * 1024;
 
 int prom_debug = 1;	/* XXXBOOT */
 
 /*
- * This structure is used to keep track of the intial allocations
+ * This structure is used to keep track of the initial allocations
  * done in startup_memlist(). The value of NUM_ALLOCATIONS needs to
  * be >= the number of ADD_TO_ALLOCATIONS() executed in the code.
  */
@@ -1694,6 +1697,11 @@ startup_vm(void)
 	 */
 	device_arena = vmem_create("device", (void *)toxic_addr,
 	    toxic_size, MMU_PAGESIZE, NULL, NULL, NULL, 0, VM_SLEEP);
+
+	/*
+	 * Tell PCIe configuration space to switch to device arena mappings.
+	 */
+	pcie_cfgspace_remap();
 
 	/*
 	 * Now that we've got more VA, as well as the ability to allocate from
