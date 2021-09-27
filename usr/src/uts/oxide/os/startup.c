@@ -284,8 +284,6 @@ const size_t kdi_segdebugsize = SEGDEBUGSIZE;
 struct memseg *memseg_base;
 struct vnode unused_pages_vp;
 
-#define	FOURGB	0x100000000LL
-
 struct memlist *memlist;
 
 caddr_t s_text;		/* start of kernel text segment */
@@ -305,8 +303,6 @@ struct memlist *phys_rsvd;	/* Reserved memory, possibly PSP/SMU */
  * kphysm_init returns the number of pages that were processed
  */
 static pgcnt_t kphysm_init(page_t *, pgcnt_t);
-
-#define	IO_PROP_SIZE	64	/* device property size */
 
 /*
  * a couple useful roundup macros
@@ -330,9 +326,9 @@ static pgcnt_t kphysm_init(page_t *, pgcnt_t);
  *			|      unused		|
  *			+-----------------------+
  *			|      Kernel Data	|
- * 0xFFFFFFFF.FBC00000  |-----------------------|
+ * 0xFFFFFFFF.FBE00000  |-----------------------|
  *			|      Kernel Text	|
- * 0xFFFFFFFF.FB800000  |-----------------------|- KERNEL_TEXT
+ * 0xFFFFFFFF.FBC00000  |-----------------------|- KERNEL_TEXT
  *			|---    debug info   ---|- debug info (DEBUG_INFO_VA)
  *			|---       GDT       ---|- GDT page (GDT_VA)
  *			|---       IDT       ---|- IDT page (IDT_VA)
@@ -407,38 +403,15 @@ static pgcnt_t kphysm_init(page_t *, pgcnt_t);
  *
  * ekernelheap: end of kernelheap and start of segmap.
  *
- * kernelheap: start of kernel heap.  On 32-bit systems, this starts right
- * above a red zone that separates the user's address space from the
- * kernel's.  On 64-bit systems, it sits above segkp and segkpm.
+ * kernelheap: start of kernel heap, above segkp and segkpm.
  *
  * segmap_start: start of segmap. The length of segmap can be modified
- * through eeprom. The default length is 16MB on 32-bit systems and 64MB
- * on 64-bit systems.
+ * through eeprom. The default length 64 MiB.
  *
- * kernelbase: On a 32-bit kernel the default value of 0xd4000000 will be
- * decreased by 2X the size required for page_t.  This allows the kernel
- * heap to grow in size with physical memory.  With sizeof(page_t) == 80
- * bytes, the following shows the values of kernelbase and kernel heap
- * sizes for different memory configurations (assuming default segmap and
- * segkp sizes).
- *
- *	mem	size for	kernelbase	kernel heap
- *	size	page_t's			size
- *	----	---------	----------	-----------
- *	1gb	0x01400000	0xd1800000	684MB
- *	2gb	0x02800000	0xcf000000	704MB
- *	4gb	0x05000000	0xca000000	744MB
- *	6gb	0x07800000	0xc5000000	784MB
- *	8gb	0x0a000000	0xc0000000	824MB
- *	16gb	0x14000000	0xac000000	984MB
- *	32gb	0x28000000	0x84000000	1304MB
- *	64gb	0x50000000	0x34000000	1944MB (*)
- *
- * kernelbase is less than the abi minimum of 0xc0000000 for memory
- * configurations above 8gb.
- *
- * (*) support for memory configurations above 32gb will require manual tuning
- * of kernelbase to balance out the need of user applications.
+ * kernelbase: Reduced from the default value by 8 times the amount by which
+ * installed physical memory exceeds 256 GiB, but never reduced below
+ * 0xffffff00.00000000 so that we leave approximately 1 TiB available for user
+ * stacks.
  */
 
 /* real-time-clock initialization parameters */
@@ -466,12 +439,6 @@ static page_t *bootpages;
  * boot time pages that have a vnode from the ramdisk will keep that forever.
  */
 static page_t *rd_pages;
-
-/*
- * Lower 64K
- */
-static page_t *lower_pages = NULL;
-static int lower_pages_count = 0;
 
 struct system_hardware system_hardware;
 
@@ -623,8 +590,8 @@ startup_smap(void)
 /*
  * Our world looks like this at startup time.
  *
- * Kernel text and data are loaded at 0xffffffff.fe800000 and
- * 0xffffffff.fec00000 respectively.  Those addresses are fixed in the binary at
+ * Kernel text and data are loaded at 0xffffffff.fec00000 and
+ * 0xffffffff.fee00000 respectively.  Those addresses are fixed in the binary at
  * link time.
  *
  * On the text page: unix/genunix/krtld/module text loads.
@@ -2053,15 +2020,6 @@ release_bootstrap(void)
 		extern uint64_t ramdisk_start, ramdisk_end;
 		pp = bootpages;
 		bootpages = pp->p_next;
-
-
-		/* Keep pages for the lower 64K */
-		if (pp_in_range(pp, 0, 0x40000)) {
-			pp->p_next = lower_pages;
-			lower_pages = pp;
-			lower_pages_count++;
-			continue;
-		}
 
 		if (root_is_ramdisk && pp_in_range(pp, ramdisk_start,
 		    ramdisk_end) || pp_in_module(pp, modranges)) {

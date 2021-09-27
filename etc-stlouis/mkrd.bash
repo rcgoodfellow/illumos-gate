@@ -3,7 +3,7 @@
 set -eu
 set -o pipefail
 
-SIZE=13312
+SIZE=14336
 
 ramdisk="$("$(dirname "$0")/mkrd-helper.bash" -s "${SIZE}" 2>/dev/null)"
 

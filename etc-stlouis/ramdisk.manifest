@@ -7,6 +7,7 @@ platform/oxide/kernel/drv/amd64/npe
 platform/oxide/kernel/drv/amd64/rootnex
 platform/oxide/kernel/drv/amd_iommu.conf
 platform/oxide/kernel/mach/amd64/apix
+platform/oxide/kernel/kmdb/amd64/unix
 kernel/amd64/genunix
 kernel/drv/amd64/kmdb
 kernel/drv/clone.conf
@@ -31,6 +32,7 @@ kernel/fs/amd64/bootfs
 kernel/fs/amd64/objfs
 kernel/fs/amd64/fifofs
 kernel/fs/amd64/namefs
+kernel/kmdb/amd64/genunix
 kernel/misc/amd64/consconfig
 kernel/misc/amd64/ctf
 kernel/misc/amd64/dls

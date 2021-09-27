@@ -38,7 +38,7 @@ static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
 static const char FAKE_BOARD_IDENT[] = "FAKE-IDENT";
 static const uint32_t KBM_DEBUG_VAL = 0U;
 static const uint64_t RAMDISK_START_VAL = 0x101000000UL;
-static const uint64_t RAMDISK_END_VAL = 0x101d00000UL;
+static const uint64_t RAMDISK_END_VAL = 0x101e00000UL;
 
 static const bt_prop_t ramdisk_end_prop = {
 	.btp_next = NULL,
