@@ -85,6 +85,12 @@ extern void *kbm_push(paddr_t pa);
 extern void kbm_pop(void);
 
 /*
+ * interface to get virtual address space during early boot; mappings created
+ * from these addresses will be torn down when the hat is set up later
+ */
+extern uintptr_t kbm_valloc(size_t, paddr_t);
+
+/*
  * The size of memory mapped for the initial kernel nucleus text
  * and data regions setup by the boot loader. needed for startup
  */

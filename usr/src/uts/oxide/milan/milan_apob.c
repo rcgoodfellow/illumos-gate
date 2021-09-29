@@ -44,11 +44,6 @@
 #include <milan/milan_apob.h>
 
 /*
- * XXX Surely we can put this somewhere other than extern everywhere.
- */
-extern uintptr_t alloc_vaddr(size_t, paddr_t);
-
-/*
  * This is the length of the HMAC for a given APOB entry. XXX What is the format
  * of this HMAC.
  */
@@ -80,7 +75,7 @@ typedef struct milan_apob_entry {
 	 * Size in bytes oe this structure including the header.
 	 */
 	uint32_t	mae_size;
-	uint8_t		mae_hamc[MILAN_APOB_HMAC_LEN];
+	uint8_t		mae_hmac[MILAN_APOB_HMAC_LEN];
 	uint8_t		mae_data[];
 } milan_apob_entry_t;
 
@@ -120,12 +115,12 @@ static size_t milan_apob_len;
  * size.
  */
 void
-milan_apob_init(uint64_t apob_pa)
+milan_apob_init(uint64_t apob_pa, memlist_t *apob_range)
 {
 	uintptr_t base;
 	size_t to_map;
 
-	base = alloc_vaddr(milan_apob_size_cap, MMU_PAGESIZE);
+	base = kbm_valloc(milan_apob_size_cap, MMU_PAGESIZE);
 	if (base == 0) {
 		bop_panic("failed to allocate %u bytes of VA for the APOB",
 		    milan_apob_size_cap);
@@ -165,6 +160,9 @@ milan_apob_init(uint64_t apob_pa)
 	for (size_t i = MMU_PAGESIZE; i < milan_apob_len; i += MMU_PAGESIZE) {
 		kbm_map(base + i, apob_pa + i, 0, 0);
 	}
+
+	apob_range->ml_address = apob_pa;
+	apob_range->ml_size = P2ROUNDUP(milan_apob_len, MMU_PAGESIZE);
 }
 
 /*

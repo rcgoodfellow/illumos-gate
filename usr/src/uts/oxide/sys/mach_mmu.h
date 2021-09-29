@@ -39,21 +39,10 @@ extern "C" {
 
 /*
  * Platform-dependent MMU routines and types.
- *
- * WARNING: this header file is used by both dboot and i86pc, so don't go using
- * normal kernel headers.
- */
-
-#define	TWO_MEG		(2 * 1024 * 1024)
-
-/*
  * This is:
  *	The kernel nucleus pagesizes, ie: bi->bi_kseg_size
- *	The grub 64 bit file load address (see multiboot header in dboot_grub.s)
- *	The grub 32 bit and hypervisor physical load addresses of
- *	    the kernel text/data (see Mapfile.unix)
  */
-#define	FOUR_MEG	(4 * 1024 * 1024)
+#define	TWO_MEG		(2 * 1024 * 1024)
 
 #define	ONE_GIG		(1024 * 1024 * 1024)
 #define	FOUR_GIG	((uint64_t)4 * ONE_GIG)

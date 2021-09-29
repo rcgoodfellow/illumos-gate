@@ -145,7 +145,7 @@ main(int argc, char *argv[])
 
 	printf("#define\tMMU_STD_PAGESIZE 0x%x\n", (uint_t)MMU_STD_PAGESIZE);
 	printf("#define\tMMU_STD_PAGEMASK 0x%x\n", (uint_t)MMU_STD_PAGEMASK);
-	printf("#define\tFOUR_MEG 0x%x\n", (uint_t)FOUR_MEG);
+	printf("#define\tTWO_MEG 0x%x\n", (uint_t)TWO_MEG);
 
 	printf("#define\tTRAPTR_NENT 0x%x\n", TRAPTR_NENT);
 

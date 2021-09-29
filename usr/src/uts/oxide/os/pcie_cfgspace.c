@@ -338,7 +338,7 @@ pcie_cfgspace_init(void)
 	 * Once we get vmem set up and the device arena allocated, this will be
 	 * remapped to a final address.
 	 */
-	pcie_cfgspace_vaddr = alloc_vaddr(PCIE_CFGSPACE_SIZE,
+	pcie_cfgspace_vaddr = kbm_valloc(PCIE_CFGSPACE_SIZE,
 	    PCIE_CFGSPACE_ALIGN);
 	DBG_MSG("PCIe configuration space mapped at 0x%lx\n",
 	    pcie_cfgspace_vaddr);

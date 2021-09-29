@@ -58,9 +58,9 @@
 
 /*
  * Our assumptions:
- *	- We are running in protected-paged mode.
+ *	- We are running in long mode.
  *	- Interrupts are disabled.
- *	- The GDT and IDT are the callers; we need our copies.
+ *	- The GDT and IDT (if any) are the caller's; we need our copies.
  *	- The kernel's text, initialized data and bss are mapped.
  *
  * Our actions:
@@ -76,7 +76,6 @@
  *	- The default LDT entry for syscall is set.
  *	- We load the default LDT into the hardware LDT register.
  *	- We load the default TSS into the hardware task register.
- *	- Check for cpu type, i.e. 486 vs. P5 vs. P6 etc.
  *	- mlsetup(%esp) gets called.
  *	- We change our appearance to look like the real thread 0.
  *	  (NOTE: making ourselves to be a real thread may be a noop)
@@ -84,13 +83,6 @@
  *
  * NOW, the real code!
  */
-	/*
-	 * The very first thing in the kernel's text segment must be a jump
-	 * to the os/fakebop.c startup code.
-	 */
-	.text
-	jmp     _start
-
 	/*
 	 * Globals:
 	 */
@@ -200,8 +192,6 @@
 
 __return_from_main:
 	.string	"main() returned"
-__unsupported_cpu:
-	.string	"486 style cpu detected - no longer supported!"
 
 #if defined(DEBUG)
 _no_pending_updates:

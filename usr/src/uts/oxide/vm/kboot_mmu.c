@@ -47,6 +47,7 @@
 #include <vm/hat_pte.h>
 #include <vm/hat_i86.h>
 #include <vm/seg_kmem.h>
+#include <sys/sysmacros.h>
 
 static uint_t shift_amt_pae[] = {12, 21, 30, 39};
 static uint_t *shift_amt = shift_amt_pae;
@@ -306,6 +307,32 @@ kbm_read_only(uintptr_t va, paddr_t pa)
 }
 
 /*
+ * Allocate virtual address space from the imaginary earlyboot arena.  These
+ * mappings will be torn down automatically in startup.c when we call
+ * clear_boot_mappings().  The address returned is not mapped; the caller is
+ * responsible for setting up a mapping via kbm_map() etc.
+ */
+uintptr_t
+kbm_valloc(size_t size, paddr_t align)
+{
+	/*
+	 * Next available virtual address to allocate.  Do not allocate page 0.
+	 */
+	static uintptr_t next_virt = (uintptr_t)(MMU_PAGESIZE * 2);
+	uintptr_t rv;
+
+	DBG_MSG("kbm_valloc: sz %lx align %lx", size, align);
+
+	next_virt = P2ROUNDUP(next_virt, (uintptr_t)align);
+	rv = next_virt;
+	next_virt += size;
+
+	DBG_MSG(" = %lx\n", rv);
+
+	return (rv);
+}
+
+/*
  * interfaces for kernel debugger to access physical memory
  */
 static x86pte_t save_pte;
@@ -435,7 +462,8 @@ find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
 
 #ifdef DEBUG
 /*
- * dump out the contents of page tables...
+ * Dump out the contents of page tables, assuming that they are all identity
+ * mapped; this will panic otherwise so use with extreme caution.
  */
 void
 dump_tables(void)

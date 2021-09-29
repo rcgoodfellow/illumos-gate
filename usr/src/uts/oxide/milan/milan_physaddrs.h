@@ -67,9 +67,62 @@ extern "C" {
  * |       Again!        |  across the lower 4 GiB hole.
  * |                     |
  * +---------------------+ 0x1_0000_0000 -- 4 GiB
+ * | boot flash aperture |
+ * |     read-only       |
+ * +---------------------+ 0xff00_0000
+ * |   XXX fill me in!   |
+ * +---------------------+ 0xfee0_1000
+ * |  legacy LAPIC regs  |
+ * |  (movable via BAR)  |
+ * +---------------------+ 0xfee0_0000
+ * |  XXX more FCH here  |
+ * +---------------------+ 0xfedd_0000
+ * |        UART3        |
+ * +---------------------+ 0xfedc_f000
+ * |        UART2        |
+ * +---------------------+ 0xfedc_e000
+ * |  XXX more FCH here  |
+ * +---------------------+ 0xfedc_b000
+ * |        UART1        |
+ * +---------------------+ 0xfedc_a000
+ * |        UART0        |
+ * +---------------------+ 0xfedc_9000
+ * |  XXX more FCH here  |
+ * +---------------------+ 0xfed8_1200
+ *          ~~~~			There is much more to fill in here!
+ * +---------------------+ 0xfed8_0f00
+ * |  FCH miscellaneous  |
+ * +- - - - - - - - - - -+ 0xfed8_0e00
+ * |        IOMUX        |
+ * +- - - - - - - - - - -+ 0xfed8_0d00	Note that all of these devices are
+ * |    Watchdog timer   |		part of a single page, so we cannot
+ * +- - - - - - - - - - -+ 0xfed8_0b00	protect one driver from another if
+ * |   SMBus registers   |		they are separate.
+ * +- - - - - - - - - - -+ 0xfed8_0a00
+ * |    ASF registers    |
+ * +- - - - - - - - - - -+ 0xfed8_0900
+ * |    RTC registers    |
+ * +- - - - - - - - - - -+ 0xfed8_0700
+ * |  ACPI PM2 registers |
+ * +- - - - - - - - - - -+ 0xfed8_0400
+ * |  ACPI PM registers  |
+ * +- - - - - - - - - - -+ 0xfed8_0300
+ * |   SMI control regs  |
+ * +- - - - - - - - - - -+ 0xfed8_0200
+ * |  SMBus controller   |
+ * | fake PCI cfg space  |
+ * +---------------------+ 0xfed8_0000
+ * |        HPET         |
+ * +---------------------+ 0xfed0_0000
+ * |   eSPI registers    |
+ * +---------------------+ 0xfec2_0000
+ * |   SPI registers     |
+ * +---------------------+ 0xfec1_0000
+ * |       IOAPIC        |
+ * +---------------------+ 0xfec0_0000
  * |                     |
- * |        XXX          |  There's a whole lot in here we need to document.
- * |     Misc. MMIO      |  The FCH, APICs, other devices, etc.
+ * |      Free MMIO      |  This may be available for assigning to 32-bit PCIe
+ * |                     |  devices, some may be reserved by the FCH.
  * |                     |
  * +---------------------+ 0xf000_0000 -- 3.75 GiB
  * |                     |

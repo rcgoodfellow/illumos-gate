@@ -311,8 +311,6 @@ static pgcnt_t kphysm_init(page_t *, pgcnt_t);
 	((uintptr_t)P2ROUNDUP((uintptr_t)(x), (uintptr_t)MMU_PAGESIZE))
 #define	ROUND_UP_LPAGE(x)	\
 	((uintptr_t)P2ROUNDUP((uintptr_t)(x), mmu.level_size[1]))
-#define	ROUND_UP_4MEG(x)	\
-	((uintptr_t)P2ROUNDUP((uintptr_t)(x), (uintptr_t)FOUR_MEG))
 #define	ROUND_UP_TOPLEVEL(x)	\
 	((uintptr_t)P2ROUNDUP((uintptr_t)(x), mmu.level_size[mmu.max_level]))
 
@@ -2054,7 +2052,7 @@ release_bootstrap(void)
 	}
 	if (pfn == btop(1*1024*1024) && use_mp)
 		panic("No page below 1M available for starting "
-		    "other processors or for resuming from system-suspend");
+		    "other processors");
 }
 
 /*

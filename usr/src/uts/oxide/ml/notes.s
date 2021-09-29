@@ -43,6 +43,6 @@
 .name1_end:
 	.align          4
 .desc1_begin:
-	.4byte		FOUR_MEG
+	.4byte		TWO_MEG
 .desc1_end:
 	.align		4

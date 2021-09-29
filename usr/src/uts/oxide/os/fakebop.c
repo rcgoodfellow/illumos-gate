@@ -86,13 +86,9 @@ static bootops_t bootop;
 static struct bsys_mem bm;
 static const bt_prop_t *bt_props;
 
-/*
- * Next available virtual address to allocate.  Do not allocate page 0.
- */
-static uintptr_t next_virt = (uintptr_t)MMU_PAGESIZE * 2;
-static paddr_t next_phys = 0;	/* next available physical address */
-static paddr_t high_phys = -(paddr_t)1;	/* lowest allocated address */
-struct memlist first_memlist;
+static struct memlist bsml_usable;
+static struct memlist *eb_ram;
+static struct memlist bsml_apob;
 
 /*
  * some allocator statistics
@@ -162,41 +158,32 @@ kbm_debug_printf(const char *file, int line, const char *fmt, ...)
 	continuation = !is_end;
 }
 
-/*
- * Allocate aligned physical memory at boot time. This allocator allocates
- * from the highest possible addresses. This avoids exhausting memory that
- * would be useful for DMA buffers.
- */
 paddr_t
 do_bop_phys_alloc(uint64_t size, uint64_t align)
 {
-	paddr_t	pa = 0;
+	static paddr_t next_phys = (paddr_t)0x600000; /* from Mapfile.amd64 */
+	paddr_t	pa = -(paddr_t)1;
 	paddr_t	start;
 	paddr_t	end;
-	struct memlist *ml = bm.physinstalled;
+	struct memlist *ml = eb_ram;
 
-	/*
-	 * find the highest available memory in physinstalled
-	 */
 	size = P2ROUNDUP(size, align);
 	for (; ml; ml = ml->ml_next) {
 		start = P2ROUNDUP(ml->ml_address, align);
 		end = P2ALIGN(ml->ml_address + ml->ml_size, align);
 		if (start < next_phys)
 			start = P2ROUNDUP(next_phys, align);
-		if (end > high_phys)
-			end = P2ALIGN(high_phys, align);
 
 		if (end <= start)
 			continue;
 		if (end - start < size)
 			continue;
 
-		if (end - size > pa)
-			pa = end - size;
+		if (start < pa)
+			pa = start;
 	}
-	if (pa != 0) {
-		high_phys = pa;
+	if (pa != -(paddr_t)1) {
+		next_phys = pa + size;
 		return (pa);
 	}
 	bop_panic("do_bop_phys_alloc(0x%" PRIx64 ", 0x%" PRIx64
@@ -204,19 +191,8 @@ do_bop_phys_alloc(uint64_t size, uint64_t align)
 	/*NOTREACHED*/
 }
 
-uintptr_t
-alloc_vaddr(size_t size, paddr_t align)
-{
-	uintptr_t rv;
-
-	next_virt = P2ROUNDUP(next_virt, (uintptr_t)align);
-	rv = (uintptr_t)next_virt;
-	next_virt += size;
-	return (rv);
-}
-
 /*
- * Allocate virtual memory. The size is always rounded up to a multiple
+ * Allocate and map memory. The size is always rounded up to a multiple
  * of base pagesize.
  */
 
@@ -247,16 +223,10 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	 * Use the next aligned virtual address if we weren't given one.
 	 */
 	if (virthint == NULL) {
-		virthint = (caddr_t)alloc_vaddr(size, a);
+		virthint = (caddr_t)kbm_valloc(size, a);
 		total_bop_alloc_scratch += size;
 	} else {
 		total_bop_alloc_kernel += size;
-	}
-
-	if (kbm_debug && is_kernel) {
-		extern void dump_tables(void);
-		bop_printf(NULL, "--- Before kernel allocation ---\n");
-		dump_tables();
 	}
 
 	/*
@@ -274,7 +244,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 	s = size;
 	level = 1;
 	pgsize = TWO_MEG;
-	if ((a & ((1UL << 21) - 1)) == 0) { /* XXX shift_amt */
+	if ((a & (pgsize - 1)) == 0) {
 		while (IS_P2ALIGNED(pa, pgsize) && IS_P2ALIGNED(va, pgsize) &&
 		    s >= pgsize) {
 			kbm_map(va, pa, level, pte_flags);
@@ -296,13 +266,7 @@ do_bsys_alloc(bootops_t *bop, caddr_t virthint, size_t size, int align)
 		s -= pgsize;
 	}
 
-	DBG_MSG("done (%p -> %lx @ %lx)\n", virthint, size, pa);
-
-	if (kbm_debug && is_kernel) {
-		extern void dump_tables(void);
-		bop_printf(NULL, "--- After kernel allocation ---\n");
-		dump_tables();
-	}
+	DBG_MSG("done (%lx @ %p)\n", size, virthint);
 
 	return (virthint);
 }
@@ -735,19 +699,277 @@ bop_idt_init(void)
 	wr_idtr(&bop_idt_info);
 }
 
-/*ARGSUSED*/
-static void
-build_memlists(paddr_t apob_phys)
+static boolean_t
+memlists_overlap(const memlist_t *ap, const memlist_t *bp)
 {
-	/* XXXBOOT obvs, replace this with something that reads APOB or UMC */
-	first_memlist.ml_address = 0UL;
-	first_memlist.ml_size = 0xB0000000UL;
-	first_memlist.ml_next = NULL;
-	first_memlist.ml_prev = NULL;
+	if (ap->ml_address >= bp->ml_address &&
+	    ap->ml_address <= bp->ml_address + bp->ml_size)
+		return (B_TRUE);
 
-	bm.physinstalled = &first_memlist;
-	bm.rsvdmem = NULL;
-	bm.pcimem = NULL;
+	if (bp->ml_address >= ap->ml_address &&
+	    bp->ml_address <= ap->ml_address + ap->ml_size)
+		return (B_TRUE);
+
+	return (B_FALSE);
+}
+
+static boolean_t
+memlist_coalesce_pair(memlist_t *ap, const memlist_t *bp)
+{
+	uint64_t end;
+
+	if (!memlists_overlap(ap, bp))
+		return (B_FALSE);
+
+	end = MAX(ap->ml_address + ap->ml_size, bp->ml_address + bp->ml_size);
+	ap->ml_address = MIN(ap->ml_address, bp->ml_address);
+	ap->ml_size = end - ap->ml_address;
+
+	return (B_TRUE);
+}
+
+static void
+apob_build_memlists(const memlist_t **extra_holes, uint_t extra_hole_count,
+    memlist_t **rsvd_out, memlist_t **ram_out)
+{
+	size_t sysmap_len = 0;
+	int err = 0;
+	int i, j;
+	uint32_t holes_assigned = 0;
+	const milan_apob_sysmap_t *smp = 
+	    milan_apob_find(MILAN_APOB_GROUP_FABRIC, 9, 0, &sysmap_len, &err);
+	const uint_t MAX_APOB_HOLES = ARRAY_SIZE(smp->masm_holes);
+	memlist_t *ram_chunks;
+	memlist_t *rsvd_holes;
+	uint32_t apob_hole_count;
+	uint64_t max_paddr, last_phys, end;
+	uint64_t usable_pages;
+	/*
+	 * If the APOB is toast, assume 2 GiB of DRAM with only known holes.
+	 */
+	apob_hole_count = 0;
+	max_paddr = 0x80000000UL;
+
+	if (err != 0) {
+		bop_printf(NULL, "couldn't find APOB system memory map "
+		    "(errno = %d); using bootstrap RAM only\n", err);
+	} else if (sysmap_len < sizeof (*smp)) {
+		bop_printf(NULL, "APOB system memory map too small "
+		    "(0x%lx < 0x%lx bytes); using bootstrap RAM only\n",
+		    sysmap_len, sizeof (*smp));
+	} else if (smp->masm_hole_count > MAX_APOB_HOLES) {
+		bop_printf(NULL, "APOB system memory map has too many holes "
+		    "(0x%x > 0x%x allowed); using bootstrap RAM only\n",
+		    smp->masm_hole_count, MAX_APOB_HOLES);
+	} else {
+		apob_hole_count = smp->masm_hole_count;
+		max_paddr = P2ALIGN(smp->masm_high_phys, MMU_PAGESIZE);
+	}
+
+	DBG(apob_hole_count);
+	DBG(max_paddr);
+
+	rsvd_holes = (memlist_t *)do_bsys_alloc(NULL, NULL,
+	    (apob_hole_count + extra_hole_count) * sizeof (memlist_t), 0);
+
+	for (i = 0; i < apob_hole_count; i++) {
+		DBG_MSG("APOB: RAM hole @ %lx size %lx\n",
+		    smp->masm_holes[i].masmrh_base,
+		    smp->masm_holes[i].masmrh_size);
+		end = P2ROUNDUP(smp->masm_holes[i].masmrh_base +
+		    smp->masm_holes[i].masmrh_size, MMU_PAGESIZE);
+		rsvd_holes[i].ml_address =
+		    P2ALIGN(smp->masm_holes[i].masmrh_base, MMU_PAGESIZE);
+		rsvd_holes[i].ml_size = end - rsvd_holes[i].ml_address;
+		rsvd_holes[i].ml_next = rsvd_holes[i].ml_prev = NULL;
+	}
+
+	for (i = 0; i < extra_hole_count; i++) {
+		DBG_MSG("BOOT: RAM hole @ %lx size %lx\n",
+		    extra_holes[i]->ml_address, extra_holes[i]->ml_size);
+		rsvd_holes[apob_hole_count + i] = *extra_holes[i];
+		rsvd_holes[apob_hole_count + i].ml_next =
+		    rsvd_holes[apob_hole_count + i].ml_prev = NULL;
+	}
+
+	/*
+	 * No qsort() yet; it's in genunix.
+	 */
+	for (i = 1; i < apob_hole_count + extra_hole_count; i++) {
+		for (j = i; j > 0; j--) {
+			if (rsvd_holes[j - 1].ml_address >
+			    rsvd_holes[j].ml_address) {
+				const memlist_t t = rsvd_holes[j];
+				rsvd_holes[j] = rsvd_holes[j - 1];
+				rsvd_holes[j - 1] = t;
+			} else {
+				break;
+			}
+		}
+	}
+
+	holes_assigned = apob_hole_count + extra_hole_count;
+
+	/*
+	 * The holes are now sorted by starting address.  Coalesce overlapping
+	 * or adjacent pairs of holes, limiting any that extend beyond
+	 * max_paddr.  This gives us our final list of holes.
+	 */
+	for (i = 0; i < holes_assigned - 1;) {
+		if (memlist_coalesce_pair(&rsvd_holes[i], &rsvd_holes[i + 1])) {
+			for (j = i + 1; j < holes_assigned; j++)
+				rsvd_holes[j] = rsvd_holes[j + 1];
+			--holes_assigned;
+		} else {
+			++i;
+		}
+	}
+
+	while (holes_assigned > 0 &&
+	    rsvd_holes[holes_assigned - 1].ml_address >= max_paddr)
+		--holes_assigned;
+
+	if (holes_assigned > 0 &&
+	    rsvd_holes[holes_assigned - 1].ml_address +
+	    rsvd_holes[i].ml_size >= max_paddr) {
+		max_paddr = rsvd_holes[holes_assigned - 1].ml_address;
+		--holes_assigned;
+	}
+
+	/*
+	 * Now it's all over but the shouting; we know the maximum address and
+	 * all the holes, so fill in the RAM we can use.
+	 */
+	ram_chunks = (memlist_t *)do_bsys_alloc(NULL, NULL,
+	    (holes_assigned + 1) * sizeof (memlist_t), 0);
+
+	last_phys = usable_pages = 0;
+	for (i = 0; i < holes_assigned; i++) {
+		ram_chunks[i].ml_address = last_phys;
+		ram_chunks[i].ml_size = rsvd_holes[i].ml_address - last_phys;
+		last_phys = rsvd_holes[i].ml_address + rsvd_holes[i].ml_size;
+		usable_pages += (ram_chunks[i].ml_size >> MMU_PAGESHIFT);
+	}
+	ram_chunks[i].ml_address = last_phys;
+	ram_chunks[i].ml_size = max_paddr - last_phys;
+	usable_pages += (ram_chunks[i].ml_size >> MMU_PAGESHIFT);
+
+	if (kbm_debug) {
+		bop_printf(NULL, "Coalesced RAM holes/reservations:\n");
+		for (i = 0; i < holes_assigned; i++) {
+			bop_printf(NULL, "\t[%lx, %lx] (%lx bytes)\n",
+			    rsvd_holes[i].ml_address,
+			    rsvd_holes[i].ml_address +
+			    rsvd_holes[i].ml_size - 1,
+			    rsvd_holes[i].ml_size);
+		}
+		bop_printf(NULL, "Usable RAM regions:\n");
+		for (i = 0; i < holes_assigned + 1; i++) {
+			bop_printf(NULL, "\t[%lx, %lx] (%lx bytes)\n",
+			    ram_chunks[i].ml_address,
+			    ram_chunks[i].ml_address +
+			    ram_chunks[i].ml_size - 1,
+			    ram_chunks[i].ml_size);
+		}
+	}
+
+	DBG(usable_pages);
+
+	/*
+	 * Finally, assign pointers to link these into lists, for historical
+	 * reasons.
+	 */
+	if (holes_assigned > 0) {
+		rsvd_holes[0].ml_prev = NULL;
+		rsvd_holes[0].ml_next = NULL;
+		rsvd_holes[holes_assigned - 1].ml_next = NULL;
+	}
+	for (i = 0; i < holes_assigned - 1; i++) {
+		rsvd_holes[i].ml_next = &rsvd_holes[i + 1];
+		rsvd_holes[i + 1].ml_prev = &rsvd_holes[i];
+	}
+
+	ram_chunks[0].ml_prev = NULL;
+	ram_chunks[0].ml_next = NULL;
+	ram_chunks[holes_assigned].ml_next = NULL;
+	for (i = 0; i < holes_assigned; i++) {
+		ram_chunks[i].ml_next = &ram_chunks[i + 1];
+		ram_chunks[i + 1].ml_prev = &ram_chunks[i];
+	}
+
+	if (rsvd_out != NULL)
+		*rsvd_out = rsvd_holes;
+	if (ram_out != NULL)
+		*ram_out = ram_chunks;
+}
+
+static void
+get_ramdisk_hole(memlist_t *mlp)
+{
+	uint64_t start, end;
+
+	if (do_bsys_getproplen(NULL, "ramdisk_start") != sizeof (uint64_t) ||
+	    do_bsys_getprop(NULL, "ramdisk_start", &start) != 0 ||
+	    do_bsys_getproplen(NULL, "ramdisk_end") != sizeof (uint64_t) ||
+	    do_bsys_getprop(NULL, "ramdisk_end", &end) != 0) {
+		mlp->ml_address = 0;
+		mlp->ml_size = 0;
+
+		return;
+	}
+
+	end = P2ROUNDUP(end, MMU_PAGESIZE);
+	mlp->ml_address = P2ALIGN(start, MMU_PAGESIZE);
+	mlp->ml_size = end - mlp->ml_address;
+}
+
+static void
+build_memlists(void)
+{
+	/*
+	 * Extra hole memlists for use when building our own more conservative
+	 * lists for use by the earlyboot allocator.  These regions aren't
+	 * needed once we're done with boot (or are protected by other logic),
+	 * but we must tell our own allocator -- which doesn't otherwise know
+	 * any better -- not to hand them out.
+	 */
+	const memlist_t stack_hole = {
+		.ml_address = bsml_usable.ml_address + bsml_usable.ml_size,
+		.ml_size = 0x8000000UL -
+		    (bsml_usable.ml_address + bsml_usable.ml_size),
+		.ml_next = NULL,
+		.ml_prev = NULL
+	};
+
+	memlist_t ramdisk_hole;
+	get_ramdisk_hole(&ramdisk_hole);
+
+	/*
+	 * This is always forbidden to touch.
+	 */
+	const memlist_t mystery_hole = {
+		.ml_address = 0xfd00000000UL,
+		.ml_size = 0x300000000UL,
+		.ml_next = NULL,
+		.ml_prev = NULL
+	};
+
+	const memlist_t *eballoc_extra_holes[] = {
+		&bsml_apob,
+		&stack_hole,
+		&ramdisk_hole,
+		&mystery_hole
+	};
+
+	const memlist_t *kernel_extra_holes[] = {
+		&mystery_hole
+	};
+
+	apob_build_memlists(eballoc_extra_holes,
+	    ARRAY_SIZE(eballoc_extra_holes), NULL, &eb_ram);
+	apob_build_memlists(kernel_extra_holes, ARRAY_SIZE(kernel_extra_holes),
+	    &bm.rsvdmem, &bm.physinstalled);
+	bm.pcimem = NULL;	/* Used only if bus 0 resources not set */
 }
 
 static void
@@ -761,37 +983,88 @@ apob_init(void)
 		    BTPROP_NAME_APOB_ADDRESS);
 	}
 
-	milan_apob_init((paddr_t)(*(uint64_t *)apob_prop->btp_value));
-}
-
-static void
-memory_init(void)
-{
-	const bt_prop_t *apob_prop = find_bt_prop(BTPROP_NAME_APOB_ADDRESS, 0);
-	paddr_t apob_phys;
-
-	if (apob_prop == NULL) {
-		bop_panic("APOB address property %s is missing; don't "
-		    "know how to probe memory ourselves",
-		    BTPROP_NAME_APOB_ADDRESS);
-	}
-
 	if ((apob_prop->btp_typeflags & DDI_PROP_TYPE_MASK) !=
 	    DDI_PROP_TYPE_INT64) {
 		bop_panic("Boot-time property %s has incorrect type; can't "
 		    "find the APOB without it", BTPROP_NAME_APOB_ADDRESS);
 	}
 
-	apob_phys = (paddr_t)(*(uint64_t *)apob_prop->btp_value);
-	/* XXX We can't use IN_VA_HOLE() yet here to check this */
+	milan_apob_init((paddr_t)(*(uint64_t *)apob_prop->btp_value),
+	    &bsml_apob);
 
-	build_memlists(apob_phys);
+	bsml_apob.ml_next = bsml_apob.ml_prev = NULL;
+}
 
+static void
+bootmem_init(void)
+{
 	/*
-	 * initialize the boot time allocator
+	 * We assume in the absence of evidence to the contrary that the entire
+	 * portion of the physical address space up to 0x8000_0000 contains
+	 * RAM.  The bootloader, including the pagetables we're currently
+	 * using, is located within that range so that it can be built as a
+	 * small code model static executable.  To leave ourselves as much
+	 * space as possible, it locates itself at the top of that range; below
+	 * it is the stack on which we are currently executing.  Therefore we
+	 * are free to use all the physical address space below our stack for
+	 * bootstrap memory.  The bootstrap allocator will allocate these pages
+	 * from the bottom while our stack grows downward.  We need to exclude
+	 * three regions so the allocator doesn't use them, because at this
+	 * moment physical memory looks like this:
+	 *
+	 * +------------------------+ 0x7fff_ffff
+	 * | loader pages including |
+	 * | our active pagetables  |
+	 * +------------------------+ %cr3
+	 * | loader pages and stack |
+	 * +------------------------+ %rsp
+	 * | more stack space we're |
+	 * |  sure to need shortly  |
+	 * +------------------------+ %rsp - 8 pages, rounded down
+	 * |   and more free pages  |
+	 * +------------------------+ somewhere + something
+	 * |          APOB          |
+	 * +------------------------+ somewhere
+	 * |  delicious free pages  |
+	 * +------------------------+ 0x0600_0000
+	 * |   kernel nucleus data  |
+	 * +------------------------+ 0x0400_0000
+	 * |   kernel nucleus text  |
+	 * +------------------------+ 0x0200_0000
+	 * |  free pages we want to |
+	 * |  save for special uses |
+	 * +------------------------+ 0
+	 *
+	 * We'll bootstrap the allocator by setting up a single region from
+	 * the top of the kernel nucleus up to the bottom of our current stack
+	 * less a healthy margin for further growth.
+	 *
+	 * The last bit to consider is the APOB.  For now we will ignore it;
+	 * we're about to go process its contents, at which point we will also
+	 * reserve its own memory for the remainder of the boot process.  If
+	 * its contents seem bogus, we'll ignore them but keep them around
+	 * for inspection; see build_memlists().
+	 *
+	 * Note that this assumes the stack we are on is identity-mapped, which
+	 * the loader currently guarantees.  Should we choose to give ourselves
+	 * some other stack, this needs revisiting.
+	 *
+	 * Until we've found how how much RAM we really have and where it is,
+	 * we'll tell anyone who asks that this bootstrap region is all we
+	 * have; right now that's no one.
 	 */
-	DBG(next_phys);
-	DBG(next_virt);
+
+	uint64_t rsp;
+
+	bsml_usable.ml_address = 0x600000UL;	/* sync with Mapfile.amd64 */
+	__asm__ __volatile__("movq %%rsp, %0" : "=r" (rsp) : :);
+	rsp = P2ALIGN(rsp - 8 * MMU_PAGESIZE, MMU_PAGESIZE);
+	bsml_usable.ml_size = rsp - bsml_usable.ml_address;
+	bsml_usable.ml_next = NULL;
+	bsml_usable.ml_prev = NULL;
+
+	eb_ram = &bsml_usable;
+	bm.physinstalled = &bsml_usable;
 }
 
 /*
@@ -835,16 +1108,11 @@ _start(const bt_discovery_t *btdp)
 	DBG_MSG("done\n");
 
 	/*
-	 * Initialize the APOB boot operations. This will be required for us to
-	 * successfully use it as a boot operation vector.
+	 * After we return here, it is possible to use the boot-time memory
+	 * allocation routines (in particular, do_bop_phys_alloc()) which makes
+	 * setting up the real memory lists much more pleasant.
 	 */
-	apob_init();
-
-	/*
-	 * Find usable memory regions and set up the structures needed by the
-	 * allocator, including bm.
-	 */
-	memory_init();
+	bootmem_init();
 
 	/*
 	 * Fill in the bootops vector; all of this can now work.
@@ -877,6 +1145,20 @@ _start(const bt_discovery_t *btdp)
 		bufpage = do_bsys_alloc(NULL, NULL, MMU_PAGESIZE, MMU_PAGESIZE);
 		boot_prop_display(bufpage);
 	}
+
+	/*
+	 * Initialize the APOB boot operations. This will be required for us to
+	 * successfully use it as a boot operation vector.
+	 */
+	apob_init();
+
+	/*
+	 * Find usable memory regions, trusting the contents of the APOB if
+	 * available.  If successful, this will let us use the entirety of
+	 * DRAM during the rest of boot; we should still (barely) be able to
+	 * boot without it.
+	 */
+	build_memlists();
 
 	/*
 	 * _kobj_boot() vectors us to mlsetup and thence to main(), so there
