@@ -1022,15 +1022,6 @@ ire_collect(ire_t *ire, struct rtm_getall_mblk *rgm)
 			in6_addr_t v6setsrc = ipv6_all_zeros; //TODO
 			ipaddr_t addr = ire->ire_u.ire4_u.ire4_addr;
 			ipaddr_t gw = ire->ire_u.ire4_u.ire4_gateway_addr;
-			printf("%d.%d.%d.%d => %d.%d.%d.%d\n",
-				addr & 0x000000ff,
-				(addr & 0x0000ff00) >> 8,
-				(addr & 0x00ff0000) >> 16,
-				(addr & 0xff000000) >> 24,
-				gw & 0x000000ff,
-				(gw & 0x0000ff00) >> 8,
-				(gw & 0x00ff0000) >> 16,
-				(gw & 0xff000000) >> 24);
 
 			mblk_t *mp = rts_rtmget(
 				rgm->request,
