@@ -212,6 +212,102 @@
 #define	MILAN_IOHC_R_SET_DRAM_TOM3_LIMIT(r, v)	bitset32(r, 29, 0, v)
 
 /*
+ * IOHC::PSP_BASE_ADDR_LO. This contains the MMIO address that is used by the
+ * PSP.
+ */
+#define	MILAN_IOHC_R_SMN_PSP_ADDR_LO		0x1002e0
+#define	MILAN_IOHC_R_SET_PSP_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
+#define	MILAN_IOHC_R_SET_PSP_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_PSP_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * IOHC::PSP_BASE_ADDR_HI. This contains the upper bits of the PSP base
+ * address.
+ */
+#define	MILAN_IOHC_R_SMN_PSP_ADDR_HI		0x1002e4
+#define	MILAN_IOHC_R_SET_PSP_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
+
+/*
+ * IOHC::SMU_BASE_ADDR_LO. This contains the MMIO address that is used by the
+ * SMU.
+ */
+#define	MILAN_IOHC_R_SMN_SMU_ADDR_LO		0x1002e8
+#define	MILAN_IOHC_R_SET_SMU_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
+#define	MILAN_IOHC_R_SET_SMU_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_SMU_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * IOHC::SMU_BASE_ADDR_HI. This contains the upper bits of the SMU base
+ * address.
+ */
+#define	MILAN_IOHC_R_SMN_SMU_ADDR_HI		0x1002ec
+#define	MILAN_IOHC_R_SET_SMU_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
+
+/*
+ * IOHC::IOAPIC_BASE_ADDR_LO. This contains the MMIO address that is used by the
+ * IOAPIC.
+ */
+#define	MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO		0x1002f0
+#define	MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 8, v)
+#define	MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_LOCK(r, v)	bitset32(r, 1, 1, v)
+#define	MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * IOHC::IOAPIC_BASE_ADDR_HI. This contains the upper bits of the IOAPIC base
+ * address.
+ */
+#define	MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI		0x1002f4
+#define	MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
+
+/*
+ * IOHC::DBG_BASE_ADDR_LO. This contains the MMIO address that is used by the
+ * DBG registers. What this debugs, is unfortunately unclear.
+ */
+#define	MILAN_IOHC_R_SMN_DBG_ADDR_LO		0x1002f8
+#define	MILAN_IOHC_R_SET_DBG_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
+#define	MILAN_IOHC_R_SET_DBG_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_DBG_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * IOHC::DBG_BASE_ADDR_HI. This contains the upper bits of the DBG base
+ * address.
+ */
+#define	MILAN_IOHC_R_SMN_DBG_ADDR_HI		0x1002fc
+#define	MILAN_IOHC_R_SET_DBG_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
+
+/*
+ * IOHC::FASTREG_BASE_ADDR_LO. This contains the MMIO address that is used by
+ * the 'FastRegs' which provides access to an SMN aperture.
+ */
+#define	MILAN_IOHC_R_SMN_FASTREG_ADDR_LO		0x100300
+#define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
+#define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * IOHC::FASTREG_BASE_ADDR_HI. This contains the upper bits of the FASTREG base
+ * address.
+ */
+#define	MILAN_IOHC_R_SMN_FASTREG_ADDR_HI		0x100304
+#define	MILAN_IOHC_R_SET_FASTREG_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
+
+/*
+ * IOHC::FASTREGCNTL_BASE_ADDR_LO. This contains the MMIO address that is used
+ * by the FASTREGCNTL.
+ */
+#define	MILAN_IOHC_R_SMN_FASTREGCNTL_ADDR_LO		0x100300
+#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
+#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * IOHC::FASTREGCNTL_BASE_ADDR_HI. This contains the upper bits of the
+ * FASTREGCNTL base address.
+ */
+#define	MILAN_IOHC_R_SMN_FASTREGCNTL_ADDR_HI		0x100304
+#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
+
+/*
  * IOHC::IOHC_SDP_PORT_CONTROL. This is used to control how the port disconnect
  * behavior operates for the connection to the data fabric.
  */
@@ -467,6 +563,39 @@
 #define	MILAN_SDPMUX_R_SION_CLIREQ_BURST_VAL	0x08080808
 #define	MILAN_SDPMUX_R_SION_CLIREQ_TIME_VAL	0x21212121
 #define	MILAN_SDPMUX_R_SION_RDRSP_BURST_VAL	0x02020202
+
+/*
+ * IOAPIC registers. These exist on a per-IOMS basis. These are not the
+ * traditional software IOAPIC registers that exist in the Northbridge.
+ */
+#define	MILAN_SMN_IOAPIC_BASE	0x14300000
+
+/*
+ * IOAPIC::FEATURES_ENABLE. This controls various features of the IOAPIC.
+ */
+#define	MILAN_IOAPIC_R_SMN_FEATURES		0x00
+#define	MILAN_IOAPIC_R_SET_FEATURES_LEVEL_ONLY(r, v)	bitset32(r, 9, 9, v)
+#define	MILAN_IOAPIC_R_SET_FEATURES_PROC_MODE(r, v)	bitset32(r, 8, 8, v)
+#define	MILAN_IOAPIC_R_SET_FEATURES_SECONDARY(r, v)	bitset32(r, 5, 5, v)
+#define	MILAN_IOAPIC_R_SET_FEATURES_FCH(r, v)		bitset32(r, 4, 4, v)
+#define	MILAN_IOAPIC_R_SET_FEATURES_ID_EXT(r, v)	bitset32(r, 2, 2, v)
+#define	MILAN_IOAPIC_R_FEATURES_ID_EXT_4BIT	0
+#define	MILAN_IOAPIC_R_FEATURES_ID_EXT_8BIT	1
+
+/*
+ * IOAPIC::IOAPIC_BR_INTERRUPT_ROUTING. There are several instances of this
+ * register and they determine how a given logical bridge on the IOMS maps to
+ * the IOAPIC pins. Hence why there are 22 routes.
+ */
+#define	MILAN_IOAPIC_R_NROUTES			22
+#define	MILAN_IOAPIC_R_SMN_ROUTE		0x40
+#define	MILAN_IOAPIC_R_SET_ROUTE_BRIDGE_MAP(r, v)	bitset32(r, 20, 16, v)
+#define	MILAN_IOAPIC_R_SET_ROUTE_INTX_SWIZZLE(r, v)	bitset32(r, 5, 4, v)
+#define	MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD		0
+#define	MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_BCDA		1
+#define	MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB		2
+#define	MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC		3
+#define	MILAN_IOAPIC_R_SET_ROUTE_INTX_GROUP(r, v)	bitset32(r, 2, 0, v)
 
 /*
  * SDPMUX::SDPMUX_SION_LiveLock_WatchDog_Threshold. This is used to set an
@@ -887,6 +1016,63 @@ static const milan_bridge_info_t milan_pcie2[MILAN_IOMS_WAFL_PCIE_NBRIDGES] = {
 	{ 0x5, 0x2 }
 };
 
+/*
+ * The following table encodes the per-bridge IOAPIC initialization routing. We
+ * currently following the recommendation of the PPR.
+ */
+typedef struct milan_ioapic_info {
+	uint8_t mii_group;
+	uint8_t mii_swiz;
+	uint8_t mii_map;
+} milan_ioapic_info_t;
+
+static const milan_ioapic_info_t milan_ioapic_routes[MILAN_IOAPIC_R_NROUTES] = {
+	{ .mii_group = 0x0, .mii_map = 0x10,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x1, .mii_map = 0x11,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x2, .mii_map = 0x12,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x3, .mii_map = 0x13,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x4, .mii_map = 0x10,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x5, .mii_map = 0x11,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x6, .mii_map = 0x12,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x7, .mii_map = 0x13,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_ABCD },
+	{ .mii_group = 0x7, .mii_map = 0x0c,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x6, .mii_map = 0x0d,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x5, .mii_map = 0x0e,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x4, .mii_map = 0x0f,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x3, .mii_map = 0x0c,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x2, .mii_map = 0x0d,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x1, .mii_map = 0x0e,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x0, .mii_map = 0x0f,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_CDAB },
+	{ .mii_group = 0x0, .mii_map = 0x08,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC },
+	{ .mii_group = 0x1, .mii_map = 0x09,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC },
+	{ .mii_group = 0x2, .mii_map = 0x0a,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC },
+	{ .mii_group = 0x3, .mii_map = 0x0b,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC },
+	{ .mii_group = 0x4, .mii_map = 0x08,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC },
+	{ .mii_group = 0x5, .mii_map = 0x09,
+	    .mii_swiz = MILAN_IOAPIC_R_ROUTE_INTX_SWIZZLE_DABC }
+};
+
 typedef enum milan_nbif_func_type {
 	MILAN_NBIF_T_DUMMY,
 	MILAN_NBIF_T_NTB,
@@ -980,6 +1166,7 @@ typedef struct milan_ioms {
 	uint32_t		mio_iohc_smn_base;
 	uint32_t		mio_ioagr_smn_base;
 	uint32_t		mio_sdpmux_smn_base;
+	uint32_t		mio_ioapic_smn_base;
 	uint32_t		mio_iommul1_smn_base;
 	uint32_t		mio_iommul2_smn_base;
 	uint16_t		mio_pci_busno;
@@ -1252,6 +1439,21 @@ milan_sdpmux_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
     uint32_t val)
 {
 	reg += ioms->mio_sdpmux_smn_base;
+	milan_smn_write32(iodie, reg, val);
+}
+
+static uint32_t
+milan_ioapic_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+{
+	reg += ioms->mio_ioapic_smn_base;
+	return (milan_smn_read32(iodie, reg));
+}
+
+static void
+milan_ioapic_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
+    uint32_t val)
+{
+	reg += ioms->mio_ioapic_smn_base;
 	milan_smn_write32(iodie, reg, val);
 }
 
@@ -1529,6 +1731,8 @@ milan_fabric_topo_init(void)
 			ioms->mio_iohc_smn_base = MILAN_SMN_IOHC_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
 			ioms->mio_ioagr_smn_base = MILAN_SMN_IOAGR_BASE +
+			    MILAN_SMN_IOMS_SHIFT(iomsno);
+			ioms->mio_ioapic_smn_base = MILAN_SMN_IOAPIC_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
 			ioms->mio_iommul1_smn_base = MILAN_SMN_IOMMUL1_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
@@ -2069,7 +2273,7 @@ static int
 milan_fabric_init_iohc_fch_link(milan_fabric_t *fabric, milan_soc_t *soc,
     milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
 {
-	if (ioms->mio_num == 3) {
+	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		uint32_t val;
 
 		val = milan_iohc_read32(iodie, ioms,
@@ -2451,6 +2655,87 @@ milan_fabric_init_nbif_syshub_dma(milan_fabric_t *fabric, milan_soc_t *soc,
 	val = MILAN_NBIF_R_SET_SYSHUB_BGEN_BYPASS_DMA_SW0(val, 1);
 	milan_nbif_alt_write32(iodie, nbif, MILAN_NBIF_R_SMN_SYSHUB_BGEN_BYPASS,
 	    val);
+	return (0);
+}
+
+/*
+ * We need to initialize each IOAPIC as there is one per IOMS. First we
+ * initialize the interrupt routing table. This is used to mux the various
+ * legacy INTx interrupts and the bridge's interrupt to a given location. This
+ * follow from the PPR.
+ *
+ * After that we need to go through and program the feature register for the
+ * IOAPIC and its address. Because there is one IOAPIC per IOMS, one has to be
+ * elected the primary and the rest, secondary. This is done based on which IOMS
+ * has the FCH.
+ */
+static int
+milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+{
+	uint32_t val;
+
+	ASSERT3U(ARRAY_SIZE(milan_ioapic_routes), ==, MILAN_IOAPIC_R_NROUTES);
+
+	for (uint_t i = 0; i < ARRAY_SIZE(milan_ioapic_routes); i++) {
+		uint32_t reg = MILAN_IOAPIC_R_SMN_ROUTE + i * 4;
+		uint32_t route = milan_ioapic_read32(iodie, ioms, reg);
+
+		route = MILAN_IOAPIC_R_SET_ROUTE_BRIDGE_MAP(route,
+		    milan_ioapic_routes[i].mii_map);
+		route = MILAN_IOAPIC_R_SET_ROUTE_INTX_SWIZZLE(route,
+		    milan_ioapic_routes[i].mii_swiz);
+		route = MILAN_IOAPIC_R_SET_ROUTE_INTX_GROUP(route,
+		    milan_ioapic_routes[i].mii_group);
+
+		milan_ioapic_write32(iodie, ioms, reg, route);
+	}
+
+	/*
+	 * The address registers are in the IOHC while the feature registers are
+	 * in the IOAPIC SMN space. To ensure that the other IOAPICs can't be
+	 * enabled with reset addresses, we instead lock them. XXX Should we
+	 * lock primary?
+	 */
+	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI);
+	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(val,
+		    bitx64(MILAN_PHYSADDR_IOAPIC, 47, 32));
+	} else {
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(val, 0);
+	}
+	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI, val);
+
+	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO);
+	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_ADDR(val,
+		    bitx64(MILAN_PHYSADDR_IOAPIC, 31, 8));
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_LOCK(val, 0);
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_EN(val, 1);
+	} else {
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_ADDR(val, 0);
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_LOCK(val, 1);
+		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_EN(val, 0);
+	}
+	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO, val);
+
+	/*
+	 * Every IOAPIC requires that we enable 8-bit addressing and that it be
+	 * able to generate interrupts to the FCH. The most important bit here
+	 * is the secondary bit which determines whether or not this IOAPIC is
+	 * subordinate to another.
+	 */
+	val = milan_ioapic_read32(iodie, ioms,
+	    MILAN_IOAPIC_R_SMN_FEATURES);
+	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
+		val = MILAN_IOAPIC_R_SET_FEATURES_SECONDARY(val, 0);
+	} else {
+		val = MILAN_IOAPIC_R_SET_FEATURES_SECONDARY(val, 1);
+	}
+	val = MILAN_IOAPIC_R_SET_FEATURES_FCH(val, 1);
+	val = MILAN_IOAPIC_R_SET_FEATURES_ID_EXT(val, 1);
+	milan_ioapic_write32(iodie, ioms, MILAN_IOAPIC_R_SMN_FEATURES, val);
+
 	return (0);
 }
 
@@ -2989,6 +3274,20 @@ milan_fabric_init(void)
 	 */
 
 	/*
+	 * With that done, proceed to initialize the IOAPIC in each IOMS. While
+	 * the FCH contains what the OS generally thinks of as the IOAPIC, we
+	 * need to go through and deal with interrupt routing and how that
+	 * interface with each of the northbridges here.
+	 */
+	milan_fabric_walk_ioms(fabric, milan_fabric_init_ioapic, NULL);
+
+	/*
+	 * XXX For some reason programming IOHC::NB_BUS_NUM_CNTL is lopped in
+	 * with the IOAPIC initialization. We may want to do this, but it can at
+	 * least be its own function.
+	 */
+
+	/*
 	 * Go through and configure all of the straps for NBIF devices before
 	 * they end up starting up.
 	 *
@@ -3072,4 +3371,10 @@ milan_fabric_init(void)
 	}
 
 	cmn_err(CE_NOTE, "DXIO devices successfully trained?");
+
+	/*
+	 * XXX At some point, maybe not here, but before we really go too much
+	 * futher we should lock all the various MMIO assignment registers,
+	 * especially ones we don't intend to use.
+	 */
 }

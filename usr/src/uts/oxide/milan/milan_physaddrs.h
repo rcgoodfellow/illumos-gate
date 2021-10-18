@@ -148,6 +148,13 @@ extern "C" {
 #define	MILAN_PHYSADDR_MYSTERY_HOLE 0xfd00000000
 #define	MILAN_PHYSADDR_MYSTERY_HOLE_END 0x10000000000
 
+/*
+ * XXX This is the MMIO Address for the IOAPIC. It can really be anywhere;
+ * however, has to be routed to IOMS 3. This address is fairly arbitrary
+ * (Ethanol-X default which for some reason isn't the reset default).
+ */
+#define	MILAN_PHYSADDR_IOAPIC	0xfec01000
+
 #ifdef __cplusplus
 }
 #endif
