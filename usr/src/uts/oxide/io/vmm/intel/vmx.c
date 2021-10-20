@@ -284,13 +284,6 @@ SDT_PROBE_DEFINE4(vmm, vmx, exit, return,
     "struct vmx *", "int", "struct vm_exit *", "int");
 /* END CSTYLED */
 
-/*
- * Use the last page below 4GB as the APIC access address. This address is
- * occupied by the boot firmware so it is guaranteed that it will not conflict
- * with a page in system memory.
- */
-#define	APIC_ACCESS_ADDRESS	0xFFFFF000
-
 static int vmx_getdesc(void *arg, int vcpu, int reg, struct seg_desc *desc);
 static int vmx_getreg(void *arg, int vcpu, int reg, uint64_t *retval);
 static void vmx_apply_tsc_adjust(struct vmx *, int);
@@ -298,40 +291,33 @@ static void vmx_apicv_sync_tmr(struct vlapic *vlapic);
 static void vmx_tpr_shadow_enter(struct vlapic *vlapic);
 static void vmx_tpr_shadow_exit(struct vlapic *vlapic);
 
-static int
-vmx_allow_x2apic_msrs(struct vmx *vmx)
+static void
+vmx_allow_x2apic_msrs(struct vmx *vmx, int vcpuid)
 {
-	int i, error;
-
-	error = 0;
-
 	/*
 	 * Allow readonly access to the following x2APIC MSRs from the guest.
 	 */
-	error += guest_msr_ro(vmx, MSR_APIC_ID);
-	error += guest_msr_ro(vmx, MSR_APIC_VERSION);
-	error += guest_msr_ro(vmx, MSR_APIC_LDR);
-	error += guest_msr_ro(vmx, MSR_APIC_SVR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ID);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_VERSION);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LDR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_SVR);
 
-	for (i = 0; i < 8; i++)
-		error += guest_msr_ro(vmx, MSR_APIC_ISR0 + i);
+	for (uint_t i = 0; i < 8; i++) {
+		guest_msr_ro(vmx, vcpuid, MSR_APIC_ISR0 + i);
+		guest_msr_ro(vmx, vcpuid, MSR_APIC_TMR0 + i);
+		guest_msr_ro(vmx, vcpuid, MSR_APIC_IRR0 + i);
+	}
 
-	for (i = 0; i < 8; i++)
-		error += guest_msr_ro(vmx, MSR_APIC_TMR0 + i);
-
-	for (i = 0; i < 8; i++)
-		error += guest_msr_ro(vmx, MSR_APIC_IRR0 + i);
-
-	error += guest_msr_ro(vmx, MSR_APIC_ESR);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_TIMER);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_THERMAL);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_PCINT);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_LINT0);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_LINT1);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_ERROR);
-	error += guest_msr_ro(vmx, MSR_APIC_ICR_TIMER);
-	error += guest_msr_ro(vmx, MSR_APIC_DCR_TIMER);
-	error += guest_msr_ro(vmx, MSR_APIC_ICR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ESR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_TIMER);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_THERMAL);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_PCINT);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_LINT0);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_LINT1);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_ERROR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ICR_TIMER);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_DCR_TIMER);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ICR);
 
 	/*
 	 * Allow TPR, EOI and SELF_IPI MSRs to be read and written by the guest.
@@ -339,11 +325,9 @@ vmx_allow_x2apic_msrs(struct vmx *vmx)
 	 * These registers get special treatment described in the section
 	 * "Virtualizing MSR-Based APIC Accesses".
 	 */
-	error += guest_msr_rw(vmx, MSR_APIC_TPR);
-	error += guest_msr_rw(vmx, MSR_APIC_EOI);
-	error += guest_msr_rw(vmx, MSR_APIC_SELF_IPI);
-
-	return (error);
+	guest_msr_rw(vmx, vcpuid, MSR_APIC_TPR);
+	guest_msr_rw(vmx, vcpuid, MSR_APIC_EOI);
+	guest_msr_rw(vmx, vcpuid, MSR_APIC_SELF_IPI);
 }
 
 static ulong_t
@@ -352,10 +336,32 @@ vmx_fix_cr0(ulong_t cr0)
 	return ((cr0 | cr0_ones_mask) & ~cr0_zeros_mask);
 }
 
+/*
+ * Given a live (VMCS-active) cr0 value, and its shadow counterpart, calculate
+ * the value observable from the guest.
+ */
+static ulong_t
+vmx_unshadow_cr0(uint64_t cr0, uint64_t shadow)
+{
+	return ((cr0 & ~cr0_ones_mask) |
+	    (shadow & (cr0_zeros_mask | cr0_ones_mask)));
+}
+
 static ulong_t
 vmx_fix_cr4(ulong_t cr4)
 {
 	return ((cr4 | cr4_ones_mask) & ~cr4_zeros_mask);
+}
+
+/*
+ * Given a live (VMCS-active) cr4 value, and its shadow counterpart, calculate
+ * the value observable from the guest.
+ */
+static ulong_t
+vmx_unshadow_cr4(uint64_t cr4, uint64_t shadow)
+{
+	return ((cr4 & ~cr4_ones_mask) |
+	    (shadow & (cr4_zeros_mask | cr4_ones_mask)));
 }
 
 static void
@@ -667,6 +673,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 	uint32_t exc_bitmap;
 	uint16_t maxcpus;
 	uint32_t proc_ctls, proc2_ctls, pin_ctls;
+	uint64_t apic_access_pa = UINT64_MAX;
 
 	vmx = malloc(sizeof (struct vmx), M_VMX, M_WAITOK | M_ZERO);
 	if ((uintptr_t)vmx & PAGE_MASK) {
@@ -688,36 +695,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 	 */
 	ept_invalidate_mappings(vmx->eptp);
 
-	msr_bitmap_initialize(vmx->msr_bitmap);
-
-	/*
-	 * It is safe to allow direct access to MSR_GSBASE and MSR_FSBASE.
-	 * The guest FSBASE and GSBASE are saved and restored during
-	 * vm-exit and vm-entry respectively. The host FSBASE and GSBASE are
-	 * always restored from the vmcs host state area on vm-exit.
-	 *
-	 * The SYSENTER_CS/ESP/EIP MSRs are identical to FS/GSBASE in
-	 * how they are saved/restored so can be directly accessed by the
-	 * guest.
-	 *
-	 * MSR_EFER is saved and restored in the guest VMCS area on a
-	 * VM exit and entry respectively. It is also restored from the
-	 * host VMCS area on a VM exit.
-	 *
-	 * The TSC MSR is exposed read-only. Writes are disallowed as
-	 * that will impact the host TSC.  If the guest does a write
-	 * the "use TSC offsetting" execution control is enabled and the
-	 * difference between the host TSC and the guest TSC is written
-	 * into the TSC offset in the VMCS.
-	 */
-	if (guest_msr_rw(vmx, MSR_GSBASE) ||
-	    guest_msr_rw(vmx, MSR_FSBASE) ||
-	    guest_msr_rw(vmx, MSR_SYSENTER_CS_MSR) ||
-	    guest_msr_rw(vmx, MSR_SYSENTER_ESP_MSR) ||
-	    guest_msr_rw(vmx, MSR_SYSENTER_EIP_MSR) ||
-	    guest_msr_rw(vmx, MSR_EFER) ||
-	    guest_msr_ro(vmx, MSR_TSC))
-		panic("vmx_vminit: error setting guest msr access");
+	vmx_msr_bitmap_initialize(vmx);
 
 	vpid_alloc(vpid, VM_MAXCPU);
 
@@ -740,8 +718,17 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 		    PROCBASED2_APIC_REGISTER_VIRTUALIZATION |
 		    PROCBASED2_VIRTUAL_INTERRUPT_DELIVERY);
 
+		/*
+		 * Allocate a page of memory to back the APIC access address for
+		 * when APICv features are in use.  Guest MMIO accesses should
+		 * never actually reach this page, but rather be intercepted.
+		 */
+		vmx->apic_access_page = kmem_zalloc(PAGESIZE, KM_SLEEP);
+		VERIFY3U((uintptr_t)vmx->apic_access_page & PAGEOFFSET, ==, 0);
+		apic_access_pa = vtophys(vmx->apic_access_page);
+
 		error = vm_map_mmio(vm, DEFAULT_APIC_BASE, PAGE_SIZE,
-		    APIC_ACCESS_ADDRESS);
+		    apic_access_pa);
 		/* XXX this should really return an error to the caller */
 		KASSERT(error == 0, ("vm_map_mmio(apicbase) error %d", error));
 	}
@@ -759,7 +746,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 		 * may be required inside the critical_enter() section implied
 		 * by VMPTRLD() below.
 		 */
-		vm_paddr_t msr_bitmap_pa = vtophys(vmx->msr_bitmap);
+		vm_paddr_t msr_bitmap_pa = vtophys(vmx->msr_bitmap[i]);
 		vm_paddr_t apic_page_pa = vtophys(&vmx->apic_page[i]);
 		vm_paddr_t pir_desc_pa = vtophys(&vmx->pir_desc[i]);
 
@@ -841,7 +828,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 		}
 
 		if (vmx_cap_en(vmx, VMX_CAP_APICV)) {
-			vmcs_write(VMCS_APIC_ACCESS, APIC_ACCESS_ADDRESS);
+			vmcs_write(VMCS_APIC_ACCESS, apic_access_pa);
 			vmcs_write(VMCS_EOI_EXIT0, 0);
 			vmcs_write(VMCS_EOI_EXIT1, 0);
 			vmcs_write(VMCS_EOI_EXIT2, 0);
@@ -1590,6 +1577,14 @@ vmx_emulate_cr0_access(struct vmx *vmx, int vcpu, uint64_t exitqual)
 
 	crval = regval | cr0_ones_mask;
 	crval &= ~cr0_zeros_mask;
+
+	const uint64_t old = vmcs_read(VMCS_GUEST_CR0);
+	const uint64_t diff = crval ^ old;
+	/* Flush the TLB if the paging or write-protect bits are changing */
+	if ((diff & CR0_PG) != 0 || (diff & CR0_WP) != 0) {
+		vmx_invvpid(vmx, vcpu, vmx->ctx[vcpu].pmap, 1);
+	}
+
 	vmcs_write(VMCS_GUEST_CR0, crval);
 
 	if (regval & CR0_PG) {
@@ -2870,8 +2865,14 @@ vmx_vmcleanup(void *arg)
 	struct vmx *vmx = arg;
 	uint16_t maxcpus;
 
-	if (apic_access_virtualization(vmx, 0))
+	if (vmx_cap_en(vmx, VMX_CAP_APICV)) {
 		vm_unmap_mmio(vmx->vm, DEFAULT_APIC_BASE, PAGE_SIZE);
+		kmem_free(vmx->apic_access_page, PAGESIZE);
+	} else {
+		VERIFY3P(vmx->apic_access_page, ==, NULL);
+	}
+
+	vmx_msr_bitmap_destroy(vmx);
 
 	maxcpus = vm_get_maxcpus(vmx->vm);
 	for (i = 0; i < maxcpus; i++)
@@ -2953,18 +2954,31 @@ vmx_getreg(void *arg, int vcpu, int reg, uint64_t *retval)
 		vmcs_load(vmx->vmcs_pa[vcpu]);
 	}
 
-	err = EINVAL;
+	err = 0;
 	if (reg == VM_REG_GUEST_INTR_SHADOW) {
 		uint64_t gi = vmcs_read(VMCS_GUEST_INTERRUPTIBILITY);
 		*retval = (gi & HWINTR_BLOCKING) ? 1 : 0;
-		err = 0;
 	} else {
 		uint32_t encoding;
 
 		encoding = vmcs_field_encoding(reg);
-		if (encoding != VMCS_INVALID_ENCODING) {
+		switch (encoding) {
+		case VMCS_GUEST_CR0:
+			/* Take the shadow bits into account */
+			*retval = vmx_unshadow_cr0(vmcs_read(encoding),
+			    vmcs_read(VMCS_CR0_SHADOW));
+			break;
+		case VMCS_GUEST_CR4:
+			/* Take the shadow bits into account */
+			*retval = vmx_unshadow_cr4(vmcs_read(encoding),
+			    vmcs_read(VMCS_CR4_SHADOW));
+			break;
+		case VMCS_INVALID_ENCODING:
+			err = EINVAL;
+			break;
+		default:
 			*retval = vmcs_read(encoding);
-			err = 0;
+			break;
 		}
 	}
 
@@ -3436,7 +3450,7 @@ vmx_enable_x2apic_mode_vid(struct vlapic *vlapic)
 {
 	struct vmx *vmx;
 	uint32_t proc_ctls2;
-	int vcpuid, error;
+	int vcpuid;
 
 	vcpuid = vlapic->vcpuid;
 	vmx = ((struct vlapic_vtx *)vlapic)->vmx;
@@ -3453,23 +3467,7 @@ vmx_enable_x2apic_mode_vid(struct vlapic *vlapic)
 	vmcs_write(VMCS_SEC_PROC_BASED_CTLS, proc_ctls2);
 	vmcs_clear(vmx->vmcs_pa[vcpuid]);
 
-	if (vlapic->vcpuid == 0) {
-		/*
-		 * The nested page table mappings are shared by all vcpus
-		 * so unmap the APIC access page just once.
-		 */
-		error = vm_unmap_mmio(vmx->vm, DEFAULT_APIC_BASE, PAGE_SIZE);
-		KASSERT(error == 0, ("%s: vm_unmap_mmio error %d",
-		    __func__, error));
-
-		/*
-		 * The MSR bitmap is shared by all vcpus so modify it only
-		 * once in the context of vcpu 0.
-		 */
-		error = vmx_allow_x2apic_msrs(vmx);
-		KASSERT(error == 0, ("%s: vmx_allow_x2apic_msrs error %d",
-		    __func__, error));
-	}
+	vmx_allow_x2apic_msrs(vmx, vcpuid);
 }
 
 static void
