@@ -22,6 +22,7 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2021 Oxide Computer Co.
  */
 
 #ifndef	_KBOOT_MMU_H
@@ -39,8 +40,7 @@ extern "C" {
 #include <sys/mach_mmu.h>
 #include <sys/bootconf.h>
 
-struct bootops;
-extern void kbm_init(const struct bsys_mem *);
+extern void kbm_init(void);
 
 /*
  * Interface to remap the page table window, also used by HAT during init.

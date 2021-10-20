@@ -65,9 +65,11 @@ typedef struct milan_apob_sysmap {
 
 #pragma pack()
 
-extern void milan_apob_init(uint64_t, memlist_t *);
+extern void milan_apob_init(uint64_t);
 extern const void *milan_apob_find(milan_apob_group_t, uint32_t, uint32_t,
     size_t *, int *);
+
+extern void milan_apob_reserve_phys(void);
 
 #ifdef __cplusplus
 }

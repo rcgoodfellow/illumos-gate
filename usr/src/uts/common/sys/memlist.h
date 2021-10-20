@@ -21,6 +21,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2021 Oxide Computer Co.
  */
 
 #ifndef	_SYS_MEMLIST_H
@@ -46,6 +47,9 @@ typedef struct memlist {
 	struct memlist	*ml_next;	/* link to next list element */
 	struct memlist	*ml_prev;	/* link to previous list element */
 } memlist_t;
+
+struct memlist_pool;
+typedef struct memlist_pool memlist_pool_t;
 
 extern int address_in_memlist(struct memlist *, uint64_t, size_t);
 

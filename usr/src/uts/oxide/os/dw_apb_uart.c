@@ -1,6 +1,28 @@
+/*
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * http://www.illumos.org/license/CDDL.
+ */
+
+/*
+ * Copyright 2021 Oxide Computer Co.
+ */
+
+/*
+ * Definitions for the DesignWare APB UART found in AMD FCHs.  It is mostly
+ * 16550-compatible but is memory-mapped.
+ */
+
+#include <sys/bootconf.h>
 #include <sys/types.h>
 #include <sys/dw_apb_uart.h>
 #include <sys/uart.h>
+#include <vm/kboot_mmu.h>
 
 static const uintptr_t DW_APB_PORT_ADDRS[] = {
 	0xFEDC9000UL,
@@ -103,8 +125,6 @@ static const ptrdiff_t DW_APB_REG_CPR = 0xF4;
 static const ptrdiff_t DW_APB_REG_UCV = 0xF8;
 static const ptrdiff_t DW_APB_REG_CTR = 0xFC;
 
-#define NULL 0
-
 void
 mmwr32(void * const addr, const uint32_t v)
 {
@@ -203,7 +223,7 @@ dw_apb_lcr(const async_databits_t db, const async_parity_t par,
 	return (lcr);
 }
 
-uintptr_t
+void *
 dw_apb_uart_init(const dw_apb_port_t port, const uint32_t baud,
     const async_databits_t db, const async_parity_t par,
     const async_stopbits_t sb)
@@ -218,38 +238,38 @@ dw_apb_uart_init(const dw_apb_port_t port, const uint32_t baud,
 	const uint32_t dll = (divisor & 0x00ff);
 	const uintptr_t addr = dw_apb_port_addr(port);
 	const uint32_t lcr = dw_apb_lcr(db, par, sb);
+	void *regs;
 
-	#if 0
 	if (addr == 0)
-		panic(PE_UART_BAD_PORT, (const uint8_t)(port & 0xff));
+		bop_panic("console UART port %x invalid", (uint_t)port);
 
-	if (lcr == DAR_INVALID) {
-		panic(PE_UART_BAD_SETUP, (const uint8_t)(db & 0xf) << 4 |
-		    (const uint8_t)(sb & 0xf));
-	}
-	#endif
+	if (lcr == DAR_INVALID)
+		bop_panic("console UART port configuration invalid");
 
-	WR_REG(addr, SRR, DAR_SRR_UR | DAR_SRR_RFR | DAR_SRR_XFR);
-	WR_REG(addr, LCR, DAR_LCR_DLAB);
-	WR_REG(addr, DLH, dlh);
-	WR_REG(addr, DLL, dll);
-	WR_REG(addr, LCR, lcr);
+	regs = (void *)kbm_valloc(MMU_PAGESIZE, MMU_PAGESIZE);
+	kbm_map((uintptr_t)regs, addr, 0, PT_WRITABLE | PT_NOCACHE);
 
-	WR_REG(addr, FCR, DAR_FCR_FIFOE | DAR_FCR_XFIFOR | DAR_FCR_RFIFOR |
+	WR_REG(regs, SRR, DAR_SRR_UR | DAR_SRR_RFR | DAR_SRR_XFR);
+	WR_REG(regs, LCR, DAR_LCR_DLAB);
+	WR_REG(regs, DLH, dlh);
+	WR_REG(regs, DLL, dll);
+	WR_REG(regs, LCR, lcr);
+
+	WR_REG(regs, FCR, DAR_FCR_FIFOE | DAR_FCR_XFIFOR | DAR_FCR_RFIFOR |
 	    DAR_FCR_DMAM | DAR_FCR_TET_QUARTER | DAR_FCR_RT_QUARTER);
 
 	/*
 	 * XXX We always enable automatic flow control, but we should really
 	 * check with the IOMUX to determine whether this port supports it.
 	 */
-	WR_REG(addr, MCR, DAR_MCR_AFCE | DAR_MCR_OUT2 | DAR_MCR_RTS |
+	WR_REG(regs, MCR, DAR_MCR_AFCE | DAR_MCR_OUT2 | DAR_MCR_RTS |
 	    DAR_MCR_DTR);
 
-	return (addr);
+	return (regs);
 }
 
 size_t
-dw_apb_uart_rx_nb(uintptr_t addr, uint8_t *dbuf, size_t len)
+dw_apb_uart_rx_nb(void *regs, uint8_t *dbuf, size_t len)
 {
 	size_t i;
 	uint32_t lsr;
@@ -258,10 +278,10 @@ dw_apb_uart_rx_nb(uintptr_t addr, uint8_t *dbuf, size_t len)
 	if (dbuf == NULL)
 		return (0);
 
-	for (lsr = RD_REG(addr, LSR), i = 0;
+	for (lsr = RD_REG(regs, LSR), i = 0;
 	    (lsr & DAR_LSR_DR) != 0 && i < len;
-	    lsr = RD_REG(addr, LSR), ++i) {
-		rbr = RD_REG(addr, RBR);
+	    lsr = RD_REG(regs, LSR), ++i) {
+		rbr = RD_REG(regs, RBR);
 		dbuf[i] = rbr & 0xff;
 	}
 
@@ -269,45 +289,45 @@ dw_apb_uart_rx_nb(uintptr_t addr, uint8_t *dbuf, size_t len)
 }
 
 uint8_t
-dw_apb_uart_rx_one(uintptr_t addr)
+dw_apb_uart_rx_one(void *regs)
 {
 	uint8_t ch;
 
-	while (dw_apb_uart_rx_nb(addr, &ch, 1) < 1)
+	while (dw_apb_uart_rx_nb(regs, &ch, 1) < 1)
 		;
 
 	return (ch);
 }
 
 size_t
-dw_apb_uart_tx_nb(uintptr_t addr, const uint8_t *dbuf, size_t len)
+dw_apb_uart_tx_nb(void *regs, const uint8_t *dbuf, size_t len)
 {
 	size_t i;
 	uint32_t usr, lsr;
 
-	for (usr = RD_REG(addr, USR), i = 0;
+	for (usr = RD_REG(regs, USR), i = 0;
 	    (usr & DAR_USR_TFNF) && i < len;
-	    usr = RD_REG(addr, USR), ++i) {
-		WR_REG(addr, THR, (uint32_t)dbuf[i]);
+	    usr = RD_REG(regs, USR), ++i) {
+		WR_REG(regs, THR, (uint32_t)dbuf[i]);
 	}
 
 	return (i);
 }
 
 void
-dw_apb_uart_tx(uintptr_t addr, const uint8_t *dbuf, size_t len)
+dw_apb_uart_tx(void *regs, const uint8_t *dbuf, size_t len)
 {
 	size_t total_sent = 0;
 
 	while (len > 0) {
-		total_sent += dw_apb_uart_tx_nb(addr, dbuf, len);
+		total_sent += dw_apb_uart_tx_nb(regs, dbuf, len);
 		dbuf += total_sent;
 		len -= total_sent;
 	}
 }
 
-int
-dw_apb_uart_dr(uintptr_t addr)
+boolean_t
+dw_apb_uart_dr(void *regs)
 {
-	return (RD_REG(addr, LSR) & DAR_LSR_DR);
+	return ((RD_REG(regs, LSR) & DAR_LSR_DR) != 0);
 }

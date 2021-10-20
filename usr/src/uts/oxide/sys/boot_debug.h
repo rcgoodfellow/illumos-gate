@@ -37,8 +37,16 @@ extern void kbm_debug_printf(const char *, int, const char *, ...)
 	kbm_debug_printf(__FILE__, __LINE__, _fmt, ##__VA_ARGS__)
 
 #define	DBG(_var)	\
-	kbm_debug_printf(__FILE__, __LINE__, "%s is %" PRIx64 "\n",	\
-	    #_var, ((uint64_t)(_var)))
+	kbm_debug_printf(__FILE__, __LINE__, "%s is %" PRIx64 "\n", #_var, \
+	    ((uint64_t)(_var)))
+
+#define	eb_printf(_fmt, ...)		\
+	bop_printf(NULL, _fmt, ##__VA_ARGS__)
+
+#define	eb_vprintf(_fmt, _ap)		\
+	vbop_printf(NULL, _fmt, _ap)
+
+extern void eb_halt(void) __NORETURN;
 
 #ifdef __cplusplus
 }

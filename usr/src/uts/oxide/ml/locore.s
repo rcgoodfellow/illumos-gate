@@ -25,6 +25,7 @@
 /*
  * Copyright 2019 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2021 Oxide Computer Co.
  */
 
 /*	Copyright (c) 1990, 1991 UNIX System Laboratories, Inc.	*/
@@ -716,3 +717,8 @@ freq_tsc_end:
 	ret
 	SET_SIZE(freq_tsc_pit)
 
+	ENTRY_NP(eb_halt)
+1:
+	hlt
+	jmp	1b
+	SET_SIZE(eb_halt)

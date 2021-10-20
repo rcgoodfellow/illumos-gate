@@ -28,9 +28,19 @@
 
 /*
  * This is all stuff that common or x86 code assumes exists, but it's actually
- * specific to PCs.  For now it's easier to stub them out than to factor the
- * code properly.
+ * specific to PCs or in a couple of cases is used only by/with OBP.  For now
+ * it's easier to stub them out than to factor the code properly.
  */
+
+/*
+ * Used by openprom(7d) only.
+ */
+char saved_cmdline[1] = "";
+
+void
+read_bootenvrc(void)
+{
+}
 
 void
 progressbar_start(void)

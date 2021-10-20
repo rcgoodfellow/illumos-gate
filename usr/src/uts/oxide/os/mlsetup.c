@@ -24,7 +24,7 @@
  * Copyright (c) 1993, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 by Delphix. All rights reserved.
  * Copyright 2019 Joyent, Inc.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Company
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -67,6 +67,7 @@
 #include <sys/tsc.h>
 #include <sys/smt.h>
 #include <milan/milan_fabric.h>
+#include <milan/milan_apob.h>
 
 /*
  * some globals for patching the result of cpuid
@@ -350,6 +351,8 @@ mlsetup(struct regs *rp)
 	 */
 	if (boothowto & RB_DEBUGENTER)
 		kmdb_enter();
+
+	milan_apob_reserve_phys();
 
 	cpu_vm_data_init(CPU);
 

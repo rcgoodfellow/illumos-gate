@@ -1,5 +1,24 @@
-#ifndef	_UART_H
-#define	_UART_H
+/*
+ * This file and its contents are supplied under the terms of the
+ * Common Development and Distribution License ("CDDL"), version 1.0.
+ * You may only use this file in accordance with the terms of version
+ * 1.0 of the CDDL.
+ *
+ * A full copy of the text of the CDDL should have accompanied this
+ * source.  A copy of the CDDL is also available via the Internet at
+ * http://www.illumos.org/license/CDDL.
+ */
+
+/*
+ * Copyright 2021 Oxide Computer Co.
+ */
+
+#ifndef _SYS_UART_H
+#define	_SYS_UART_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef enum async_databits {
 	AD_5BITS = 0x1100001,
@@ -23,7 +42,8 @@ typedef enum async_parity {
 	AP_SPACE = 0x1300004
 } async_parity_t;
 
-extern void putstr(const uintptr_t, const char *);
-extern size_t getline(const uintptr_t, char *, size_t);
+#ifdef __cplusplus
+}
+#endif
 
-#endif	/* _UART_H */
+#endif /* _SYS_UART_H */

@@ -36,10 +36,12 @@
 
 #include <sys/machparam.h>
 #include <sys/stdint.h>
-#include <vm/kboot_mmu.h>
 #include <sys/bootconf.h>
 #include <sys/sysmacros.h>
 #include <sys/boot_debug.h>
+#include <sys/boot_physmem.h>
+
+#include <vm/kboot_mmu.h>
 
 #include <milan/milan_apob.h>
 
@@ -115,7 +117,7 @@ static size_t milan_apob_len;
  * size.
  */
 void
-milan_apob_init(uint64_t apob_pa, memlist_t *apob_range)
+milan_apob_init(uint64_t apob_pa)
 {
 	uintptr_t base;
 	size_t to_map;
@@ -161,8 +163,8 @@ milan_apob_init(uint64_t apob_pa, memlist_t *apob_range)
 		kbm_map(base + i, apob_pa + i, 0, 0);
 	}
 
-	apob_range->ml_address = apob_pa;
-	apob_range->ml_size = P2ROUNDUP(milan_apob_len, MMU_PAGESIZE);
+	eb_physmem_reserve_range(apob_pa,
+	    P2ROUNDUP(milan_apob_len, MMU_PAGESIZE), EBPR_NO_ALLOC);
 }
 
 /*

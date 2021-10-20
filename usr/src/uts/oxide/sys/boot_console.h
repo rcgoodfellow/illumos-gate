@@ -10,27 +10,20 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Co.
  */
 
-#ifndef _MILAN_MILAN_CCX_H
-#define	_MILAN_MILAN_CCX_H
-
-/*
- * Misc. functions that are required to initialize the Milan core complexes.
- */
-
-#include <sys/stdint.h>
+#ifndef _SYS_BOOT_CONSOLE_H
+#define	_SYS_BOOT_CONSOLE_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern void milan_ccx_mmio_init(uint64_t);
-extern void milan_ccx_physmem_init(void);
+struct boot_syscalls *boot_console_init(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _MILAN_MILAN_CCX_H */
+#endif /* _SYS_BOOT_CONSOLE_H */

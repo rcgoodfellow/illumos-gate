@@ -25,7 +25,7 @@
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright (c) 2020 Joyent, Inc.
  * Copyright (c) 2015 by Delphix. All rights reserved.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Company
  * Copyright (c) 2020 Carlos Neira <cneirabustos@gmail.com>
  */
 /*
@@ -642,8 +642,8 @@ startup(void)
 	 * the irq routing table (used for pci labels).
 	 */
 	startup_pci_bios();
-	startup_smap();
 #endif
+	startup_smap();
 	startup_modules();
 
 	startup_end();
