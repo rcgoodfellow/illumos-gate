@@ -1016,33 +1016,37 @@ ire_collect(ire_t *ire, struct rtm_getall_mblk *rgm)
 		return;
 	}
 
-
+	mblk_t *mp = NULL;
+	in6_addr_t v6setsrc = ipv6_all_zeros; //TODO
 	switch (ire->ire_ipversion) {
 		case IPV4_VERSION: {
-			in6_addr_t v6setsrc = ipv6_all_zeros; //TODO
-			ipaddr_t addr = ire->ire_u.ire4_u.ire4_addr;
-			ipaddr_t gw = ire->ire_u.ire4_u.ire4_gateway_addr;
-
-			mblk_t *mp = rts_rtmget(
-				rgm->request,
-				ire,
-				NULL,
-				&v6setsrc,
-				NULL,
-				AF_INET);
-
-			if (rgm->response_head == NULL) {
-				rgm->response_head = mp;
-				rgm->response_tail = mp;
-			} else {
-				rgm->response_tail->b_cont = mp;
-				rgm->response_tail = mp;
-			}
-
-			break;
-		}
-		case IPV6_VERSION:
-			break;
+			   mp = rts_rtmget(
+					   rgm->request,
+					   ire,
+					   NULL,
+					   &v6setsrc,
+					   NULL,
+					   AF_INET);
+			   break;
+		   }
+		case IPV6_VERSION: {
+			   mp = rts_rtmget(
+					   rgm->request,
+					   ire,
+					   NULL,
+					   &v6setsrc,
+					   NULL,
+					   AF_INET6);
+			   break;
+		   }
+		default: { return; }
+	}
+	if (rgm->response_head == NULL) {
+		rgm->response_head = mp;
+		rgm->response_tail = mp;
+	} else {
+		rgm->response_tail->b_cont = mp;
+		rgm->response_tail = mp;
 	}
 }
 
