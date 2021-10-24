@@ -352,8 +352,10 @@ ip_rts_request_common(mblk_t *mp, conn_t *connp, cred_t *ioc_cr)
 		goto done;
 	}
 
-	/* Only allow RTM_GET or RTM_RESOLVE for unprivileged process */
+	/* Only allow RTM_GET, RTM_GETALL or RTM_RESOLVE for unprivileged
+	 * process */
 	if (rtm->rtm_type != RTM_GET &&
+	    rtm->rtm_type != RTM_GETALL &&
 	    rtm->rtm_type != RTM_RESOLVE &&
 	    (ioc_cr == NULL ||
 	    secpolicy_ip_config(ioc_cr, B_FALSE) != 0)) {
