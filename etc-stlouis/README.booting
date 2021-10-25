@@ -50,7 +50,7 @@ free to put this almost anywhere that the loader will let you, except for the
 area the kernel wants to be loaded in and the area you need for the ramdisk.
 This is a convenient, out of the way location for now.
 
-	> 101000000::recv
+	> 101000000::recv -m
 
 	Send ramdisk.ufs in the same manner at this time.  This command places
 the ramdisk into memory at 1_0100_0000.  If you want to change this, you must
