@@ -166,7 +166,9 @@ pciehpc_init(dev_info_t *dip, caddr_t arg)
 	ctrl_p->hc_ops.disable_hpc_intr = pciehpc_disable_intr;
 
 #if	defined(__x86)
+#ifdef	XXX_ACPI
 	pciehpc_update_ops(ctrl_p);
+#endif
 #endif
 
 	/* initialize hot plug controller hw */

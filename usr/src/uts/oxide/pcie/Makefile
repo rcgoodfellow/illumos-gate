@@ -48,7 +48,7 @@ include $(UTSBASE)/oxide/Makefile.oxide
 #
 #	Dependency
 #
-LDFLAGS		+= -Nmisc/acpica -Nmisc/busra
+LDFLAGS		+= -Nmisc/busra
 
 #
 #	Define targets

@@ -205,6 +205,7 @@ pcieb_plat_uninitchild(dev_info_t *child)
 void
 pcieb_init_osc(dev_info_t *devi)
 {
+#ifdef XXX_ACPI
 	pcie_bus_t	*bus_p = PCIE_DIP2UPBUS(devi);
 	uint32_t	osc_flags = OSC_CONTROL_PCIE_ADV_ERR;
 
@@ -224,6 +225,7 @@ pcieb_init_osc(dev_info_t *devi)
 	 */
 	if (!pcie_is_osc(devi) && PCIE_IS_RP(bus_p) && PCIE_HAS_AER(bus_p))
 		(void) pcie_acpi_osc(devi, &osc_flags);
+#endif
 }
 
 /*
