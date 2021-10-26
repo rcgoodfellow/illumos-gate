@@ -39,6 +39,7 @@
 #include <sys/mutex_impl.h>
 #include "i86mmu.h"
 #include "unix_sup.h"
+#include "zen_kmdb.h"
 #include <sys/apix.h>
 #include <sys/x86_archext.h>
 #include <sys/bitmap.h>
@@ -1019,7 +1020,15 @@ static const mdb_dcmd_t dcmds[] = {
 		x86_featureset_dcmd },
 	{ "xcall", ":", "print CPU cross-call state", xcall_dcmd, xcall_help },
 #ifdef _KMDB
+	{ "rddf", ":[-b | -i inst] [-f func] [-s socket]", "read df register",
+	    rddf_dcmd, rddf_dcmd_help },
+	{ "rdsmn", ":[-s socket]", "read smn register", rdsmn_dcmd,
+	    rdsmn_dcmd_help },
 	{ "sysregs", NULL, "dump system registers", sysregs_dcmd },
+	{ "wrdf", ":[-b | -i inst] [-f func] [-s socket] value",
+	    "write df register", wrdf_dcmd, wrdf_dcmd_help },
+	{ "wrsmn", ":[-s socket]", "write smn register", wrsmn_dcmd,
+	    wrsmn_dcmd_help },
 #endif
 	{ NULL }
 };

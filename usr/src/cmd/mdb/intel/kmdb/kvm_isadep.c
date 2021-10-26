@@ -309,9 +309,29 @@ kmt_rwmsr(uint32_t addr, uint64_t *valp, void (*rw)(uint32_t, uint64_t *))
 	return (0);
 }
 
+int
+mdb_x86_rdmsr(uint32_t msr, uint64_t *valp)
+{
+	if (kmt_rwmsr(msr, valp, rdmsr) < 0) {
+		return (DCMD_ERR);
+	}
+
+	return (DCMD_OK);
+}
+
+int
+mdb_x86_wrmsr(uint32_t msr, uint64_t val)
+{
+	if (kmt_rwmsr(msr, &val, wrmsr) < 0) {
+		return (DCMD_ERR);
+	}
+
+	return (DCMD_OK);
+}
+
 /*ARGSUSED*/
 int
-kmt_rdmsr(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+kmt_rdmsr_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	uint64_t val;
 
@@ -330,7 +350,7 @@ kmt_rdmsr(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 /*ARGSUSED*/
 int
-kmt_wrmsr(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+kmt_wrmsr_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
 	uint64_t val;
 

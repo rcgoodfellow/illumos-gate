@@ -40,8 +40,8 @@ extern void kmt_out(void *, size_t, uintptr_t);
 extern int kmt_in_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
 extern int kmt_out_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
 
-extern int kmt_rdmsr(uintptr_t, uint_t, int, const mdb_arg_t *);
-extern int kmt_wrmsr(uintptr_t, uint_t, int, const mdb_arg_t *);
+extern int kmt_rdmsr_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
+extern int kmt_wrmsr_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
 
 extern int kmt_rdpcicfg(uintptr_t, uint_t, int, const mdb_arg_t *);
 extern int kmt_wrpcicfg(uintptr_t, uint_t, int, const mdb_arg_t *);

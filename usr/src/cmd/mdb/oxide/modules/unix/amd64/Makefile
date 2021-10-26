@@ -30,6 +30,11 @@ MDBTGT = kvm
 MODSRCS = unix.c i86mmu.c xcall.c
 MODASMSRCS = unix_sup.s
 
+KMODSRCS = $(MODSRCS) zen_kmdb.c
+KMODASMSRCS = $(MODASMSRCS)
+
+KMOD_SOURCES_DIFFERENT=$(POUND_SIGN)
+
 include ../../../../../Makefile.cmd
 include ../../../../../Makefile.cmd.64
 include ../../../../intel/Makefile.amd64
@@ -40,6 +45,7 @@ CPPFLAGS += -DMP -D_MACHDEP
 CPPFLAGS += -I../../../../common
 CPPFLAGS += -I../../../../intel
 CPPFLAGS += -I$(SRC)/uts/oxide
+CPPFLAGS += -I$(SRC)/uts/oxide/milan
 CPPFLAGS += -I$(SRC)/uts/intel
 
 CERRWARN += -_gcc=-Wno-char-subscripts
