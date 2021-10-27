@@ -13,8 +13,8 @@
  * Copyright 2021 Oxide Computer Company
  */
 
-#ifndef _SYS_BITOPS_H
-#define	_SYS_BITOPS_H
+#ifndef _SYS_BITEXT_H
+#define	_SYS_BITEXT_H
 
 #include <sys/debug.h>
 
@@ -122,4 +122,4 @@ bitset32(uint32_t reg, uint_t high, uint_t low, uint32_t val)
 }
 #endif
 
-#endif /* _SYS_BITOPS_H */
+#endif /* _SYS_BITEXT_H */
