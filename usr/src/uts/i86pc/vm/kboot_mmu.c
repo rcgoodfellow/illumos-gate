@@ -514,3 +514,13 @@ map_pte(paddr_t table, uint_t index)
 	void *table_ptr = kbm_remap_window(table, 0);
 	return ((x86pte_t *)((caddr_t)table_ptr + index * pte_size));
 }
+
+/*
+ * Nothing to do; the ramdisk has already been identity-mapped by dboot.
+ */
+/*ARGSUSED*/
+uint64_t
+kbm_map_ramdisk(uint64_t start, uint64_t end)
+{
+	return (start);
+}

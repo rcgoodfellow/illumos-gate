@@ -77,7 +77,6 @@ extern pfn_t kbm_remap(uintptr_t va, pfn_t pfn);
  */
 extern void kbm_read_only(uintptr_t va, paddr_t pa);
 
-
 /*
  * interface for kmdb to map a physical page, stack is only 1 deep
  */

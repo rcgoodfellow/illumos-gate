@@ -766,6 +766,29 @@ find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
 	return (pp);
 }
 
+uint64_t
+kbm_map_ramdisk(uint64_t start, uint64_t end)
+{
+	uint64_t base, size, vend, off, p;
+	uint_t level = 0;
+
+	if ((start & BOOT_OFFSET(1)) == 0)
+		level = 1;
+
+	size = end - P2ALIGN(start, BOOT_SZ(level));
+	base = kbm_valloc(size, BOOT_SZ(level));
+	vend = base + size;
+
+	off = start - P2ALIGN(start, BOOT_SZ(level));
+	start -= off;
+
+	for (p = 0; base + p < vend; p += BOOT_SZ(level)) {
+		kbm_map(base + p, start + p, level, 0);
+	}
+
+	return (base + off);
+}
+
 #ifdef DEBUG
 /*
  * Dump out the contents of page tables, assuming that they are all identity

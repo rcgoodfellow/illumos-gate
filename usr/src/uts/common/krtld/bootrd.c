@@ -165,23 +165,34 @@ int
 kobj_boot_mountroot()
 {
 	int i;
+	uint64_t rd_phys_start, rd_phys_end;
 
 	if (BOP_GETPROPLEN(ops, "ramdisk_start") != 8 ||
-	    BOP_GETPROP(ops, "ramdisk_start", (void *)&rd_start) != 0 ||
+	    BOP_GETPROP(ops, "ramdisk_start", (void *)&rd_phys_start) != 0 ||
 	    BOP_GETPROPLEN(ops, "ramdisk_end") != 8 ||
-	    BOP_GETPROP(ops, "ramdisk_end", (void *)&rd_end) != 0) {
+	    BOP_GETPROP(ops, "ramdisk_end", (void *)&rd_phys_end) != 0) {
 		_kobj_printf(ops,
 		    "failed to get ramdisk from boot\n");
 		return (-1);
 	}
 #ifdef KOBJ_DEBUG
 	_kobj_printf(ops,
-	    "ramdisk range: 0x%llx-%llx\n", rd_start, rd_end);
+	    "ramdisk phys range: 0x%llx-%llx\n", rd_phys_start, rd_phys_end);
 #endif
 
 	/*
-	 * We have a range of virtual addresses which are the boot archive.
+	 * We have a range of physical addresses which are the boot archive.
+	 * On some platforms, notably i86pc, we could treat them as if they
+	 * were virtual somewhat by accident, because dboot would create an
+	 * identity mapping for every page used by the bootloader's modules.
+	 * Nevertheless, for this to be safe we must create our own mappings
+	 * now, which will be automatically torn down later in boot; at that
+	 * time the real ramdisk driver will be loaded, and will manage its
+	 * own mappings based on the physical addresses supplied by DDI props.
 	 */
+	rd_start = kbm_map_ramdisk(rd_phys_start, rd_phys_end);
+	rd_end = rd_start + (rd_phys_end - rd_phys_start);
+
 	for (i = 0; bfs_tab[i] != NULL; i++) {
 		bfs_ops = bfs_tab[i];
 		if (BRD_MOUNTROOT(bfs_ops, "dummy") == 0)

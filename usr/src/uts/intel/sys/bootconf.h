@@ -228,6 +228,8 @@ extern int dhcacklen;
 extern char dhcifname[IFNAMSIZ];
 extern char *netdev_path;
 
+extern uint64_t kbm_map_ramdisk(uint64_t, uint64_t);
+
 extern void bop_no_more_mem(void);
 
 /*PRINTFLIKE2*/
