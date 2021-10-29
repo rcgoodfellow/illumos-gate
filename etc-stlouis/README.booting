@@ -3,7 +3,7 @@ You will need:
 - An Ethanol-X, almost certainly
 - Milan, possibly; I believe this should also work on Rome but have not tried
   it yet
-- illumos-gate stlouis d06cfdad599a4038085ba4ded5fcf1b19294113c or later
+- illumos-gate stlouis a368956d97835cacf0266ab9ff2fe7b7944afa09 or later
 - nanobl-rs 0.4.0 or later
 - mkrd.bash, mkrd-helper.bash, and ramdisk.manifest from this directory
 
@@ -74,6 +74,15 @@ executes a call to _start(), passing it a NULL pointer so it will use the
 built-in boot data instead of expecting the loader to provide boot-time
 properties.  The semantics of the arguments will change later, and these
 instructions will be updated to match.
+
+Note that the order of loading the ramdisk and kernel does not matter, so if
+you have nanobl-rs 0.4.1 or later, you may replace three of these command
+invocations with a single pipeline, like so:
+
+	> 101000000::recv -m
+	(send ramdisk)
+	> 100000000::recv -m | ::load | ::call
+	(send kernel)
 
 Notes:
 
