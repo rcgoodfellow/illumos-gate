@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Company
  */
 
 #ifndef _AMDZEN_H
@@ -22,6 +22,7 @@
 #include <sys/pci.h>
 #include <sys/taskq.h>
 #include <sys/bitmap.h>
+#include <sys/bitext.h>
 
 /*
  * This header describes properties of the data fabric and our internal state
@@ -134,15 +135,99 @@ typedef enum {
 #define	AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(x)	BITX(x, 7, 0)
 
 /*
- * This registers contians the mapping of PCI buses to different targets on the
- * data fabric.
+ * This register describes the capabilities of the data fabric.
  */
-#define	AMDZEN_DF_F0_CFG_ADDR_MAP	0xa0
-#define	AMDZEN_DF_F0_CFG_ADDR_MAP_RE(x)		BITX(x, 0, 0)
-#define	AMDZEN_DF_F0_CFG_ADDR_MAP_WE(x)		BITX(x, 1, 1)
-#define	AMDZEN_DF_F0_CFG_ADDR_MAP_DEST(x)	BITX(x, 4, 13)
-#define	AMDZEN_DF_F0_CFG_ADDR_MAP_BUS_BASE(x)	BITX(x, 16, 23)
-#define	AMDZEN_DF_F0_CFG_ADDR_MAP_BUS_LIMIT(x)	BITx(x, 24, 31)
+#define	AMDZEN_DF_F0_CAPABILITY		0x90
+#define	AMDZEN_DF_F0_CAPABILITY_POISON(x)	BITX(x, 0, 0)
+#define	AMDZEN_DF_F0_CAPABILITY_SPF(x)		BITX(x, 1, 1)
+
+/*
+ * These registers contain the mapping of PCI Buses to IOMS instances of the
+ * northbridge. There are 8 of these registers, which generally means one per
+ * NBIO instance in a 2P system on EPYC based systems (there are less on other
+ * platforms).
+ */
+#define	AMDZEN_DF_F0_CFGMAP(x)		(0xa0 + ((x) * 4))
+#define	AMDZEN_DF_F0_MAX_CFGMAP		8
+#define	AMDZEN_DF_F0_GET_CFGMAP_RE(r)		bitx32(r, 0, 0)
+#define	AMDZEN_DF_F0_GET_CFGMAP_WE(r)		bitx32(r, 1, 1)
+#define	AMDZEN_DF_F0_GET_CFGMAP_DEST_ID(r)	bitx32(r, 13, 4)
+#define	AMDZEN_DF_F0_GET_CFGMAP_BUS_BASE(r)	bitx32(r, 23, 16)
+#define	AMDZEN_DF_F0_GET_CFGMAP_BUS_LIMIT(r)	bitx32(r, 31, 24)
+
+/*
+ * This is one of a pair of registers which are used to control and configure
+ * the destination of I/O space.
+ */
+#define	AMDZEN_DF_F0_IO_BASE(x)		(0xc0 + ((x) * 8))
+#define	AMDZEN_DF_F0_MAX_IO_RULES	8
+#define	AMDZEN_DF_F0_GET_IO_BASE_RE(r)		bitx32(r, 0, 0)
+#define	AMDZEN_DF_F0_GET_IO_BASE_WE(r)		bitx32(r, 1, 1)
+#define	AMDZEN_DF_F0_GET_IO_BASE_IE(r)		bitx32(r, 5, 5)
+#define	AMDZEN_DF_F0_GET_IO_BASE_BASE(r)	bitx32(r, 24, 12)
+#define	AMDZEN_DF_F0_IO_BASE_SHIFT		12
+
+/*
+ * This register pairs with the one above and defines the limit of the given I/O
+ * space entry.
+ */
+#define	AMDZEN_DF_F0_IO_LIMIT(x)	(0xc4 + ((x) * 8))
+#define	AMDZEN_DF_FO_GET_IO_LIMIT_DEST_ID(r)	bitx32(r, 9, 0)
+#define	AMDZEN_DF_F0_GET_IO_LIMIT_LIMIT(r)	bitx32(r, 24, 12)
+#define	AMDZEN_DF_F0_IO_LIMIT_SHIFT		12
+
+/*
+ * This register is used to determine whether the DRAM hole is valid or not. The
+ * DRAM hole is used to determine where MMIO begins below 4 GiB.
+ */
+#define	AMDZEN_DF_F0_DRAM_HOLE		0x104
+#define	AMDZEN_DF_F0_GET_DRAM_HOLE_VALID(r)		bitx32(r, 0, 0)
+#define	AMDZEN_DF_F0_GET_DRAM_HOLE_BASE(r)		bitx32(r, 31, 24)
+
+/*
+ * DRAM base address register. This determines how DRAM is routed. Note, that
+ * like other parts of the data fabric this varies on the generation. Please
+ * note that this is sepcific to Zen 2/3. Zen 1 had a different layout. Also,
+ * the number of these vary based on the type of instance.
+ */
+#define	AMDZEN_Z2_3_DF_F0_DRAM_BASE(x)	(0x110 + ((x) * 8))
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_VALID(r)	bitx32(r, 0, 0)
+#define	AMDZEN_Z2_3_DF_FO_GET_DRAM_BASE_HOLE_EN(r)	bitx32(r, 1, 1)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_CHAN_ILEAVE(r)	bitx32(r, 5, 2)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_DIE_ILEAVE(r)	bitx32(r, 7, 6)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_SOCK_ILEAVE(r)	bitx32(r, 8, 8)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_ADDR_ILEAVE(r)	bitx32(r, 11, 9)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_BASE(r)		bitx32(r, 31, 12)
+#define	AMDZEN_Z2_3_DF_F0_DRAM_BASE_BASE_SHIFT	28
+
+/*
+ * DRAM limit address registers. These pair with the above base register and
+ * have the same gotchas.
+ */
+#define	AMDZEN_Z2_3_DF_F0_DRAM_LIMIT(x)	(0x114 + ((x) * 8))
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_DEST_ID(r)	bitx32(r, 9, 0)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_BUS_BREAK(r)	bitx32(r, 10, 10)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_LIMIT(r)	bitx32(r, 31, 12)
+#define	AMDZEN_Z2_3_DF_F0_DRAM_LIMIT_LIMIT_SHIFT	28
+
+/*
+ * MMIO base and limit registers. These combine with a control register to
+ * determine where MMIO ranges go and are used. Unlike with DRAM it does seem
+ * that every instance that has something has them for all of them. This
+ * register contains address[47:16].
+ */
+#define	AMDZEN_DF_F0_MAX_MMIO_RULES	16
+#define	AMDZEN_DF_F0_MMIO_BASE(x)	(0x200 + ((x) * 0x10))
+#define	AMDZEN_DF_F0_MMIO_LIMIT(x)	(0x204 + ((x) * 0x10))
+#define	AMDZEN_DF_F0_MMIO_SHIFT		16
+
+#define	AMDZEN_Z2_3_DF_F0_MMIO_CTRL(x)	(0x208 + ((x) * 0x10))
+#define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_RE(r)		bitx32(r, 0, 0)
+#define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_WE(r)		bitx32(r, 1, 0)
+#define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_CPU(r)		bitx32(r, 2, 2)
+#define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_DEST_ID(r)	bitx32(r, 13, 4)
+#define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_NP(r)		bitx32(r, 16, 16)
+
 
 /*
  * Registers that describe how the system is actually put together.

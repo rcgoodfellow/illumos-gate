@@ -1020,6 +1020,8 @@ static const mdb_dcmd_t dcmds[] = {
 		x86_featureset_dcmd },
 	{ "xcall", ":", "print CPU cross-call state", xcall_dcmd, xcall_help },
 #ifdef _KMDB
+	{ "df_route", "-b | -d | -I | -m  [-i func] [-s socket]", "print df "
+	    "route tables", df_route_dcmd, df_route_dcmd_help },
 	{ "rddf", ":[-b | -i inst] [-f func] [-s socket]", "read df register",
 	    rddf_dcmd, rddf_dcmd_help },
 	{ "rdsmn", ":[-s socket]", "read smn register", rdsmn_dcmd,
