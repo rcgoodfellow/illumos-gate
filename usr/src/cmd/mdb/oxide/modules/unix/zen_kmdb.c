@@ -864,10 +864,11 @@ df_route_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	/*
 	 * For DRAM, default to CCM0 (we don't use a UMC because it has very few
-	 * rules). For everything else we'll use IOMS0.
+	 * rules). For I/O ports, use CCM0 as well as the IOMS entries don't
+	 * really have rules here. For MMIO and PCI buses, use IOMS0.
 	 */
 	if (!inst_set) {
-		if (opt_d) {
+		if (opt_d || opt_I) {
 			inst = 0x10;
 		} else {
 			inst = 0x18;

@@ -165,6 +165,10 @@ typedef enum {
 #define	AMDZEN_DF_F0_GET_IO_BASE_WE(r)		bitx32(r, 1, 1)
 #define	AMDZEN_DF_F0_GET_IO_BASE_IE(r)		bitx32(r, 5, 5)
 #define	AMDZEN_DF_F0_GET_IO_BASE_BASE(r)	bitx32(r, 24, 12)
+#define	AMDZEN_DF_F0_SET_IO_BASE_RE(r, v)	bitset32(r, 0, 0, v)
+#define	AMDZEN_DF_F0_SET_IO_BASE_WE(r, v)	bitset32(r, 1, 1, v)
+#define	AMDZEN_DF_F0_SET_IO_BASE_IE(r, v)	bitset32(r, 5, 5, v)
+#define	AMDZEN_DF_F0_SET_IO_BASE_BASE(r, v)	bitset32(r, 24, 12, v)
 #define	AMDZEN_DF_F0_IO_BASE_SHIFT		12
 
 /*
@@ -174,7 +178,14 @@ typedef enum {
 #define	AMDZEN_DF_F0_IO_LIMIT(x)	(0xc4 + ((x) * 8))
 #define	AMDZEN_DF_FO_GET_IO_LIMIT_DEST_ID(r)	bitx32(r, 9, 0)
 #define	AMDZEN_DF_F0_GET_IO_LIMIT_LIMIT(r)	bitx32(r, 24, 12)
+#define	AMDZEN_DF_FO_SET_IO_LIMIT_DEST_ID(r, v)	bitset32(r, 9, 0, v)
+#define	AMDZEN_DF_F0_SET_IO_LIMIT_LIMIT(r, v)	bitset32(r, 24, 12, v)
 #define	AMDZEN_DF_F0_IO_LIMIT_SHIFT		12
+
+/*
+ * The maximum amount of I/O space that we can use.
+ */
+#define	AMDZEN_MAX_IO_LIMIT		((1 << 24) - 1)
 
 /*
  * This register is used to determine whether the DRAM hole is valid or not. The
@@ -227,6 +238,11 @@ typedef enum {
 #define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_CPU(r)		bitx32(r, 2, 2)
 #define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_DEST_ID(r)	bitx32(r, 13, 4)
 #define	AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_NP(r)		bitx32(r, 16, 16)
+#define	AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_RE(r, v)	bitset32(r, 0, 0, v)
+#define	AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_WE(r, v)	bitset32(r, 1, 0, v)
+#define	AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_CPU(r, v)	bitset32(r, 2, 2, v)
+#define	AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_DEST_ID(r, v)	bitset32(r, 13, 4, v)
+#define	AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_NP(r, v)	bitset32(r, 16, 16, v)
 
 
 /*

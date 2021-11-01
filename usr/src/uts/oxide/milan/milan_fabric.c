@@ -1172,8 +1172,8 @@ typedef struct milan_ioms {
 	uint16_t		mio_pci_busno;
 	uint16_t		mio_pci_max_busno;
 	uint8_t			mio_num;
-	/* XXX Probably want to split this into the local id and global id */
 	uint8_t			mio_fabric_id;
+	uint8_t			mio_comp_id;
 	uint8_t			mio_npcie_ports;
 	uint8_t			mio_nnbifs;
 	milan_ioms_pcie_port_t	mio_pcie_ports[MILAN_IOMS_MAX_PCIE_PORTS];
@@ -1194,6 +1194,7 @@ typedef struct milan_iodie {
 	kmutex_t		mi_df_ficaa_lock;
 	kmutex_t		mi_smn_lock;
 	kmutex_t		mi_smu_lock;
+	uint8_t			mi_node_id;
 	uint8_t			mi_dfno;
 	uint8_t			mi_smn_busno;
 	uint8_t			mi_nioms;
@@ -1213,11 +1214,23 @@ typedef struct milan_soc {
 typedef struct milan_fabric {
 	uint8_t		mf_nsocs;
 	/*
+	 * This represents a cache of everything that we've found in the fabric.
+	 */
+	uint_t		mf_total_ioms;
+	/*
+	 * These are masks and shifts that describe how to take apart an ID into
+	 * its node ID and corresponding component ID.
+	 */
+	uint8_t		mf_node_shift;
+	uint32_t	mf_node_mask;
+	uint32_t	mf_comp_mask;
+	/*
 	 * While TOM and TOM2 are nominally set per-core and per-IOHC, these
 	 * values are fabric-wide.
 	 */
 	uint64_t	mf_tom;
 	uint64_t	mf_tom2;
+	uint64_t	mf_mmio64_base;
 	milan_soc_t	mf_socs[MILAN_FABRIC_MAX_SOCS];
 } milan_fabric_t;
 
@@ -1337,6 +1350,38 @@ milan_fabric_walk_nbif(milan_fabric_t *fabric, milan_nbif_cb_f func, void *arg)
 	    &cb));
 }
 
+typedef struct {
+	uint32_t	mffi_dest;
+	milan_ioms_t	*mffi_ioms;
+} milan_fabric_find_ioms_t;
+
+static int
+milan_fabric_find_ioms_cb(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+{
+	milan_fabric_find_ioms_t *mffi = arg;
+
+	if (mffi->mffi_dest == ioms->mio_fabric_id) {
+		mffi->mffi_ioms = ioms;
+	}
+
+	return (0);
+}
+
+
+static milan_ioms_t *
+milan_fabric_find_ioms(milan_fabric_t *fabric, uint32_t destid)
+{
+	milan_fabric_find_ioms_t mffi;
+
+	mffi.mffi_dest = destid;
+	mffi.mffi_ioms = NULL;
+
+	milan_fabric_walk_ioms(fabric, milan_fabric_find_ioms_cb, &mffi);
+
+	return (mffi.mffi_ioms);
+}
+
 static uint32_t
 milan_df_read32(milan_iodie_t *iodie, uint8_t inst, uint8_t func, uint16_t reg)
 {
@@ -1363,6 +1408,13 @@ static uint32_t
 milan_df_bcast_read32(milan_iodie_t *iodie, uint8_t func, uint16_t reg)
 {
 	return (pci_getl_func(0, iodie->mi_dfno, func, reg));
+}
+
+static void
+milan_df_bcast_write32(milan_iodie_t *iodie, uint8_t func, uint16_t reg,
+    uint32_t val)
+{
+	pci_putl_func(0, iodie->mi_dfno, func, reg, val);
 }
 
 static uint32_t
@@ -1648,7 +1700,7 @@ void
 milan_fabric_topo_init(void)
 {
 	uint8_t nsocs;
-	uint32_t syscfg, syscomp;
+	uint32_t syscfg, syscomp, fidmask;
 	milan_fabric_t *fabric = &milan_fabric;
 
 	PRM_POINT("milan_fabric_topo_init() starting...");
@@ -1670,15 +1722,42 @@ milan_fabric_topo_init(void)
 	fabric->mf_tom = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM));
 	fabric->mf_tom2 = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM2));
 
+	/*
+	 * Set up the base of 64-bit MMIO. The actual starting point depends on
+	 * the combination of where DRAM ends and where the mysterious hold
+	 * ends. As a result, we always start things at the higher of the two.
+	 */
+	fabric->mf_mmio64_base = MAX(fabric->mf_tom2,
+	    MILAN_PHYSADDR_MYSTERY_HOLE_END);
+
+	/*
+	 * Gather the register masks for decoding global fabric IDs into local
+	 * instance IDs.
+	 */
+	fidmask = pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE, 1,
+	    AMDZEN_DF_F1_FIDMASK0);
+
+	fabric->mf_node_mask = AMDZEN_DF_F1_FIDMASK0_NODE_MASK(fidmask);
+	fabric->mf_comp_mask = AMDZEN_DF_F1_FIDMASK0_COMP_MASK(fidmask);
+
+	fidmask = pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE, 1,
+	    AMDZEN_DF_F1_FIDMASK1);
+	fabric->mf_node_shift = AMDZEN_DF_F1_FIDMASK1_NODE_SHIFT(fidmask);
+
+
 	fabric->mf_nsocs = nsocs;
 	for (uint8_t socno = 0; socno < nsocs; socno++) {
-		uint32_t busno;
+		uint32_t busno, nodeid;
 		milan_soc_t *soc = &fabric->mf_socs[socno];
 		milan_iodie_t *iodie = &soc->ms_iodies[0];
 
 		soc->ms_socno = socno;
 		soc->ms_ndies = MILAN_FABRIC_MAX_DIES_PER_SOC;
 		iodie->mi_dfno = AMDZEN_DF_FIRST_DEVICE + socno;
+
+		nodeid = pci_getl_func(AMDZEN_DF_BUSNO, iodie->mi_dfno, 1,
+		    AMDZEN_DF_F1_SYSCFG);
+		iodie->mi_node_id = AMDZEN_DF_F1_SYSCFG_NODEID(nodeid);
 
 		/*
 		 * XXX Because we do not know the circumstances all these locks
@@ -1697,15 +1776,18 @@ milan_fabric_topo_init(void)
 		iodie->mi_smn_busno = AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(busno);
 
 		iodie->mi_nioms = MILAN_IOMS_PER_IODIE;
+		fabric->mf_total_ioms += iodie->mi_nioms;
 		for (uint8_t iomsno = 0; iomsno < iodie->mi_nioms; iomsno++) {
 			uint32_t val;
 
 			milan_ioms_t *ioms = &iodie->mi_ioms[iomsno];
 
 			ioms->mio_num = iomsno;
-			ioms->mio_fabric_id = MILAN_DF_FIRST_IOMS_ID + iomsno;
+			ioms->mio_comp_id = MILAN_DF_FIRST_IOMS_ID + iomsno;
+			ioms->mio_fabric_id = ioms->mio_comp_id |
+			    (iodie->mi_node_id << fabric->mf_node_shift);
 
-			val = milan_df_read32(iodie, ioms->mio_fabric_id, 0,
+			val = milan_df_read32(iodie, ioms->mio_comp_id, 0,
 			    AMDZEN_DF_F0_CFG_ADDR_CTL);
 			ioms->mio_pci_busno =
 			    AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(val);
@@ -3217,6 +3299,325 @@ done:
 }
 
 /*
+ * We want to walk the DF and record information about how PCI buses are routed.
+ * We make an assumption here, which is that each DF instance has been
+ * programmed the same way by the PSP/SMU (which if was not done would lead to
+ * some chaos). As such, we end up using the first socket's df and its first
+ * IOMS to figure this out.
+ */
+static void
+milan_route_pci_bus(milan_fabric_t *fabric)
+{
+	milan_iodie_t *iodie = &fabric->mf_socs[0].ms_iodies[0];
+	uint_t inst = iodie->mi_ioms[0].mio_comp_id;
+
+	for (uint_t i = 0; i < AMDZEN_DF_F0_MAX_CFGMAP; i++) {
+		milan_ioms_t *ioms;
+		uint32_t base, limit, dest;
+		uint32_t val = milan_df_read32(iodie, inst, 0,
+		    AMDZEN_DF_F0_CFGMAP(i));
+
+		/*
+		 * If a configuration map entry doesn't have both read and write
+		 * enabled, then we treat that as something that we should skip.
+		 * There is no validity bit here, so this is the closest that we
+		 * can come to.
+		 */
+		if (AMDZEN_DF_F0_GET_CFGMAP_RE(val) == 0 ||
+		    AMDZEN_DF_F0_GET_CFGMAP_WE(val) == 0) {
+			continue;
+		}
+
+		base = AMDZEN_DF_F0_GET_CFGMAP_BUS_BASE(val);
+		limit = AMDZEN_DF_F0_GET_CFGMAP_BUS_LIMIT(val);
+		dest = AMDZEN_DF_F0_GET_CFGMAP_DEST_ID(val);
+
+		ioms = milan_fabric_find_ioms(fabric, dest);
+		if (ioms != NULL) {
+			cmn_err(CE_WARN, "mapped [%x, %x]->%x", base, limit,
+			    dest);
+		} else {
+			cmn_err(CE_WARN, "found no mapping for [%x, %x]->%x",
+			    base, limit, dest);
+		}
+	}
+}
+
+typedef struct milan_route_io {
+	uint32_t	mri_per_ioms;
+	uint32_t	mri_next_base;
+	uint32_t	mri_cur;
+	uint32_t	mri_last_ioms;
+	uint32_t	mri_bases[AMDZEN_DF_F0_MAX_IO_RULES];
+	uint32_t	mri_limits[AMDZEN_DF_F0_MAX_IO_RULES];
+	uint32_t	mri_dests[AMDZEN_DF_F0_MAX_IO_RULES];
+} milan_route_io_t;
+
+static int
+milan_io_ports_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+{
+	milan_route_io_t *mri = arg;
+
+	/*
+	 * The primary FCH (e.g. the IOMS that has the FCH on iodie 0) always
+	 * has a base of zero so we can cover the legacy I/O ports.
+	 */
+	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0 &&
+	    iodie->mi_node_id == 0) {
+		mri->mri_bases[mri->mri_cur] = 0;
+	} else {
+		mri->mri_bases[mri->mri_cur] = mri->mri_next_base;
+		mri->mri_next_base += mri->mri_per_ioms;
+
+		mri->mri_last_ioms = mri->mri_cur;
+	}
+
+	mri->mri_limits[mri->mri_cur] = mri->mri_bases[mri->mri_cur] +
+	    mri->mri_per_ioms - 1;
+	mri->mri_dests[mri->mri_cur] = ioms->mio_fabric_id;
+
+	mri->mri_cur++;
+	return (0);
+}
+
+/*
+ * The I/O ports effectively use the RE and WE bits as enable bits. Therefore we
+ * need to make sure to set the limit register before setting the base register
+ * for a given entry.
+ */
+static int
+milan_io_ports_assign(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, void *arg)
+{
+	milan_route_io_t *mri = arg;
+
+	for (uint32_t i = 0; i < mri->mri_cur; i++) {
+		uint32_t base = 0, limit = 0;
+
+		base = AMDZEN_DF_F0_SET_IO_BASE_RE(base, 1);
+		base = AMDZEN_DF_F0_SET_IO_BASE_WE(base, 1);
+		base = AMDZEN_DF_F0_SET_IO_BASE_BASE(base,
+		    mri->mri_bases[i] >> AMDZEN_DF_F0_IO_BASE_SHIFT);
+
+		limit = AMDZEN_DF_FO_SET_IO_LIMIT_DEST_ID(limit,
+		    mri->mri_dests[i]);
+		limit = AMDZEN_DF_F0_SET_IO_LIMIT_LIMIT(limit,
+		    mri->mri_limits[i] >> AMDZEN_DF_F0_IO_LIMIT_SHIFT);
+
+		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_IO_LIMIT(i),
+		    limit);
+		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_IO_BASE(i), base);
+	}
+
+	return (0);
+}
+
+/*
+ * We need to set up the I/O port mappings to all IOMS instances. Like with
+ * other things, for the moment we do the simple thing and make them shared
+ * equally across all units. However, there are a few gotchas:
+ *
+ *  o The first 4 KiB of I/O ports are considered 'legacy'/'compatibility' I/O.
+ *    This means that they need to go to the IOMS with the FCH.
+ *  o The I/O space base and limit registers all have a 12-bit granularity.
+ *  o The DF actually supports 24-bits of I/O space
+ *  o x86 cores only support 16-bits of I/O space
+ *  o There are only 8 routing rules here, so 1/IOMS in a 2P system
+ *
+ * So with all this in mind, we're going to do the following:
+ *
+ *  o Each IOMS will be assigned a single route (whether there are 4 or 8)
+ *  o We're basically going to assign the 16-bits of ports evenly between all
+ *    found IOMS instances.
+ *  o Yes, this means the FCH is going to lose some I/O ports relative to
+ *    everything else, but that's fine. If we're constrained on I/O ports, we're
+ *    in trouble.
+ *  o Because we have a limited number of entries, the FCH on node 0 (e.g. the
+ *    primary one) has the region starting at 0.
+ *  o Whoever is last gets all the extra I/O ports filling up the 1 MiB.
+ */
+static void
+milan_route_io_ports(milan_fabric_t *fabric)
+{
+	milan_route_io_t mri;
+	uint32_t total_size = UINT16_MAX + 1;
+
+	bzero(&mri, sizeof (mri));
+	mri.mri_per_ioms = total_size / fabric->mf_total_ioms;
+	VERIFY3U(mri.mri_per_ioms, >=, 1 << AMDZEN_DF_F0_IO_BASE_SHIFT);
+	mri.mri_next_base = mri.mri_per_ioms;
+
+	/*
+	 * First walk each IOMS to assign things evenly. We'll come back and
+	 * then find the last non-primary one and that'll be the one that gets a
+	 * larger limit.
+	 */
+	(void) milan_fabric_walk_ioms(fabric, milan_io_ports_allocate, &mri);
+	mri.mri_limits[mri.mri_last_ioms] = AMDZEN_MAX_IO_LIMIT;
+	(void) milan_fabric_walk_iodie(fabric, milan_io_ports_assign, &mri);
+}
+
+typedef struct milan_route_mmio {
+	uint32_t	mrm_cur;
+	uint32_t	mrm_mmio32_base;
+	uint32_t	mrm_mmio32_chunks;
+	uint32_t	mrm_fch_base;
+	uint32_t	mrm_fch_chunks;
+	uint64_t	mrm_mmio64_base;
+	uint64_t	mrm_mmio64_chunks;
+	uint64_t	mrm_bases[AMDZEN_DF_F0_MAX_MMIO_RULES];
+	uint64_t	mrm_limits[AMDZEN_DF_F0_MAX_MMIO_RULES];
+	uint32_t	mrm_dests[AMDZEN_DF_F0_MAX_MMIO_RULES];
+} milan_route_mmio_t;
+
+/*
+ * We allocate two rules per device. The first is a 32-bit rule. The second is
+ * then its corresponding 64-bit.
+ */
+static int
+milan_mmio_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+{
+	milan_route_mmio_t *mrm = arg;
+	const uint32_t mmio_gran = 1 << AMDZEN_DF_F0_MMIO_SHIFT;
+
+	/*
+	 * The primary FCH is treated as a special case so that its 32-bit MMIO
+	 * region is as close to the subtractive compat region as possible.
+	 */
+	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0 &&
+	    iodie->mi_node_id == 0) {
+		mrm->mrm_bases[mrm->mrm_cur] = mrm->mrm_fch_base;
+		mrm->mrm_limits[mrm->mrm_cur] = mrm->mrm_fch_base;
+		mrm->mrm_limits[mrm->mrm_cur] += mrm->mrm_fch_chunks *
+		    mmio_gran - 1;
+	} else {
+		mrm->mrm_bases[mrm->mrm_cur] = mrm->mrm_mmio32_base;
+		mrm->mrm_limits[mrm->mrm_cur] = mrm->mrm_mmio32_base;
+		mrm->mrm_limits[mrm->mrm_cur] += mrm->mrm_mmio32_chunks *
+		    mmio_gran - 1;
+		mrm->mrm_mmio32_base += mrm->mrm_mmio32_chunks *
+		    mmio_gran;
+	}
+
+	mrm->mrm_dests[mrm->mrm_cur] = ioms->mio_fabric_id;
+	mrm->mrm_cur++;
+
+	/*
+	 * Now onto the 64-bit register, which is thankfully uniform for all
+	 * IOMS entries.
+	 */
+	mrm->mrm_bases[mrm->mrm_cur] = mrm->mrm_mmio64_base;
+	mrm->mrm_limits[mrm->mrm_cur] = mrm->mrm_mmio64_base +
+	    mrm->mrm_mmio64_chunks * mmio_gran - 1;
+	mrm->mrm_mmio64_base += mrm->mrm_mmio64_chunks * mmio_gran;
+	mrm->mrm_dests[mrm->mrm_cur] = ioms->mio_fabric_id;
+	mrm->mrm_cur++;
+
+	return (0);
+}
+
+/*
+ * We need to set the three registers that make up an MMIO rule. Importantly we
+ * set the control register last as that's what contains the effective enable
+ * bits.
+ */
+static int
+milan_mmio_assign(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, void *arg)
+{
+	milan_route_mmio_t *mrm = arg;
+
+	for (uint32_t i = 0; i < mrm->mrm_cur; i++) {
+		uint32_t base, limit;
+		uint32_t ctrl = 0;
+
+		base = mrm->mrm_bases[i] >> AMDZEN_DF_F0_MMIO_SHIFT;
+		limit = mrm->mrm_limits[i] >> AMDZEN_DF_F0_MMIO_SHIFT;
+		ctrl = AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_RE(ctrl, 1);
+		ctrl = AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_WE(ctrl, 1);
+		ctrl = AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_DEST_ID(ctrl,
+		    mrm->mrm_dests[i]);
+
+		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_MMIO_BASE(i),
+		    base);
+		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_MMIO_LIMIT(i),
+		    limit);
+		milan_df_bcast_write32(iodie, 0, AMDZEN_Z2_3_DF_F0_MMIO_CTRL(i),
+		    ctrl);
+	}
+
+	return (0);
+}
+
+/*
+ * Routing MMIO is both important and a little complicated mostly due to the how
+ * x86 actually has historically split MMIO between the below 4 GiB region and
+ * the above 4 GiB region. In addition, there are only 16 routing rules that we
+ * can write, which means we get a maximum of 2 routing rules per IOMS (mostly
+ * because we're being lazy).
+ *
+ * The below 4 GiB space is split due to the compat region
+ * (MILAN_PHYSADDR_COMPAT_MMIO) and the presence of the PCIe configuration space
+ * at (MILAN_PHYSADDR_PCIECFG). The way we divide up the lower region is simple:
+ *
+ *   o The region between TOM and PCIe is split evenly among our non-primary
+ *     entry. In a 1P system this results in 256 MiB per IOMS. This is divided
+ *     more awkwardly when we have a 2P system, but it's fine.
+ *
+ *   o The 32-bit region between PCIe and compat is just always just given to
+ *     the primary root bridge because there are nebulous suggestions that some
+ *     of its other devices want to be mapped in that region.
+ *
+ * 64-bit space is simple. We find which is higher: TOM2 or the top of the
+ * second hole (MILAN_PHYSADDR_MYSTERY_HOLE_END). From there, we just divide all
+ * the remaining space between that and MILAN_PHYSADDR_MMIO_END. This is the
+ * milan_fabric_t's mf_mmio64_base member.
+ *
+ * Our general assumption with this strategy is that 64-bit MMIO is plentiful
+ * and that's what we'd rather assign and use.  This ties into the last bit
+ * which is important: the hardware requires us to allocate in 16-bit chunks. So
+ * we actually really treat all of our allocations as units of 64 KiB,
+ * accepting that we're going to waste some 32-bit space.
+ */
+static void
+milan_route_mmio(milan_fabric_t *fabric)
+{
+	uint32_t mmio32_size, fch_size;
+	uint64_t mmio64_size;
+	uint_t nioms32;
+	milan_route_mmio_t mrm;
+	const uint32_t mmio_gran = 1 << AMDZEN_DF_F0_MMIO_SHIFT;
+
+	VERIFY(IS_P2ALIGNED(fabric->mf_tom, mmio_gran));
+	VERIFY3U(MILAN_PHYSADDR_PCIECFG, >, fabric->mf_tom);
+	mmio32_size = MILAN_PHYSADDR_PCIECFG - fabric->mf_tom;
+	nioms32 = fabric->mf_total_ioms - 1;
+	VERIFY3U(mmio32_size, >, nioms32 * mmio_gran);
+
+	VERIFY(IS_P2ALIGNED(fabric->mf_mmio64_base, mmio_gran));
+	VERIFY3U(MILAN_PHYSADDR_MMIO_END, >, fabric->mf_mmio64_base);
+	mmio64_size = MILAN_PHYSADDR_MMIO_END - fabric->mf_mmio64_base;
+	VERIFY3U(mmio64_size, >,  fabric->mf_total_ioms * mmio_gran);
+
+	VERIFY(IS_P2ALIGNED(MILAN_PHYSADDR_PCIECFG_END, mmio_gran));
+	VERIFY3U(MILAN_PHYSADDR_COMPAT_MMIO, >, MILAN_PHYSADDR_PCIECFG_END);
+	fch_size = MILAN_PHYSADDR_COMPAT_MMIO - MILAN_PHYSADDR_PCIECFG_END;
+
+	bzero(&mrm, sizeof (mrm));
+	mrm.mrm_mmio32_base = fabric->mf_tom;
+	mrm.mrm_mmio32_chunks = mmio32_size / mmio_gran / nioms32;
+	mrm.mrm_fch_base = MILAN_PHYSADDR_PCIECFG_END;
+	mrm.mrm_fch_chunks = fch_size / mmio_gran;
+	mrm.mrm_mmio64_base = fabric->mf_mmio64_base;
+	mrm.mrm_mmio64_chunks = mmio64_size / mmio_gran / fabric->mf_total_ioms;
+
+	(void) milan_fabric_walk_ioms(fabric, milan_mmio_allocate, &mrm);
+	(void) milan_fabric_walk_iodie(fabric, milan_mmio_assign, &mrm);
+}
+
+/*
  * This is the main place where we basically do everything that we need to do to
  * get the PCIe engine up and running.
  */
@@ -3232,6 +3633,15 @@ milan_fabric_init(void)
 	 * of the memory controller driver and broader policy rather than all
 	 * here right now.
 	 */
+
+	/*
+	 * When we come out of reset, the PSP and/or SMU have set up our DRAM
+	 * routing rules and the PCI bus routing rules. We need to go through
+	 * and save this information as well as set up I/O ports and MMIO.
+	 */
+	milan_route_pci_bus(fabric);
+	milan_route_io_ports(fabric);
+	milan_route_mmio(fabric);
 
 	/*
 	 * While DRAM training seems to have programmed the initial memory

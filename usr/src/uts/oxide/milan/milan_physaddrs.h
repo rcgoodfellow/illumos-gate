@@ -121,9 +121,9 @@ extern "C" {
  * |       IOAPIC        |
  * +---------------------+ 0xfec0_0000
  * |                     |
- * |      Free MMIO      |  This may be available for assigning to 32-bit PCIe
- * |                     |  devices, some may be reserved by the FCH.
- * |                     |
+ * |      Free MMIO      |  This region of MMIO is assigned to the 'primary'
+ * |  Assigned to FCH    |  FCH's IOMS.
+ * |        IOMS         |
  * +---------------------+ 0xf000_0000 -- 3.75 GiB
  * |                     |
  * |       PCIe          |  Home of our classical memory mapped way of getting
@@ -132,8 +132,11 @@ extern "C" {
  * |                     |
  * +---------------------+ 0xe000_0000 -- 3.5 GiB
  * |                     |
+ * |                     |
  * |      Available      |  This provides access to 32-bit addresses for PCI
- * |     32-bit MMIO     |  bars and other devices. Still TBD on what we need.
+ * |     32-bit MMIO     |  bars and other devices. This is split evenly among
+ * |                     |  all of the IOMSes except for the one containing the
+ * |                     |  primary FCH.
  * |                     |
  * +---------------------+ Core::X86::Msr::TOM
  * |                     |
@@ -144,9 +147,29 @@ extern "C" {
  * +---------------------+ 0x0000_0000 - 0
  */
 
-#define	MILAN_PHYSADDR_PCIECFG	0xe0000000
+/*
+ * This is the address where we have opted to put PCIe configuration space.
+ */
+#define	MILAN_PHYSADDR_PCIECFG		0xe0000000
+#define	MILAN_PHYSADDR_PCIECFG_END	0xf0000000
+
+/*
+ * This address represents the beginning of a compatibility MMIO range. This
+ * range is accessed using subtractive decoding somehow, which means that if we
+ * program an address range into the DF that overlaps this we will lose access
+ * to these compatibility devices which generally speaking contain the FCH.
+ */
+#define	MILAN_PHYSADDR_COMPAT_MMIO	0xfec00000
+
+
 #define	MILAN_PHYSADDR_MYSTERY_HOLE 0xfd00000000
 #define	MILAN_PHYSADDR_MYSTERY_HOLE_END 0x10000000000
+
+/*
+ * This is the final address that we can use for MMIO. Beyond this is an
+ * explicitly reserved area that we're not supposed to touch.
+ */
+#define	MILAN_PHYSADDR_MMIO_END	0xfffd00000000
 
 /*
  * XXX This is the MMIO Address for the IOAPIC. It can really be anywhere;
