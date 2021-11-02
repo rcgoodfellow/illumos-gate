@@ -2,3 +2,4 @@ OPEN
 
 FIXED
 OX0001 PTE page mapping window discovery is excessively brittle
+OX0002 find_pte() stomps on memory mapped improperly by kbm_map_ramdisk()

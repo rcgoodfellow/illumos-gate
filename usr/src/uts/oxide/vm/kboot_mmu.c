@@ -740,8 +740,23 @@ find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
 
 		/*
 		 * Life is easy if we find the pagetable.  We just use it.
+		 * However we must be sure this is not a large page; this
+		 * simplified MMU code doesn't know how to demote such a
+		 * mapping, and we must panic if we are asked for a PTE from a
+		 * level L pagetable but there is a large mapping covering the
+		 * requested VA at any level above L.
 		 */
 		if (pteval & PT_VALID) {
+			if ((pteval & PT_PAGESIZE) != 0) {
+				if (probe_only)
+					return (NULL);
+
+				bop_panic("find_pte() encountered large page "
+				    "PTE %lx at level %d while looking for %lx "
+				    "at level %d",
+				    pteval, l, va, level);
+			}
+
 			table = pteval & MMU_PAGEMASK;
 			continue;
 		}
@@ -769,24 +784,32 @@ find_pte(uint64_t va, paddr_t *pa, uint_t level, uint_t probe_only)
 uint64_t
 kbm_map_ramdisk(uint64_t start, uint64_t end)
 {
-	uint64_t base, size, vend, off, p;
+	uint64_t vstart, vend, size, off, p, pagesize;
 	uint_t level = 0;
 
 	if ((start & BOOT_OFFSET(1)) == 0)
 		level = 1;
 
-	size = end - P2ALIGN(start, BOOT_SZ(level));
-	base = kbm_valloc(size, BOOT_SZ(level));
-	vend = base + size;
+	pagesize = BOOT_SZ(level);
 
-	off = start - P2ALIGN(start, BOOT_SZ(level));
+	size = P2ROUNDUP(end - P2ALIGN(start, pagesize), pagesize);
+	vstart = kbm_valloc(size, pagesize);
+	vend = vstart + size;
+
+	off = start - P2ALIGN(start, pagesize);
 	start -= off;
 
-	for (p = 0; base + p < vend; p += BOOT_SZ(level)) {
-		kbm_map(base + p, start + p, level, 0);
+	DBG_MSG("ramdisk: start %lx end %lx base %lx vend %lx off %lx\n",
+	    start, end, vstart, vend, off);
+
+	for (p = 0; vstart + p < vend; p += pagesize) {
+		DBG_MSG("mapping ramdisk: %lx -> %lx\n",
+		    vstart + p, start + p);
+		kbm_map(vstart + p, start + p, level, 0);
 	}
 
-	return (base + off);
+
+	return (vstart + off);
 }
 
 #ifdef DEBUG
