@@ -299,6 +299,10 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/fs/objfs/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/fs/p9fs/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/fs/pcfs/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
@@ -1503,6 +1507,11 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/vioblk/%.c
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/vioif/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/vio9p/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 #
 # krtld must refer to its own bzero/bcopy until the kernel is fully linked
 #
