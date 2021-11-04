@@ -176,9 +176,9 @@ typedef enum {
  * space entry.
  */
 #define	AMDZEN_DF_F0_IO_LIMIT(x)	(0xc4 + ((x) * 8))
-#define	AMDZEN_DF_FO_GET_IO_LIMIT_DEST_ID(r)	bitx32(r, 9, 0)
+#define	AMDZEN_DF_F0_GET_IO_LIMIT_DEST_ID(r)	bitx32(r, 9, 0)
 #define	AMDZEN_DF_F0_GET_IO_LIMIT_LIMIT(r)	bitx32(r, 24, 12)
-#define	AMDZEN_DF_FO_SET_IO_LIMIT_DEST_ID(r, v)	bitset32(r, 9, 0, v)
+#define	AMDZEN_DF_F0_SET_IO_LIMIT_DEST_ID(r, v)	bitset32(r, 9, 0, v)
 #define	AMDZEN_DF_F0_SET_IO_LIMIT_LIMIT(r, v)	bitset32(r, 24, 12, v)
 #define	AMDZEN_DF_F0_IO_LIMIT_SHIFT		12
 
@@ -203,7 +203,7 @@ typedef enum {
  */
 #define	AMDZEN_Z2_3_DF_F0_DRAM_BASE(x)	(0x110 + ((x) * 8))
 #define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_VALID(r)	bitx32(r, 0, 0)
-#define	AMDZEN_Z2_3_DF_FO_GET_DRAM_BASE_HOLE_EN(r)	bitx32(r, 1, 1)
+#define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_HOLE_EN(r)	bitx32(r, 1, 1)
 #define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_CHAN_ILEAVE(r)	bitx32(r, 5, 2)
 #define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_DIE_ILEAVE(r)	bitx32(r, 7, 6)
 #define	AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_SOCK_ILEAVE(r)	bitx32(r, 8, 8)

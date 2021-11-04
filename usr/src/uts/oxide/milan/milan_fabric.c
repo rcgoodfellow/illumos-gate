@@ -93,12 +93,52 @@
 #define	MILAN_IOMS_HAS_FCH	3
 
 /*
+ * In general, each functional block attached to the SMN is allotted its own
+ * 20-bit aperture, which effectively means the block has a 12-bit identifier
+ * or base as well.  Some subsystems have smaller base addresses because they
+ * consume some of the register space for things like device and function ids.
+ */
+#define	MILAN_SMN_ADDR_BLOCK_BITS	12
+
+#define	MILAN_SMN_ADDR_BASE_PART(_addr, _basebits)	\
+	bitx32((_addr), 31, 32 - (_basebits))
+#define	MILAN_SMN_ADDR_REG_PART(_addr, _basebits)	\
+	bitx32((_addr), 31 - (_basebits), 0)
+
+#define	MILAN_SMN_ASSERT_BASE_ADDR(_smnbase, _basebits)	\
+	ASSERT0(MILAN_SMN_ADDR_REG_PART(_smnbase, _basebits))
+#define	MILAN_SMN_ASSERT_REG_ADDR(_smnreg, _basebits)	\
+	ASSERT0(MILAN_SMN_ADDR_BASE_PART(_smnreg, _basebits))
+
+#define	MILAN_SMN_VERIFY_BASE_ADDR(_smnbase, _basebits)	\
+	VERIFY0(MILAN_SMN_ADDR_REG_PART(_smnbase, _basebits))
+#define	MILAN_SMN_VERIFY_REG_ADDR(_smnreg, _basebits)	\
+	VERIFY0(MILAN_SMN_ADDR_BASE_PART(_smnreg, _basebits))
+
+#define	MILAN_SMN_MAKE_ADDR(_smnbase, _basebits, _smnreg)	\
+	(					\
+	{					\
+		uint32_t _b = (_smnbase);	\
+		uint32_t _r = (_smnreg);	\
+		uint_t _nbits = (_basebits);	\
+		MILAN_SMN_ASSERT_BASE_ADDR(_b, (_nbits));	\
+		MILAN_SMN_ASSERT_REG_ADDR(_r, (_nbits));	\
+		(_b + _r);			\
+	})
+
+/*
  * IOMS SMN bases and various shifts based on instance ID to indicate the right
  * device. Sometimes we need to select the correct SMN aperture ID and other
  * times we just need to select an offset into that aperture.
  */
 #define	MILAN_SMN_IOHC_BASE	0x13b00000
+#define	MILAN_SMN_IOHC_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_IOHC_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_IOHC_BASE_BITS, _r)
 #define	MILAN_SMN_IOAGR_BASE	0x15b00000
+#define	MILAN_SMN_IOAGR_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_IOAGR_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_IOAGR_BASE_BITS, _r)
 #define	MILAN_SMN_IOMS_SHIFT(x)	((x) << 20)
 
 /*
@@ -110,6 +150,9 @@
  * have shaken out.
  */
 #define	MILAN_SMN_SDPMUX_BASE	0x04400000
+#define	MILAN_SMN_SDPMUX_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_SDPMUX_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_SDPMUX_BASE_BITS, _r)
 #define	MILAN_SMN_SDPMUX_IOMS_SHIFT(x)	((1 << 23) + ((x + 1) << 20))
 
 /*
@@ -207,7 +250,7 @@
  * an inclusive register. The register containts bits 51:22, mapped to the
  * register's 29:0.
  */
-#define	MILAN_IOHC_R_SMN_DRAM_TOM3		0x100138
+#define	MILAN_IOHC_R_SMN_DRAM_TOM3		0x10138
 #define	MILAN_IOHC_R_SET_DRAM_TOM3_EN(r, v)	bitset32(r, 31, 31, v)
 #define	MILAN_IOHC_R_SET_DRAM_TOM3_LIMIT(r, v)	bitset32(r, 29, 0, v)
 
@@ -215,7 +258,7 @@
  * IOHC::PSP_BASE_ADDR_LO. This contains the MMIO address that is used by the
  * PSP.
  */
-#define	MILAN_IOHC_R_SMN_PSP_ADDR_LO		0x1002e0
+#define	MILAN_IOHC_R_SMN_PSP_ADDR_LO		0x102e0
 #define	MILAN_IOHC_R_SET_PSP_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
 #define	MILAN_IOHC_R_SET_PSP_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
 #define	MILAN_IOHC_R_SET_PSP_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
@@ -224,14 +267,14 @@
  * IOHC::PSP_BASE_ADDR_HI. This contains the upper bits of the PSP base
  * address.
  */
-#define	MILAN_IOHC_R_SMN_PSP_ADDR_HI		0x1002e4
+#define	MILAN_IOHC_R_SMN_PSP_ADDR_HI		0x102e4
 #define	MILAN_IOHC_R_SET_PSP_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
 
 /*
  * IOHC::SMU_BASE_ADDR_LO. This contains the MMIO address that is used by the
  * SMU.
  */
-#define	MILAN_IOHC_R_SMN_SMU_ADDR_LO		0x1002e8
+#define	MILAN_IOHC_R_SMN_SMU_ADDR_LO		0x102e8
 #define	MILAN_IOHC_R_SET_SMU_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
 #define	MILAN_IOHC_R_SET_SMU_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
 #define	MILAN_IOHC_R_SET_SMU_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
@@ -240,14 +283,14 @@
  * IOHC::SMU_BASE_ADDR_HI. This contains the upper bits of the SMU base
  * address.
  */
-#define	MILAN_IOHC_R_SMN_SMU_ADDR_HI		0x1002ec
+#define	MILAN_IOHC_R_SMN_SMU_ADDR_HI		0x102ec
 #define	MILAN_IOHC_R_SET_SMU_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
 
 /*
  * IOHC::IOAPIC_BASE_ADDR_LO. This contains the MMIO address that is used by the
  * IOAPIC.
  */
-#define	MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO		0x1002f0
+#define	MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO		0x102f0
 #define	MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 8, v)
 #define	MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_LOCK(r, v)	bitset32(r, 1, 1, v)
 #define	MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
@@ -256,55 +299,55 @@
  * IOHC::IOAPIC_BASE_ADDR_HI. This contains the upper bits of the IOAPIC base
  * address.
  */
-#define	MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI		0x1002f4
+#define	MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI		0x102f4
 #define	MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
 
 /*
  * IOHC::DBG_BASE_ADDR_LO. This contains the MMIO address that is used by the
  * DBG registers. What this debugs, is unfortunately unclear.
  */
-#define	MILAN_IOHC_R_SMN_DBG_ADDR_LO		0x1002f8
+#define	MILAN_IOHC_R_SMN_DBG_ADDR_LO		0x102f8
 #define	MILAN_IOHC_R_SET_DBG_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
-#define	MILAN_IOHC_R_SET_DBG_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_DBG_ADDR_LO_LOCK(r, v)	bitset32(r, 1, 1, v)
 #define	MILAN_IOHC_R_SET_DBG_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
 
 /*
  * IOHC::DBG_BASE_ADDR_HI. This contains the upper bits of the DBG base
  * address.
  */
-#define	MILAN_IOHC_R_SMN_DBG_ADDR_HI		0x1002fc
+#define	MILAN_IOHC_R_SMN_DBG_ADDR_HI		0x102fc
 #define	MILAN_IOHC_R_SET_DBG_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
 
 /*
  * IOHC::FASTREG_BASE_ADDR_LO. This contains the MMIO address that is used by
  * the 'FastRegs' which provides access to an SMN aperture.
  */
-#define	MILAN_IOHC_R_SMN_FASTREG_ADDR_LO		0x100300
+#define	MILAN_IOHC_R_SMN_FASTREG_ADDR_LO		0x10300
 #define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
-#define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_LOCK(r, v)	bitset32(r, 1, 1, v)
 #define	MILAN_IOHC_R_SET_FASTREG_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
 
 /*
  * IOHC::FASTREG_BASE_ADDR_HI. This contains the upper bits of the FASTREG base
  * address.
  */
-#define	MILAN_IOHC_R_SMN_FASTREG_ADDR_HI		0x100304
+#define	MILAN_IOHC_R_SMN_FASTREG_ADDR_HI		0x10304
 #define	MILAN_IOHC_R_SET_FASTREG_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
 
 /*
  * IOHC::FASTREGCNTL_BASE_ADDR_LO. This contains the MMIO address that is used
  * by the FASTREGCNTL.
  */
-#define	MILAN_IOHC_R_SMN_FASTREGCNTL_ADDR_LO		0x100300
-#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 20, v)
-#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_LOCK(r, v)	bitset32(r, 7, 8, v)
+#define	MILAN_IOHC_R_SMN_FASTREGCNTL_ADDR_LO		0x10308
+#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_ADDR(r, v)	bitset32(r, 31, 12, v)
+#define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_LOCK(r, v)	bitset32(r, 1, 1, v)
 #define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_LO_EN(r, v)	bitset32(r, 0, 0, v)
 
 /*
  * IOHC::FASTREGCNTL_BASE_ADDR_HI. This contains the upper bits of the
  * FASTREGCNTL base address.
  */
-#define	MILAN_IOHC_R_SMN_FASTREGCNTL_ADDR_HI		0x100304
+#define	MILAN_IOHC_R_SMN_FASTREGCNTL_ADDR_HI		0x1030c
 #define	MILAN_IOHC_R_SET_FASTREGCNTL_ADDR_HI_ADDR(r, v)	bitset32(r, 15, 0, v)
 
 /*
@@ -414,7 +457,7 @@
  * these). There is also one for the southbridge/fch.
  */
 #define	MILAN_IOHC_R_SMN_BRIDGE_CNTL_PCIE	0x31004
-#define	MILAN_IOCH_R_SMN_BRIDGE_CNTL_BRIDGE_SHIFT(x)	((x) << 10)
+#define	MILAN_IOHC_R_SMN_BRIDGE_CNTL_BRIDGE_SHIFT(x)	((x) << 10)
 #define	MILAN_IOHC_R_SMN_BRIDGE_CNTL_NBIF	0x38004
 #define	MILAN_IOHC_R_SMN_BRIDGE_CNTL_NBIF_SHIFT(x)	((x) << 12)
 #define	MILAN_IOHC_R_SMN_BRIDGE_CNTL_SB		0x3c004
@@ -569,6 +612,9 @@
  * traditional software IOAPIC registers that exist in the Northbridge.
  */
 #define	MILAN_SMN_IOAPIC_BASE	0x14300000
+#define	MILAN_SMN_IOAPIC_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_IOAPIC_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_IOAPIC_BASE_BITS, _r)
 
 /*
  * IOAPIC::FEATURES_ENABLE. This controls various features of the IOAPIC.
@@ -614,7 +660,13 @@
  */
 #define	MILAN_SMN_IOMMUL1_BASE	0x14700000
 #define	MILAN_SMN_IOMMUL1_IOAGR_OFF	0xc00000
+#define	MILAN_SMN_IOMMUL1_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_IOMMUL1_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_IOMMUL1_BASE_BITS, _r)
 #define	MILAN_SMN_IOMMUL2_BASE	0x13f00000
+#define	MILAN_SMN_IOMMUL2_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_IOMMUL2_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_IOMMUL2_BASE_BITS, _r)
 
 typedef enum milan_iommul1_type {
 	IOMMU_L1_IOAGR
@@ -635,6 +687,11 @@ typedef enum milan_iommul1_type {
  * which IOMS we're on, which PCIe port we're on on the IOMS, and then finally
  * which PCIe port it is itself. There are two SMN bases. One for internal
  * configuration and one where the common configuration space exists.
+ *
+ * The use of bits [19:18] to represent the sub-block and [15:12] to represent
+ * the bridge offset means that the effective base SMN address for per-port core
+ * registers occupies 14 bits, and for the per-bridge port and config registers
+ * occupies 20 bits.
  */
 #define	MILAN_SMN_PCIE_CFG_BASE		0x11100000
 #define	MILAN_SMN_PCIE_PORT_BASE	0x11140000
@@ -642,6 +699,12 @@ typedef enum milan_iommul1_type {
 #define	MILAN_SMN_PCIE_BRIDGE_SHIFT(x)	((x) << 12)
 #define	MILAN_SMN_PCIE_PORT_SHIFT(x)	((x) << 22)
 #define	MILAN_SMN_PCIE_IOMS_SHIFT(x)	((x) << 20)
+#define	MILAN_SMN_PCIE_CORE_BASE_BITS	(MILAN_SMN_ADDR_BLOCK_BITS + 2)
+#define	MILAN_SMN_PCIE_PORT_BASE_BITS	(MILAN_SMN_ADDR_BLOCK_BITS + 8)
+#define	MILAN_SMN_PCIE_CORE_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_PCIE_CORE_BASE_BITS, _r)
+#define	MILAN_SMN_PCIE_PORT_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_PCIE_PORT_BASE_BITS, _r)
 
 /*
  * nBIF SMN Addresses. These have multiple different shifts that we need to
@@ -657,6 +720,15 @@ typedef enum milan_iommul1_type {
 #define	MILAN_SMN_NBIF_DEV_SHIFT(x)	((x) << 12)
 #define	MILAN_SMN_NBIF_NBIF_SHIFT(x)	((x) << 22)
 #define	MILAN_SMN_NBIF_IOMS_SHIFT(x)	((x) << 20)
+#define	MILAN_SMN_NBIF_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_NBIF_ALT_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
+#define	MILAN_SMN_NBIF_FUNC_BASE_BITS	(MILAN_SMN_ADDR_BLOCK_BITS + 11)
+#define	MILAN_SMN_NBIF_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_NBIF_BASE_BITS, _r)
+#define	MILAN_SMN_NBIF_ALT_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_NBIF_ALT_BASE_BITS, _r)
+#define	MILAN_SMN_NBIF_FUNC_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_NBIF_FUNC_BASE_BITS, _r)
 
 /*
  * The NBIF device straps for the port use a different shift style than those
@@ -701,7 +773,7 @@ typedef enum milan_iommul1_type {
  * This register seems to control various bits of control for a given NBIF. XXX
  * other bits.
  */
-#define	MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0	0x3a0010
+#define	MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0	0x3a010
 #define	MILAN_NBIF_R_SET_BIFC_MISC_CTRL0_PME_TURNOFF(r, v)	\
     bitset32(r, 28, 28, v)
 #define	MILAN_NBIF_R_BIFC_MISC_CTRL0_PME_TURNOFF_BYPASS		0
@@ -1452,132 +1524,153 @@ milan_smn_write32(milan_iodie_t *iodie, uint32_t reg, uint32_t val)
 static uint32_t
 milan_iohc_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
 {
-	reg += ioms->mio_iohc_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_IOHC_MAKE_ADDR(ioms->mio_iohc_smn_base, reg)));
 }
 
 static void
 milan_iohc_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
     uint32_t val)
 {
-	reg += ioms->mio_iohc_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_IOHC_MAKE_ADDR(ioms->mio_iohc_smn_base, reg), val);
 }
 
 static uint32_t
 milan_ioagr_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
 {
-	reg += ioms->mio_ioagr_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_IOAGR_MAKE_ADDR(ioms->mio_ioagr_smn_base, reg)));
 }
 
 static void
 milan_ioagr_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
     uint32_t val)
 {
-	reg += ioms->mio_ioagr_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_IOAGR_MAKE_ADDR(ioms->mio_ioagr_smn_base, reg), val);
 }
 
 static uint32_t
 milan_sdpmux_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
 {
-	reg += ioms->mio_sdpmux_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_SDPMUX_MAKE_ADDR(ioms->mio_sdpmux_smn_base, reg)));
 }
 
 static void
 milan_sdpmux_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
     uint32_t val)
 {
-	reg += ioms->mio_sdpmux_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_SDPMUX_MAKE_ADDR(ioms->mio_sdpmux_smn_base, reg), val);
 }
 
 static uint32_t
 milan_ioapic_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
 {
-	reg += ioms->mio_ioapic_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_IOAPIC_MAKE_ADDR(ioms->mio_ioapic_smn_base, reg)));
 }
 
 static void
 milan_ioapic_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
     uint32_t val)
 {
-	reg += ioms->mio_ioapic_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_IOAPIC_MAKE_ADDR(ioms->mio_ioapic_smn_base, reg), val);
+}
+
+static inline uint32_t
+milan_iommul1_addr(const milan_ioms_t *ioms,
+    milan_iommul1_type_t l1t, uint32_t reg)
+{
+	uint32_t base = ioms->mio_iommul1_smn_base;
+
+	switch (l1t) {
+	case IOMMU_L1_IOAGR:
+		base += MILAN_SMN_IOMMUL1_IOAGR_OFF;
+		break;
+	default:
+		panic("unknown IOMMU l1 type: %x", l1t);
+	}
+
+	return (MILAN_SMN_IOMMUL1_MAKE_ADDR(base, reg));
+}
+
+static uint32_t
+milan_iommul1_read32(milan_iodie_t *iodie, milan_ioms_t *ioms,
+    milan_iommul1_type_t l1t, uint32_t reg)
+{
+	return (milan_smn_read32(iodie, milan_iommul1_addr(ioms, l1t, reg)));
 }
 
 static void
 milan_iommul1_write32(milan_iodie_t *iodie, milan_ioms_t *ioms,
     milan_iommul1_type_t l1t, uint32_t reg, uint32_t val)
 {
-	reg += ioms->mio_iommul1_smn_base;
+	milan_smn_write32(iodie, milan_iommul1_addr(ioms, l1t, reg), val);
+}
 
-	switch (l1t) {
-	case IOMMU_L1_IOAGR:
-		reg += MILAN_SMN_IOMMUL1_IOAGR_OFF;
-		break;
-	default:
-		panic("unknown IOMMU l1 type: %x", l1t);
-	}
-
-	milan_smn_write32(iodie, reg, val);
+static uint32_t
+milan_iommul2_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+{
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_IOMMUL2_MAKE_ADDR(ioms->mio_iommul2_smn_base, reg)));
 }
 
 static void
 milan_iommul2_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
     uint32_t val)
 {
-	reg += ioms->mio_iommul2_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_IOMMUL2_MAKE_ADDR(ioms->mio_iommul2_smn_base, reg), val);
 }
 
 static uint32_t
 milan_nbif_read32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg)
 {
-	reg += nbif->mn_nbif_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_NBIF_MAKE_ADDR(nbif->mn_nbif_smn_base, reg)));
 }
 
 static void
 milan_nbif_write32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg,
     uint32_t val)
 {
-	reg += nbif->mn_nbif_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_NBIF_MAKE_ADDR(nbif->mn_nbif_smn_base, reg), val);
 }
 
 static uint32_t
 milan_nbif_func_read32(milan_iodie_t *iodie, milan_nbif_func_t *func,
     uint32_t reg)
 {
-	reg += func->mne_func_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_NBIF_FUNC_MAKE_ADDR(func->mne_func_smn_base, reg)));
 }
 
 static void
 milan_nbif_func_write32(milan_iodie_t *iodie, milan_nbif_func_t *func,
     uint32_t reg, uint32_t val)
 {
-	reg += func->mne_func_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_NBIF_FUNC_MAKE_ADDR(func->mne_func_smn_base, reg), val);
 }
 
 static uint32_t
 milan_nbif_alt_read32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg)
 {
-	reg += nbif->mn_nbif_alt_smn_base;
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_NBIF_ALT_MAKE_ADDR(nbif->mn_nbif_alt_smn_base, reg)));
 }
 
 static void
 milan_nbif_alt_write32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg,
     uint32_t val)
 {
-	reg += nbif->mn_nbif_alt_smn_base;
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_NBIF_ALT_MAKE_ADDR(nbif->mn_nbif_alt_smn_base, reg), val);
 }
 
 static void
@@ -1607,9 +1700,11 @@ milan_fabric_ioms_pcie_init(milan_ioms_t *ioms)
 			break;
 		}
 
-		port->mipp_core_smn_addr = MILAN_SMN_PCIE_CFG_BASE +
+		port->mipp_core_smn_addr = MILAN_SMN_PCIE_CORE_BASE +
 		    MILAN_SMN_PCIE_IOMS_SHIFT(ioms->mio_num) +
 		    MILAN_SMN_PCIE_PORT_SHIFT(pcino);
+		MILAN_SMN_VERIFY_BASE_ADDR(port->mipp_core_smn_addr,
+		    MILAN_SMN_PCIE_CORE_BASE_BITS);
 
 		for (uint_t bridgeno = 0; bridgeno < port->mipp_nbridges;
 		    bridgeno++) {
@@ -1626,8 +1721,12 @@ milan_fabric_ioms_pcie_init(milan_ioms_t *ioms)
 			    MILAN_SMN_PCIE_IOMS_SHIFT(ioms->mio_num);
 			bridge->mpb_port_smn_base = MILAN_SMN_PCIE_PORT_BASE +
 			    shift;
+			MILAN_SMN_VERIFY_BASE_ADDR(bridge->mpb_port_smn_base,
+			    MILAN_SMN_PCIE_PORT_BASE_BITS);
 			bridge->mpb_cfg_smn_base = MILAN_SMN_PCIE_CFG_BASE +
 			    shift;
+			MILAN_SMN_VERIFY_BASE_ADDR(bridge->mpb_cfg_smn_base,
+			    MILAN_SMN_PCIE_PORT_BASE_BITS);
 		}
 	}
 }
@@ -1659,9 +1758,14 @@ milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 		nbif->mn_nbif_smn_base = MILAN_SMN_NBIF_BASE +
 		    MILAN_SMN_NBIF_NBIF_SHIFT(nbif->mn_nbifno) +
 		    MILAN_SMN_NBIF_IOMS_SHIFT(ioms->mio_num);
+		MILAN_SMN_VERIFY_BASE_ADDR(nbif->mn_nbif_smn_base,
+		    MILAN_SMN_NBIF_BASE_BITS);
+
 		nbif->mn_nbif_alt_smn_base = MILAN_SMN_NBIF_ALT_BASE +
 		    MILAN_SMN_NBIF_NBIF_SHIFT(nbif->mn_nbifno) +
 		    MILAN_SMN_NBIF_IOMS_SHIFT(ioms->mio_num);
+		MILAN_SMN_VERIFY_BASE_ADDR(nbif->mn_nbif_alt_smn_base,
+		    MILAN_SMN_NBIF_ALT_BASE_BITS);
 
 		for (uint_t funcno = 0; funcno < nbif->mn_nfuncs; funcno++) {
 			milan_nbif_func_t *func = &nbif->mn_funcs[funcno];
@@ -1673,6 +1777,8 @@ milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 			    MILAN_SMN_NBIF_FUNC_OFF +
 			    MILAN_SMN_NBIF_FUNC_SHIFT(func->mne_func) +
 			    MILAN_SMN_NBIF_DEV_SHIFT(func->mne_dev);
+			MILAN_SMN_VERIFY_BASE_ADDR(func->mne_func_smn_base,
+			    MILAN_SMN_NBIF_FUNC_BASE_BITS);
 
 			/*
 			 * As there is a dummy device on each of these, this in
@@ -1812,14 +1918,28 @@ milan_fabric_topo_init(void)
 
 			ioms->mio_iohc_smn_base = MILAN_SMN_IOHC_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
+			MILAN_SMN_VERIFY_BASE_ADDR(ioms->mio_iohc_smn_base,
+			    MILAN_SMN_IOHC_BASE_BITS);
+
 			ioms->mio_ioagr_smn_base = MILAN_SMN_IOAGR_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
+			MILAN_SMN_VERIFY_BASE_ADDR(ioms->mio_ioagr_smn_base,
+			    MILAN_SMN_IOAGR_BASE_BITS);
+
 			ioms->mio_ioapic_smn_base = MILAN_SMN_IOAPIC_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
+			MILAN_SMN_VERIFY_BASE_ADDR(ioms->mio_ioapic_smn_base,
+			    MILAN_SMN_IOAPIC_BASE_BITS);
+
 			ioms->mio_iommul1_smn_base = MILAN_SMN_IOMMUL1_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
+			MILAN_SMN_VERIFY_BASE_ADDR(ioms->mio_iommul1_smn_base,
+			    MILAN_SMN_IOMMUL1_BASE_BITS);
+
 			ioms->mio_iommul2_smn_base = MILAN_SMN_IOMMUL2_BASE +
 			    MILAN_SMN_IOMS_SHIFT(iomsno);
+			MILAN_SMN_VERIFY_BASE_ADDR(ioms->mio_iommul2_smn_base,
+			    MILAN_SMN_IOMMUL2_BASE_BITS);
 
 			/*
 			 * SDPMUX SMN base addresses are confusingly different
@@ -1831,6 +1951,8 @@ milan_fabric_topo_init(void)
 				ioms->mio_sdpmux_smn_base +=
 				    MILAN_SMN_SDPMUX_IOMS_SHIFT(iomsno);
 			}
+			MILAN_SMN_VERIFY_BASE_ADDR(ioms->mio_sdpmux_smn_base,
+			    MILAN_SMN_SDPMUX_BASE_BITS);
 
 			milan_fabric_ioms_pcie_init(ioms);
 			milan_fabric_ioms_nbif_init(ioms);
@@ -3400,7 +3522,7 @@ milan_io_ports_assign(milan_fabric_t *fabric, milan_soc_t *soc,
 		base = AMDZEN_DF_F0_SET_IO_BASE_BASE(base,
 		    mri->mri_bases[i] >> AMDZEN_DF_F0_IO_BASE_SHIFT);
 
-		limit = AMDZEN_DF_FO_SET_IO_LIMIT_DEST_ID(limit,
+		limit = AMDZEN_DF_F0_SET_IO_LIMIT_DEST_ID(limit,
 		    mri->mri_dests[i]);
 		limit = AMDZEN_DF_F0_SET_IO_LIMIT_LIMIT(limit,
 		    mri->mri_limits[i] >> AMDZEN_DF_F0_IO_LIMIT_SHIFT);

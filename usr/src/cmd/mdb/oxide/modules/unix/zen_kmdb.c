@@ -720,7 +720,7 @@ df_route_dram(uint_t flags, uint64_t sock, uintptr_t inst)
 
 		mdb_printf("%-?#lx %-?#lx %c%c%c     %-15s ", base, limit,
 		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_VALID(breg) ? 'V' : '-',
-		    AMDZEN_Z2_3_DF_FO_GET_DRAM_BASE_HOLE_EN(breg) ? 'H' : '-',
+		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_HOLE_EN(breg) ? 'H' : '-',
 		    AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_BUS_BREAK(lreg) ?
 		    'B' : '-', ileave);
 		df_print_dest(AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_DEST_ID(lreg));
@@ -763,7 +763,7 @@ df_route_ioports(uint_t flags, uint64_t sock, uintptr_t inst)
 		    AMDZEN_DF_F0_GET_IO_BASE_RE(breg) ? 'R' : '-',
 		    AMDZEN_DF_F0_GET_IO_BASE_WE(breg) ? 'W' : '-',
 		    AMDZEN_DF_F0_GET_IO_BASE_IE(breg) ? 'I' : '-');
-		df_print_dest(AMDZEN_DF_FO_GET_IO_LIMIT_DEST_ID(lreg));
+		df_print_dest(AMDZEN_DF_F0_GET_IO_LIMIT_DEST_ID(lreg));
 		mdb_printf("\n");
 	}
 
