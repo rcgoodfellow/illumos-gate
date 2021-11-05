@@ -410,6 +410,12 @@ vio9p_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 
 	mutex_enter(&vin->vin_mutex);
 
+	if (vin->vin_open) {
+		mutex_exit(&vin->vin_mutex);
+		dev_err(dip, CE_WARN, "cannot detach while open");
+		return (DDI_FAILURE);
+	}
+
 	for (;;) {
 		vio9p_req_t *t = list_remove_head(&vin->vin_req_freelist);
 		if (t == NULL) {
