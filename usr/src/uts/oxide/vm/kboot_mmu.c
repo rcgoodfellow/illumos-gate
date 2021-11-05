@@ -303,6 +303,7 @@ kbm_init(void)
 	x86pte_t *ptep;
 	x86pte_t pteval;
 	uint_t i, j, k;
+	extern void hat_boot_kdi_init(void);
 
 	top_page_table = loader_pt_base;
 	DBG(top_page_table);
@@ -399,6 +400,12 @@ kbm_init(void)
 	pte_to_window = find_pte((uint64_t)window, NULL, 0, 1);
 	DBG(pte_to_window);
 	ASSERT(pte_to_window != NULL);
+
+	/*
+	 * Set up the earlyboot KDI interface for accessing physical memory.
+	 * It does not in fact need nor use any part of the HAT.
+	 */
+	hat_boot_kdi_init();
 }
 
 /*

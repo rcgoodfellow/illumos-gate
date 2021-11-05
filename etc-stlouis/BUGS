@@ -4,3 +4,4 @@ FIXED
 OX0001 PTE page mapping window discovery is excessively brittle
 OX0002 find_pte() stomps on memory mapped improperly by kbm_map_ramdisk()
 OX0003 several IOHC SMN address definitions are incorrect
+OX0004 kdi physical mapping should be initialised for earlyboot use
