@@ -140,6 +140,7 @@ SUBDIRS +=				\
 	libgss		\
 	libhotplug	\
 	libidmap	\
+	libidspace	\
 	libilb		\
 	libima		\
 	libinetsvc	\
@@ -188,6 +189,7 @@ SUBDIRS +=				\
 	libpthread	\
 	libraidcfg	\
 	librcm		\
+	librename	\
 	libreparse	\
 	libresolv	\
 	libresolv2	\
@@ -402,6 +404,7 @@ HDRSUBDIRS=				\
 	libgen		\
 	libgrubmgmt	\
 	libidmap	\
+	libidspace	\
 	libilb		\
 	libima		\
 	libinetsvc	\
@@ -437,6 +440,7 @@ HDRSUBDIRS=				\
 	libproc		\
 	libraidcfg	\
 	librcm		\
+	librename	\
 	libreparse	\
 	librestart	\
 	librpcsvc	\
@@ -623,6 +627,7 @@ libfsmgt:	libkstat
 libgrubmgmt:	libdevinfo libzfs libfstyp libefi
 $(INTEL_BLD)libgrubmgmt: libfdisk
 libidmap:	libavl libuutil
+libidspace:	libumem
 libinetsvc:	libscf
 libinetutil:	libsocket
 libinstzones:	libzonecfg libcontract
