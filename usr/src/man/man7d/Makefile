@@ -242,6 +242,7 @@ i386_MANFILES=	ahci.7d		\
 		usmn.7d		\
 		vioblk.7d	\
 		vioif.7d	\
+		vio9p.7d	\
 		virtio.7d	\
 		wpi.7d		\
 		xhci.7d		\
