@@ -415,6 +415,9 @@ DRV_KMODS	+= vioblk
 # Virtio network driver
 DRV_KMODS	+= vioif
 
+# Virtio filesystem driver
+DRV_KMODS	+= vio9p
+
 #
 #	DTrace and DTrace Providers
 #
