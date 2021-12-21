@@ -3897,8 +3897,8 @@ milan_fabric_init(void)
 
 	if (milan_fabric_walk_iodie(fabric, milan_dxio_state_machine, NULL) !=
 	    0) {
-		cmn_err(CE_WARN, "DXIO Initialization failed: failed to do yet "
-		    "more configuration");
+		cmn_err(CE_WARN, "DXIO Initialization failed: failed to walk "
+		    "through the state machine");
 		return;
 	}
 
