@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _MILAN_MILAN_STRAPS_H
@@ -846,9 +846,9 @@ extern "C" {
  */
 
 /*
- * Downstream and upstream lane equalization control preset hint. While tihs is a lane
- * setting, it is used for all lanes in the device. This seems to be for Gen 3.
- * Defaults to 0x3 for downstream, 0x0 for upstream, 3 bits wide.
+ * Downstream and upstream lane equalization control preset hint. While tihs is
+ * a lane setting, it is used for all lanes in the device. This seems to be for
+ * Gen 3. Defaults to 0x3 for downstream, 0x0 for upstream, 3 bits wide.
  */
 #define	MILAN_STRAP_PCIE_EQ_DS_RX_PRESET_HINT	0x9f
 #define	MILAN_STRAP_PCIE_EQ_US_RX_PRESET_HINT	0xa0
@@ -878,7 +878,8 @@ extern "C" {
  */
 
 /*
- * This seems to control something called 'quicksim', mysterious. Default is 0x0.
+ * This seems to control something called 'quicksim', mysterious. Default is
+ * 0x0.
  */
 #define	MILAN_STRAP_PCIE_QUICKSIM_START		0xa8
 
@@ -1028,7 +1029,7 @@ extern "C" {
  * PCIe Gen 4 operation, which in turn would suggest that the values here are:
  * bit value = gen - 1.
  */
-#define	MILAN_STRAP_PCIE_P_TARG_LINK_SPEED
+#define	MILAN_STRAP_PCIE_P_TARG_LINK_SPEED	0xe1
 
 /*
  * 0xe2 and 0xe3 are reserved
@@ -1180,7 +1181,7 @@ extern "C" {
  * particular, this probably is related to the voltage swing, equalization, etc.
  * Both of these seem to suggest they impact 'all' of the presets being
  * accepted. If this is disabled, perhaps only some are taken? The second of
- * these refers to a test situation. These both default to 0x0. 
+ * these refers to a test situation. These both default to 0x0.
  */
 #define	MILAN_STRAP_PCIE_P_ACCEPT_PRESETS	0xfe
 #define	MILAN_STRAP_PCIE_P_ACCEPT_PRESETS_TEST	0xff
@@ -1362,11 +1363,11 @@ extern "C" {
  */
 
 /*
- * The next two straps aren't very clear. FTS could be the fast training sets and that
- * this is describing the number of ones we expect. The first one seems to
- * relate to an expected count that's received hile the second seems to relate
- * to an initial number of ones to send. The first one is a 2-bit field and
- * defaults to 0x0 while the second is an 8-bit field that defaults to 0x18.
+ * The next two straps aren't very clear. FTS could be the fast training sets
+ * and that this is describing the number of ones we expect. The first one seems
+ * to relate to an expected count that's received hile the second seems to
+ * relate to an initial number of ones to send. The first one is a 2-bit field
+ * and defaults to 0x0 while the second is an 8-bit field that defaults to 0x18.
  */
 #define	MILAN_STRAP_PCIE_P_FTS_TS_COUNT		0x11e
 #define	MILAN_STRAP_PCIE_P_FTS_INIT_NUM		0x11f
@@ -1383,7 +1384,7 @@ extern "C" {
  * or indicating whether this is a southbridge; however, here, that's less
  * obvious. All we know is that this is a 1-bit field that defaults to 0x0.
  */
-#define	MILAN_STRAP_PCIE_P_IS_SB
+#define	MILAN_STRAP_PCIE_P_IS_SB		0x121
 
 /*
  * 0x122 is reserved
