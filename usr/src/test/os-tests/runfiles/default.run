@@ -87,6 +87,8 @@ tests = ['acquire-compare', 'kmc-update']
 user = root
 tests = ['ufm-test-setup', 'ufm-test', 'ufm-test-cleanup']
 
+[/opt/os-tests/tests/definit]
+
 [/opt/os-tests/tests/i386]
 user = root
 arch = i86pc
@@ -126,3 +128,8 @@ post = ksensor_fini
 
 [/opt/os-tests/tests/stackalign]
 tests = ['stackalign.32', 'stackalign.64']
+
+[/opt/os-tests/tests/cores]
+user = root
+pre = core_prereqs
+tests = ['coretests']

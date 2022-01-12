@@ -20,13 +20,7 @@ LCDIR=		$(SRC)/lib/libc/port
 include		$(SRC)/tools/Makefile.tools
 include		$(CMDDIR)/Makefile.common
 
-OBJS +=		fts.o \
-		reallocarray.o \
-		recallocarray.o \
-		strtonum.o
-
 CPPFLAGS +=	-_gcc=-nostdinc -I/usr/include -I$(ADJUNCT_PROTO)/usr/include
-CPPFLAGS +=	-I. -include fts.h
 CPPFLAGS +=	-D_FILE_OFFSET_BITS=64
 LDFLAGS +=	-L$(ADJUNCT_PROTO)/lib -R$(ADJUNCT_PROTO)/lib
 

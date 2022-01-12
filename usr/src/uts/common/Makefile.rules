@@ -26,7 +26,7 @@
 # Copyright 2019 Joyent, Inc.
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright (c) 2017 by Delphix. All rights reserved.
-# Copyright 2020 Oxide Computer Company
+# Copyright 2021 Oxide Computer Company
 #
 
 #
@@ -51,6 +51,10 @@ $(OBJS_DIR)/decompress.o := CPPFLAGS += -I$(SRC)/contrib/zlib
 $(OBJS_DIR)/zmod.o := CPPFLAGS += -I$(SRC)/contrib/zlib
 $(OBJS_DIR)/zmod_subr.o := CPPFLAGS += -I$(SRC)/contrib/zlib
 $(OBJS_DIR)/lz4.o := CPPFLAGS += -I$(COMMONBASE)/lz4
+
+$(OBJS_DIR)/%.o:		$(COMMONBASE)/core/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(COMMONBASE)/crypto/aes/%.c
 	$(COMPILE.c) -o $@ $<
@@ -770,6 +774,10 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/efe/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/elxl/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(UTSBASE)/common/io/ena/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 

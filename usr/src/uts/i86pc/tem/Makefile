@@ -51,7 +51,7 @@ include $(UTSBASE)/i86pc/Makefile.i86pc
 ALL_TARGET	= $(BINARY)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
-LDFLAGS += -dy -Ndacf/consconfig_dacf
+LDFLAGS += -Ndacf/consconfig_dacf
 
 #
 #	Default build targets.
