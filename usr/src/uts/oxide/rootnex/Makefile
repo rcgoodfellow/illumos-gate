@@ -50,7 +50,7 @@ include $(UTSBASE)/oxide/Makefile.oxide
 ALL_TARGET	= $(BINARY)
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE)
 
-LDFLAGS		+= -dy -N misc/iommulib
+LDFLAGS		+= -N misc/iommulib
 
 #
 # For now, disable these checks; maintainers should endeavor
