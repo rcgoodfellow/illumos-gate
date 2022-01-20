@@ -854,7 +854,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x0,
 		.shm_tile_id = SMU_TILE_P1,
 		.shm_bridge = 0x0
 	    },
@@ -864,7 +864,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x5,
 		.shf_i2c_dtype = SMU_I2C_PCA9535,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_ATTNLED | SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_ATTNLED | SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -882,7 +882,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x2,
 		.shm_tile_id = SMU_TILE_P2,
 		.shm_bridge = 0x2
 	    },
@@ -892,7 +892,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x4,
 		.shf_i2c_dtype = SMU_I2C_PCA9535,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_ATTNLED | SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_ATTNLED | SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -910,8 +910,8 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
-		.shm_tile_id = SMU_TILE_P2,
+		.shm_port_id = 0x2,
+		.shm_tile_id = SMU_TILE_P3,
 		.shm_bridge = 0x2
 	    },
 	    .se_func = {
@@ -920,7 +920,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x4,
 		.shf_i2c_dtype = SMU_I2C_PCA9535,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_ATTNLED | SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_ATTNLED | SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -938,7 +938,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x0,
 		.shm_tile_id = SMU_TILE_G0,
 		.shm_bridge = 0x0
 	    },
@@ -948,7 +948,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x0,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -966,7 +966,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x1,
 		.shm_tile_id = SMU_TILE_G0,
 		.shm_bridge = 0x1
 	    },
@@ -976,7 +976,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x0,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -994,7 +994,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x2,
 		.shm_tile_id = SMU_TILE_G0,
 		.shm_bridge = 0x2
 	    },
@@ -1004,7 +1004,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x0,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -1022,7 +1022,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x3,
 		.shm_tile_id = SMU_TILE_G0,
 		.shm_bridge = 0x3
 	    },
@@ -1032,7 +1032,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x0,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -1050,7 +1050,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x3,
 		.shm_tile_id = SMU_TILE_G2,
 		.shm_bridge = 0x3
 	    },
@@ -1060,7 +1060,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x0,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -1078,7 +1078,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x2,
 		.shm_tile_id = SMU_TILE_G2,
 		.shm_bridge = 0x2
 	    },
@@ -1088,7 +1088,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x1,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -1106,7 +1106,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x1,
 		.shm_tile_id = SMU_TILE_G2,
 		.shm_bridge = 0x1
 	    },
@@ -1116,7 +1116,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x1,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -1134,7 +1134,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x2,
 		.shm_tile_id = SMU_TILE_G3,
 		.shm_bridge = 0x2
 	    },
@@ -1144,7 +1144,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x1,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
@@ -1162,7 +1162,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x1,
 		.shm_tile_id = SMU_TILE_G3,
 		.shm_bridge = 0x1
 	    },
@@ -1172,7 +1172,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x1,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 1,
@@ -1190,7 +1190,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x0,
 		.shm_tile_id = SMU_TILE_G3,
 		.shm_bridge = 0x0
 	    },
@@ -1200,7 +1200,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x1,
 		.shf_i2c_dtype = SMU_I2C_PCA9506,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 1,
@@ -1218,7 +1218,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shm_active = 1,
 		.shm_apu = 0,
 		.shm_die_id = 0,
-		.shm_port_id = 0,
+		.shm_port_id = 0x1,
 		.shm_tile_id = SMU_TILE_P0,
 		.shm_bridge = 0x1
 	    },
@@ -1228,7 +1228,7 @@ const smu_hotplug_entry_t gimlet_hotplug_ents[] = {
 		.shf_i2c_daddr = 0x5,
 		.shf_i2c_dtype = SMU_I2C_PCA9535,
 		.shf_i2c_bus = SMU_I2C_DIRECT,
-		.shf_mask = SMU_ENTB_ATTNLED | SMU_ENTB_PWRLED | SMU_ENTB_EMIL
+		.shf_mask = SMU_ENTA_ATTNLED | SMU_ENTA_PWRLED | SMU_ENTA_EMIL
 	    },
 	    .se_reset = {
 		.shr_i2c_gpio_byte = 0,
