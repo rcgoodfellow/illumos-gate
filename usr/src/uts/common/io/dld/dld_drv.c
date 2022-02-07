@@ -1585,7 +1585,8 @@ static dld_ioc_modentry_t dld_ioc_modtable[] = {
 	{SIMNET_IOC,	"simnet", 0, NULL, 0},
 	{BRIDGE_IOC,	"bridge", 0, NULL, 0},
 	{IPTUN_IOC,	"iptun", 0, NULL, 0},
-	{IBPART_IOC,	"ibp", -1, NULL, 0}
+	{IBPART_IOC,	"ibp", -1, NULL, 0},
+        {XDE_IOC,       "xde", 0, NULL, 0}
 };
 #define	DLDIOC_CNT	\
 	(sizeof (dld_ioc_modtable) / sizeof (dld_ioc_modentry_t))

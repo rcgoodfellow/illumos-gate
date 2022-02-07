@@ -59,6 +59,7 @@ extern "C" {
 #define	IPTUN_IOC	0x454A
 #define	BRIDGE_IOC	0xB81D
 #define	IBPART_IOC	0x6171
+#define XDE_IOC         0xde00
 
 /* GLDv3 modules use these macros to generate unique ioctl commands */
 #define	DLDIOC(cmdid)		DLD_IOC_CMD(DLD_IOC, (cmdid))
