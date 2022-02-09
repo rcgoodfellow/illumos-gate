@@ -18,6 +18,10 @@ SUBDIRS =		\
 	assert-deflib	\
 	linker-sets	\
 	mapfiles	\
+	relocs		\
+	resolution	\
+	sections	\
+	string-merge	\
 	tls
 
 include $(SRC)/test/Makefile.com

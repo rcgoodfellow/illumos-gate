@@ -116,7 +116,7 @@ struct pci_vtnet_softc {
 	int		resetting;	/* protected by tx_mtx */
 
 	uint64_t	vsc_features;	/* negotiated features */
-	
+
 	pthread_mutex_t	rx_mtx;
 	int		rx_merge;	/* merged rx bufs in use */
 
@@ -237,6 +237,7 @@ pci_vtnet_rx(struct pci_vtnet_softc *sc)
 	struct virtio_mrg_rxbuf_info info[VTNET_MAXSEGS];
 	struct iovec iov[VTNET_MAXSEGS + 1];
 	struct vqueue_info *vq;
+	struct vi_req req;
 
 	vq = &sc->vsc_queues[VTNET_RXQ];
 
@@ -277,8 +278,9 @@ pci_vtnet_rx(struct pci_vtnet_softc *sc)
 		riov = iov;
 		n_chains = 0;
 		do {
-			int n = vq_getchain(vq, &info[n_chains].idx, riov,
-			    VTNET_MAXSEGS - riov_len, NULL);
+			int n = vq_getchain(vq, riov, VTNET_MAXSEGS - riov_len,
+			    &req);
+			info[n_chains].idx = req.idx;
 
 			if (n == 0) {
 				/*
@@ -449,7 +451,7 @@ pci_vtnet_proctx(struct pci_vtnet_softc *sc, struct vqueue_info *vq)
 {
 	struct iovec iov[VTNET_MAXSEGS + 1];
 	struct iovec *siov = iov;
-	uint16_t idx;
+	struct vi_req req;
 	ssize_t len;
 	int n;
 
@@ -457,7 +459,7 @@ pci_vtnet_proctx(struct pci_vtnet_softc *sc, struct vqueue_info *vq)
 	 * Obtain chain of descriptors. The first descriptor also
 	 * contains the virtio-net header.
 	 */
-	n = vq_getchain(vq, &idx, iov, VTNET_MAXSEGS, NULL);
+	n = vq_getchain(vq, iov, VTNET_MAXSEGS, &req);
 	assert(n >= 1 && n <= VTNET_MAXSEGS);
 
 	if (sc->vhdrlen != sc->be_vhdrlen) {
@@ -487,7 +489,7 @@ pci_vtnet_proctx(struct pci_vtnet_softc *sc, struct vqueue_info *vq)
 	 * Return the processed chain to the guest, reporting
 	 * the number of bytes that we read.
 	 */
-	vq_relchain(vq, idx, len);
+	vq_relchain(vq, req.idx, len);
 }
 
 /* Called on TX kick. */
@@ -652,9 +654,9 @@ pci_vtnet_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 	sc->vsc_consts.vc_hv_caps |= VIRTIO_NET_F_MRG_RXBUF |
 	    netbe_get_cap(sc->vsc_be);
 
-	/* 
+	/*
 	 * Since we do not actually support multiqueue,
-	 * set the maximum virtqueue pairs to 1. 
+	 * set the maximum virtqueue pairs to 1.
 	 */
 	sc->vsc_config.max_virtqueue_pairs = 1;
 
@@ -667,7 +669,7 @@ pci_vtnet_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 
 	/* Link is always up. */
 	sc->vsc_config.status = 1;
-	
+
 	vi_softc_linkup(&sc->vsc_vs, &sc->vsc_consts, sc, pi, sc->vsc_queues);
 	sc->vsc_vs.vs_mtx = &sc->vsc_mtx;
 
@@ -684,12 +686,12 @@ pci_vtnet_init(struct vmctx *ctx, struct pci_devinst *pi, nvlist_t *nvl)
 
 	sc->rx_merge = 0;
 	sc->vhdrlen = sizeof(struct virtio_net_rxhdr) - 2;
-	pthread_mutex_init(&sc->rx_mtx, NULL); 
+	pthread_mutex_init(&sc->rx_mtx, NULL);
 
-	/* 
+	/*
 	 * Initialize tx semaphore & spawn TX processing thread.
 	 * As of now, only one thread for TX desc processing is
-	 * spawned. 
+	 * spawned.
 	 */
 	sc->tx_in_progress = 0;
 	pthread_mutex_init(&sc->tx_mtx, NULL);

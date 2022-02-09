@@ -29,6 +29,7 @@
 # Copyright 2016 OmniTI Computer Consulting, Inc.  All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
 # Copyright 2020 RackTop Systems, Inc.
+# Copyright 2021 Oxide Computer Company
 #
 
 #
@@ -294,6 +295,7 @@ GENUNIX_OBJS +=	\
 		rctl.o		\
 		rctlsys.o	\
 		readlink.o	\
+		refhash.o	\
 		refstr.o	\
 		rename.o	\
 		resolvepath.o	\
@@ -571,6 +573,7 @@ IP_SCTP_OBJS =	sctp.o sctp_opt_data.o sctp_output.o \
 		sctp_addr.o tn_ipopt.o tnet.o ip_netinfo.o \
 		sctp_misc.o
 IP_ILB_OBJS =	ilb.o ilb_nat.o ilb_conn.o ilb_alg_hash.o ilb_alg_rr.o
+IP_COMM_OBJS =	inet_hash.o
 
 IP_OBJS +=	igmp.o ipmp.o ip.o ip6.o ip6_asp.o ip6_if.o ip6_ire.o \
 		ip6_rts.o ip_if.o ip_ire.o ip_listutils.o ip_mroute.o \
@@ -586,7 +589,8 @@ IP_OBJS +=	igmp.o ipmp.o ip.o ip6.o ip6_asp.o ip6_if.o ip6_ire.o \
 		$(IP_TCP_OBJS) \
 		$(IP_UDP_OBJS) \
 		$(IP_SCTP_OBJS) \
-		$(IP_ILB_OBJS)
+		$(IP_ILB_OBJS) \
+		$(IP_COMM_OBJS)
 
 IP6_OBJS +=	ip6ddi.o
 
@@ -1055,7 +1059,7 @@ RTLS_OBJS +=	rtls.o
 #
 AOUTEXEC_OBJS +=aout.o
 
-ELFEXEC_OBJS +=	elf.o elf_notes.o old_notes.o
+ELFEXEC_OBJS +=	elf.o elf_notes.o old_notes.o core_shstrtab.o
 
 INTPEXEC_OBJS +=intp.o
 
@@ -1432,6 +1436,7 @@ ZFS_COMMON_OBJS +=		\
 	zap_leaf.o		\
 	zap_micro.o		\
 	zcp.o			\
+	zcp_change_key.o	\
 	zcp_get.o		\
 	zcp_set.o		\
 	zcp_global.o		\
@@ -1911,8 +1916,7 @@ ZYD_OBJS += zyd.o zyd_usb.o zyd_hw.o zyd_fw.o
 
 MXFE_OBJS += mxfe.o
 
-MPTSAS_OBJS += mptsas.o mptsas_hash.o mptsas_impl.o mptsas_init.o \
-		mptsas_raid.o mptsas_smhba.o
+MPTSAS_OBJS += mptsas.o mptsas_impl.o mptsas_init.o mptsas_raid.o mptsas_smhba.o
 
 SFE_OBJS += sfe.o sfe_util.o
 
@@ -2158,6 +2162,20 @@ CPQARY3_OBJS =	cpqary3.o cpqary3_noe.o cpqary3_talk2ctlr.o	\
 		cpqary3_bd.o
 
 #
+#	HP Smart Array driver module (smrt)
+#
+SMRT_OBJS =	smrt.o \
+		smrt_device.o \
+		smrt_interrupts.o \
+		smrt_commands.o \
+		smrt_logvol.o \
+		smrt_hba.o \
+		smrt_ciss_simple.o \
+		smrt_ciss.o \
+		smrt_physical.o \
+		smrt_sata.o
+
+#
 #	ISCSI_INITIATOR module
 #
 ISCSI_INITIATOR_OBJS =	chap.o iscsi_io.o iscsi_thread.o	\
@@ -2292,3 +2310,10 @@ BNX_OBJS += \
 #
 MLXCX_OBJS +=	mlxcx.o mlxcx_dma.o mlxcx_cmd.o mlxcx_intr.o mlxcx_gld.o \
 		mlxcx_ring.o mlxcx_sensor.o
+
+#
+# ena(7D)
+#
+ENA_OBJS +=	ena.o ena_admin.o ena_dma.o ena_gld.o ena_hw.o ena_intr.o \
+		ena_stats.o ena_tx.o ena_rx.o
+

@@ -52,13 +52,12 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/mutex.h>
 #include <sys/systm.h>
-#include <sys/smp.h>
+#include <sys/cpuset.h>
 
 #include <x86/specialreg.h>
 #include <x86/apicreg.h>
 
 #include <machine/clock.h>
-#include <machine/smp.h>
 
 #include <machine/vmm.h>
 
@@ -100,6 +99,7 @@ __FBSDID("$FreeBSD$");
 #define	VLAPIC_BUS_FREQ		(128 * 1024 * 1024)
 
 static void vlapic_set_error(struct vlapic *, uint32_t, bool);
+static void vlapic_callout_handler(void *arg);
 
 #ifdef __ISRVEC_DEBUG
 static void vlapic_isrstk_accept(struct vlapic *, int);
@@ -729,6 +729,13 @@ vlapic_trigger_lvt(struct vlapic *vlapic, int vector)
 }
 
 static void
+vlapic_callout_reset(struct vlapic *vlapic, sbintime_t t)
+{
+	callout_reset_sbt(&vlapic->callout, t, 0,
+	    vlapic_callout_handler, vlapic, 0);
+}
+
+static void
 vlapic_callout_handler(void *arg)
 {
 	struct vlapic *vlapic;
@@ -784,8 +791,7 @@ vlapic_callout_handler(void *arg)
 		}
 
 		bintime_add(&vlapic->timer_fire_bt, &vlapic->timer_period_bt);
-		callout_reset_sbt(&vlapic->callout, rem_sbt, 0,
-		    vlapic_callout_handler, vlapic, 0);
+		vlapic_callout_reset(vlapic, rem_sbt);
 	}
 done:
 	VLAPIC_TIMER_UNLOCK(vlapic);
@@ -811,8 +817,7 @@ vlapic_icrtmr_write_handler(struct vlapic *vlapic)
 		bintime_add(&vlapic->timer_fire_bt, &vlapic->timer_period_bt);
 
 		sbt = bttosbt(vlapic->timer_period_bt);
-		callout_reset_sbt(&vlapic->callout, sbt, 0,
-		    vlapic_callout_handler, vlapic, 0);
+		vlapic_callout_reset(vlapic, sbt);
 	} else
 		callout_stop(&vlapic->callout);
 
@@ -1602,7 +1607,7 @@ vlapic_deliver_intr(struct vm *vm, bool level, uint32_t dest, bool phys,
 }
 
 void
-vlapic_post_intr(struct vlapic *vlapic, int hostcpu, int ipinum)
+vlapic_post_intr(struct vlapic *vlapic, int hostcpu)
 {
 	/*
 	 * Post an interrupt to the vcpu currently running on 'hostcpu'.
@@ -1616,7 +1621,7 @@ vlapic_post_intr(struct vlapic *vlapic, int hostcpu, int ipinum)
 	if (vlapic->ops.post_intr)
 		(*vlapic->ops.post_intr)(vlapic, hostcpu);
 	else
-		ipi_cpu(hostcpu, ipinum);
+		poke_cpu(hostcpu);
 }
 
 bool
