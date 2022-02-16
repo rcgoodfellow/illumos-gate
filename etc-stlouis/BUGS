@@ -1,5 +1,7 @@
 OPEN
 OX0005 evaluate Tctl/Tdie translation in smntemp.c
+OX0006 want a known-accessible MSR walker
+OX0007 incorrect value read from fsbase/gsbase in both 32 and 64 bit userland
 
 FIXED
 OX0001 PTE page mapping window discovery is excessively brittle
