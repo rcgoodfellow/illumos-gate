@@ -496,12 +496,17 @@ memlist_insert(
 	}
 	new->ml_next = NULL;
 	new->ml_prev = last;
-	if (last != NULL)
+	if (last != NULL) {
 		last->ml_next = new;
+	} else {
+		ASSERT3P(*curmemlistp, ==, NULL);
+		*curmemlistp = new;
+	}
 }
 
 void
-memlist_del(struct memlist *memlistp, struct memlist **curmemlistp)
+memlist_del(struct memlist *memlistp,
+    struct memlist **curmemlistp)
 {
 #ifdef DEBUG
 	/*

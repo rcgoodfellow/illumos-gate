@@ -394,7 +394,8 @@ CCNOAUTOINLINE= \
 #
 # Since at present we don't benefit from this even in userland, we disable it globally,
 # but the application of this may move into usr/src/uts/ in future.
-CCNOREORDER=	-_gcc=-fno-reorder-functions
+CCNOREORDER=	-_gcc=-fno-reorder-functions \
+		-_gcc=-fno-reorder-blocks-and-partition
 
 #
 # gcc has a rather aggressive optimization on by default that infers loop
@@ -589,7 +590,8 @@ CALLSYMS=	-_gcc=-fno-eliminate-unused-debug-symbols \
 # by the CTF tools.  With Sun Studio this is stabs due to bugs in the Studio
 # compilers.  With GCC this is DWARF v2.
 #
-DEBUGFORMAT=	-_cc=-xdebugformat=stabs -_gcc=-gdwarf-2 -_gcc10=-gstrict-dwarf
+DEBUGFORMAT=	-_cc=-xdebugformat=stabs -_gcc=-gdwarf-2 \
+		-_gcc10=-gstrict-dwarf -_gcc11=-gstrict-dwarf
 
 #
 # Ask the compiler to include debugging information
@@ -1130,6 +1132,7 @@ $(RELEASE_BUILD)PROCESS_COMMENT=   @?${MCS} -d -a $(RELEASE_CM)
 
 STRIP_STABS=			   $(STRIP) -x $@
 $(SRCDBGBLD)STRIP_STABS=	   :
+PROCESS_CTF=			   :
 
 POST_PROCESS_O=
 POST_PROCESS_S_O=
@@ -1137,8 +1140,8 @@ POST_PROCESS_CC_O=
 POST_PROCESS_A=
 POST_PROCESS_SO=	$(PROCESS_COMMENT) $@ ; $(STRIP_STABS) ; \
 			$(ELFSIGN_OBJECT)
-POST_PROCESS=		$(PROCESS_COMMENT) $@ ; $(STRIP_STABS) ; \
-			$(ELFSIGN_OBJECT)
+POST_PROCESS=		$(PROCESS_COMMENT) $@ ; $(PROCESS_CTF) ; \
+			$(STRIP_STABS) ; $(ELFSIGN_OBJECT)
 
 #
 # chk4ubin is a tool that inspects a module for a symbol table
