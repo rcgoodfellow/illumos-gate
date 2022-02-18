@@ -2610,7 +2610,6 @@ cpuid_patch_retpolines(x86_spectrev2_mitigation_t mit)
 		uintptr_t source, dest;
 		int ssize, dsize;
 		char sourcebuf[64], destbuf[64];
-		size_t len;
 
 		(void) snprintf(destbuf, sizeof (destbuf),
 		    "__x86_indirect_thunk%s", thunks[i]);
@@ -3055,7 +3054,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	uint32_t mask_ecx, mask_edx;
 	struct cpuid_info *cpi;
 	struct cpuid_regs *cp;
-	extern int idle_cpu_prefer_mwait;
 
 	/*
 	 * Space statically allocated for BSP, ensure pointer is set
@@ -3585,7 +3583,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 * determines the lfence behavior.  Per that whitepaper, AMD has
 	 * committed to supporting that MSR on all later CPUs.
 	 */
-	uint64_t val = 0;
+	uint64_t val;
 
 	/*
 	 * Be careful when attempting to enable the bit, and
@@ -3599,6 +3597,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		val |= AMD_DE_CFG_LFENCE_DISPATCH;
 		wrmsr(MSR_AMD_DE_CFG, val);
 		val = rdmsr(MSR_AMD_DE_CFG);
+	} else {
+		val = 0;
 	}
 	no_trap();
 
@@ -4047,8 +4047,8 @@ cpuid_pass2(cpu_t *cpu)
 				 * Before then, don't trust the data.
 				 */
 				if (cpi->cpi_family < 6 ||
-				    cpi->cpi_family == 6 &&
-				    cpi->cpi_model < 1)
+				    (cpi->cpi_family == 6 &&
+				    cpi->cpi_model < 1))
 					cp->cp_eax = cp->cp_ebx = 0;
 				/*
 				 * AMD Duron rev A0 reports L2

@@ -966,7 +966,7 @@ lgrp_plat_latency(lgrp_handle_t from, lgrp_handle_t to)
 	/*
 	 * Return 0 for nodes (lgroup platform handles) out of range
 	 */
-	if (src < 0 || src >= MAX_NODES || dest < 0 || dest >= MAX_NODES)
+	if (src >= MAX_NODES || dest >= MAX_NODES)
 		return (0);
 
 	/*
@@ -1365,8 +1365,6 @@ lgrp_plat_get_numa_config(void)
 	 * of NUMA nodes by reading ACPI System Resource Affinity Table (SRAT)
 	 */
 	if (lgrp_plat_apic_ncpus > 0) {
-		int	retval;
-
 		/* Reserve enough resources if CPU DR is enabled. */
 		if (plat_dr_support_cpu() && max_ncpus > lgrp_plat_apic_ncpus)
 			lgrp_plat_cpu_node_nentries = max_ncpus;
@@ -2032,7 +2030,7 @@ lgrp_plat_memnode_info_update(node_domain_map_t *node_domain, int node_cnt,
     memnode_phys_addr_map_t *memnode_info, int memnode_cnt, uint64_t start,
     uint64_t end, uint32_t domain, uint32_t device_id)
 {
-	int	node, mnode;
+	int	node;
 
 	/*
 	 * Get node number for proximity domain

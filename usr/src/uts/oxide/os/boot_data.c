@@ -36,7 +36,6 @@ extern "C" {
 
 static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
 static const char FAKE_BOARD_IDENT[] = "FAKE-IDENT";
-static const uint32_t KBM_DEBUG_VAL = 0U;
 static const uint64_t RAMDISK_START_VAL = 0x101000000UL;
 static const uint64_t RAMDISK_END_VAL = 0x101e00000UL;
 
@@ -56,6 +55,10 @@ static const bt_prop_t ramdisk_start_prop = {
 	.btp_typeflags = DDI_PROP_TYPE_INT64
 };
 
+#define	WANT_KBM_DEBUG	0
+
+#if WANT_KBM_DEBUG
+static const uint32_t KBM_DEBUG_VAL = 1U;
 static const bt_prop_t kbm_debug_prop = {
 	.btp_next = &ramdisk_start_prop,
 	.btp_name = "kbm_debug",
@@ -63,9 +66,10 @@ static const bt_prop_t kbm_debug_prop = {
 	.btp_value = &KBM_DEBUG_VAL,
 	.btp_typeflags = DDI_PROP_TYPE_INT
 };
+#endif
 
 static const bt_prop_t board_ident_prop = {
-#if 0
+#if WANT_KBM_DEBUG
 	.btp_next = &kbm_debug_prop,
 #else
 	.btp_next = &ramdisk_start_prop,

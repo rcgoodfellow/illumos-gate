@@ -200,11 +200,9 @@ static const uint8_t stac_instr[3] = { 0x0f, 0x01, 0xcb };
 void
 mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 {
-	processorid_t bootcpuid = 0;
 	static int is_first_quiesce = 1;
 	static int is_first_reset = 1;
 	int reset_status = 0;
-	static char fallback_str[] = "Falling back to regular reboot.\n";
 
 	if (fcn == AD_FASTREBOOT)
 		fcn = AD_BOOT;

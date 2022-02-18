@@ -2028,8 +2028,8 @@ release_bootstrap(void)
 		pp = bootpages;
 		bootpages = pp->p_next;
 
-		if (root_is_ramdisk && pp_in_range(pp, ramdisk_start,
-		    ramdisk_end) || pp_in_module(pp, modranges)) {
+		if ((root_is_ramdisk && pp_in_range(pp, ramdisk_start,
+		    ramdisk_end)) || pp_in_module(pp, modranges)) {
 			pp->p_next = rd_pages;
 			rd_pages = pp;
 			continue;

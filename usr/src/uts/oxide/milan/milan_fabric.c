@@ -1678,7 +1678,7 @@ milan_fabric_ioms_pcie_init(milan_ioms_t *ioms)
 {
 	for (uint_t pcino = 0; pcino < ioms->mio_npcie_ports; pcino++) {
 		milan_ioms_pcie_port_t *port = &ioms->mio_pcie_ports[pcino];
-		const milan_bridge_info_t *binfop;
+		const milan_bridge_info_t *binfop = NULL;
 
 
 		if (pcino == MILAN_IOMS_WAFL_PCIE_PORT) {
@@ -1735,7 +1735,7 @@ static void
 milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 {
 	for (uint_t nbifno = 0; nbifno < ioms->mio_nnbifs; nbifno++) {
-		const milan_nbif_info_t *ninfo;
+		const milan_nbif_info_t *ninfo = NULL;
 		milan_nbif_t *nbif = &ioms->mio_nbifs[nbifno];
 
 		nbif->mn_nbifno = nbifno;
@@ -2628,11 +2628,11 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 		uint32_t regoff = MILAN_IOHC_R_SION_SHIFT(i);
 
 		val = milan_iohc_read32(iodie, ioms,
-		    MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT);
+		    regoff + MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT);
 		val = MILAN_IOHC_R_SET_SION_CLI_NP_DEFICIT(val,
-		    MILAN_IOHC_R_SION_CLI_NP_DEFICIT_VAL);
+		    regoff + MILAN_IOHC_R_SION_CLI_NP_DEFICIT_VAL);
 		milan_iohc_write32(iodie, ioms,
-		    MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT, val);
+		    regoff + MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT, val);
 	}
 
 	/*
@@ -3746,7 +3746,6 @@ milan_route_mmio(milan_fabric_t *fabric)
 void
 milan_fabric_init(void)
 {
-	uint32_t val;
 	milan_fabric_t *fabric = &milan_fabric;
 
 	/*

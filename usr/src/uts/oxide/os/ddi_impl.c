@@ -813,12 +813,6 @@ impl_ddi_sunbus_removechild(dev_info_t *dip)
 int ignore_hardware_nodes = 0;
 
 /*
- * Local data
- */
-static struct impl_bus_promops *impl_busp;
-
-
-/*
  * New DDI interrupt framework
  */
 
@@ -1387,7 +1381,8 @@ kalloca(size_t size, size_t align, int cansleep, int physcontig,
 	rsize = P2ROUNDUP_TYPED(size + align, KA_ALIGN, size_t);
 
 	if (physcontig && rsize > PAGESIZE) {
-		if (addr = contig_alloc(size, attr, align, cansleep)) {
+		if ((addr = contig_alloc(size, attr, align, cansleep)) !=
+		    NULL) {
 			if (!putctgas(addr, size))
 				contig_free(addr, size);
 			else
@@ -1786,7 +1781,7 @@ get_boot_properties(void)
 	dev_info_t *devi;
 	char *name;
 	int length, flags;
-	char property_name[50], property_val[50];
+	char property_name[50];
 	void *bop_staging_area;
 
 	bop_staging_area = kmem_zalloc(MMU_PAGESIZE, KM_NOSLEEP);
@@ -2016,12 +2011,13 @@ x86_old_bootpath_name_addr_match(dev_info_t *cdip, char *caddr, char *naddr)
 		 *
 		 *  bootpath assumed to be of the form /bus/module@name_addr
 		 */
-		if (busp = strchr(bp1275, '/')) {
-			if (modp = strchr(busp + 1, '/')) {
-				if (atp = strchr(modp + 1, '@')) {
+		if ((busp = strchr(bp1275, '/')) != NULL) {
+			if ((modp = strchr(busp + 1, '/')) != NULL) {
+				if ((atp = strchr(modp + 1, '@')) != NULL) {
 					*atp = '\0';
 					addrp = atp + 1;
-					if (eoaddrp = strchr(addrp, '/'))
+					if ((eoaddrp = strchr(addrp, '/')) !=
+					    NULL)
 						*eoaddrp = '\0';
 				}
 			}
@@ -2051,12 +2047,13 @@ x86_old_bootpath_name_addr_match(dev_info_t *cdip, char *caddr, char *naddr)
 		 *  bootpath assumed to be of the form /bus/module@name_addr
 		 */
 		addrp = NULL;
-		if (busp = strchr(bp, '/')) {
-			if (modp = strchr(busp + 1, '/')) {
-				if (atp = strchr(modp + 1, '@')) {
+		if ((busp = strchr(bp, '/')) != NULL) {
+			if ((modp = strchr(busp + 1, '/')) != NULL) {
+				if ((atp = strchr(modp + 1, '@')) != NULL) {
 					*atp = '\0';
 					addrp = atp + 1;
-					if (eoaddrp = strchr(addrp, '/'))
+					if ((eoaddrp = strchr(addrp, '/')) !=
+					    NULL)
 						*eoaddrp = '\0';
 				}
 			}
@@ -2125,11 +2122,12 @@ e_ddi_copytodev(dev_info_t *devi,
 static int
 poke_mem(peekpoke_ctlops_t *in_args)
 {
-	int err = DDI_SUCCESS;
+	int err;
 	on_trap_data_t otd;
 
 	/* Set up protected environment. */
 	if (!on_trap(&otd, OT_DATA_ACCESS)) {
+		err = DDI_SUCCESS;
 		switch (in_args->size) {
 		case sizeof (uint8_t):
 			*(uint8_t *)(in_args->dev_addr) =
@@ -2155,8 +2153,9 @@ poke_mem(peekpoke_ctlops_t *in_args)
 			err = DDI_FAILURE;
 			break;
 		}
-	} else
+	} else {
 		err = DDI_FAILURE;
+	}
 
 	/* Take down protected environment. */
 	no_trap();
@@ -2168,10 +2167,11 @@ poke_mem(peekpoke_ctlops_t *in_args)
 static int
 peek_mem(peekpoke_ctlops_t *in_args)
 {
-	int err = DDI_SUCCESS;
+	int err;
 	on_trap_data_t otd;
 
 	if (!on_trap(&otd, OT_DATA_ACCESS)) {
+		err = DDI_SUCCESS;
 		switch (in_args->size) {
 		case sizeof (uint8_t):
 			*(uint8_t *)in_args->host_addr =
@@ -2197,8 +2197,9 @@ peek_mem(peekpoke_ctlops_t *in_args)
 			err = DDI_FAILURE;
 			break;
 		}
-	} else
+	} else {
 		err = DDI_FAILURE;
+	}
 
 	no_trap();
 	return (err);
@@ -2407,8 +2408,6 @@ pci_peekpoke_check(dev_info_t *dip, dev_info_t *rdip,
 void
 impl_setup_ddi(void)
 {
-	extern void startup_bios_disk(void);
-	extern int post_fastreboot;
 	dev_info_t *xdip, *isa_dip;
 	rd_existing_t rd_mem_prop;
 	int err;

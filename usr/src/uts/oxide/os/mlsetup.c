@@ -109,7 +109,6 @@ mlsetup(struct regs *rp)
 	extern struct classfuncs sys_classfuncs;
 	extern disp_t cpu0_disp;
 	extern char t0stack[];
-	extern int post_fastreboot;
 	extern uint64_t plat_dr_options;
 
 	ASSERT_STACK_ALIGNED();
