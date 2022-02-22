@@ -2630,7 +2630,7 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 		val = milan_iohc_read32(iodie, ioms,
 		    regoff + MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT);
 		val = MILAN_IOHC_R_SET_SION_CLI_NP_DEFICIT(val,
-		    regoff + MILAN_IOHC_R_SION_CLI_NP_DEFICIT_VAL);
+		    MILAN_IOHC_R_SION_CLI_NP_DEFICIT_VAL);
 		milan_iohc_write32(iodie, ioms,
 		    regoff + MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT, val);
 	}
