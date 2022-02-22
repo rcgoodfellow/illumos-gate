@@ -785,6 +785,7 @@ lwp_stk_init(klwp_t *lwp, caddr_t stk)
 		pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_udesc;
 	else
 		pcb->pcb_fsdesc = pcb->pcb_gsdesc = zero_u32desc;
+	lwp_installctx(lwp);
 	return (stk);
 }
 
