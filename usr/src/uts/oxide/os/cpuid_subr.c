@@ -554,7 +554,6 @@ synth_amd_skt_cpuid(uint_t family, uint_t sktid)
 static void
 synth_amd_skt(uint_t family, uint_t model, uint32_t *skt_p)
 {
-	int platform;
 	const struct amd_skt_mapent *skt;
 	uint_t i;
 

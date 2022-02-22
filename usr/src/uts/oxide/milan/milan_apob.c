@@ -120,7 +120,6 @@ void
 milan_apob_init(uint64_t apob_pa)
 {
 	uintptr_t base;
-	size_t to_map;
 
 	base = kbm_valloc(milan_apob_size_cap, MMU_PAGESIZE);
 	if (base == 0) {
