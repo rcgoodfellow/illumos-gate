@@ -11,19 +11,6 @@ index 6d31345421..d597a413a4 100644
  
  install1: mapfiles closedbins sgs
  
-diff --git a/usr/src/boot/i386/isoboot/Makefile b/usr/src/boot/i386/isoboot/Makefile
-index 08a803f44e..8d20a0a900 100644
---- a/usr/src/boot/i386/isoboot/Makefile
-+++ b/usr/src/boot/i386/isoboot/Makefile
-@@ -61,7 +61,7 @@ OBJS= mb_header.o isoboot.o sio.o drv.o cons.o gptldr.o
- CLEANFILES += isoboot
- 
- isoboot: gptldr.bin isoboot.bin $(BTXKERN)
--	btxld -v -E $(ORG2) -f bin -b $(BTXKERN) -V $(BOOT_VERSION) -l \
-+	$(BTXLD) -v -E $(ORG2) -f bin -b $(BTXKERN) -V $(BOOT_VERSION) -l \
- 		gptldr.bin -o $@ isoboot.bin
- 	@set -- `ls -l $@`; x=$$(($(ISOBOOTSIZE)-$$5)); \
- 	    echo "$$x bytes available"; test $$x -ge 0
 diff --git a/usr/src/cmd/Makefile b/usr/src/cmd/Makefile
 index 4f496112e8..e3966f4378 100644
 --- a/usr/src/cmd/Makefile
