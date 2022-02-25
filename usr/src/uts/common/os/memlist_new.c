@@ -22,7 +22,7 @@
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  *
- * Copyright 2021 Oxide Computer Co.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/types.h>
@@ -33,6 +33,7 @@
 #include <sys/memlist.h>
 #include <sys/memlist_impl.h>
 #include <sys/sysmacros.h>
+#include <sys/kmem.h>
 
 /*
  * For compatibility with existing callers, the "normal" versions of all our
@@ -954,4 +955,41 @@ int
 memlist_delete_span(uint64_t address, uint64_t bytes, memlist_t **curmemlistp)
 {
 	return (xmemlist_delete_span(&pool, address, bytes, curmemlistp, 0));
+}
+
+struct memlist *
+memlist_kmem_dup(const struct memlist *src, int kmflags)
+{
+	struct memlist *dest = NULL, *last = NULL;
+
+	while (src != NULL) {
+		struct memlist *new;
+
+		new = kmem_zalloc(sizeof (struct memlist), kmflags);
+		if (new == NULL) {
+			while (dest != NULL) {
+				struct memlist *to_free;
+
+				to_free = dest;
+				dest = dest->ml_next;
+				kmem_free(to_free, sizeof (struct memlist));
+			}
+			return (NULL);
+		}
+
+		new->ml_address = src->ml_address;
+		new->ml_size = src->ml_size;
+		new->ml_next = NULL;
+		new->ml_prev = last;
+		if (last != NULL) {
+			last->ml_next = new;
+		} else {
+			dest = new;
+		}
+
+		last = new;
+		src = src->ml_next;
+	}
+
+	return (dest);
 }

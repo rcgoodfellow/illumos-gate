@@ -52,7 +52,6 @@
 
 #define	SUCCESS	0
 
-extern uint64_t mcfg_mem_base;
 int pcitool_debug = 0;
 
 /*
@@ -85,6 +84,7 @@ static void pcitool_unmap(uint64_t virt_addr, size_t num_pages);
 /* Extern declarations */
 extern int	(*psm_intr_ops)(dev_info_t *, ddi_intr_handle_impl_t *,
 		    psm_intr_op_t, int *);
+extern void (*pci_cfgacc_acc_p)(pci_cfgacc_req_t *req);
 
 int
 pcitool_init(dev_info_t *dip, boolean_t is_pciex)
@@ -595,10 +595,12 @@ pcitool_cfg_access(pcitool_reg_t *prg, boolean_t write_flag,
 	 * put functions return void and the get functions return -1 on error.
 	 */
 
-	if (io_access)
-		max_offset = 0xFF;
-	else
-		max_offset = 0xFFF;
+	/*
+	 * The platform always supports extended configuration space accesses,
+	 * whether via I/O ports or not. However, we really just only support
+	 * mmcfg on the platform.
+	 */
+	max_offset = 0xFFF;
 	if (prg->offset + size - 1 > max_offset) {
 		prg->status = PCITOOL_INVALID_ADDRESS;
 		return (ENOTSUP);
@@ -619,9 +621,9 @@ pcitool_cfg_access(pcitool_reg_t *prg, boolean_t write_flag,
 			local_data = prg->data;
 		}
 		VAL64(&req) = local_data;
-		pci_cfgacc_acc(&req);
+		pci_cfgacc_acc_p(&req);
 	} else {
-		pci_cfgacc_acc(&req);
+		pci_cfgacc_acc_p(&req);
 		switch (size) {
 		case 1:
 			local_data = VAL8(&req);
@@ -645,23 +647,6 @@ pcitool_cfg_access(pcitool_reg_t *prg, boolean_t write_flag,
 		} else {
 			prg->data = local_data;
 		}
-	}
-	/*
-	 * Check if legacy IO config access is used, in which case
-	 * only first 256 bytes are valid.
-	 */
-	if (req.ioacc && (prg->offset + size - 1 > 0xFF)) {
-		prg->status = PCITOOL_INVALID_ADDRESS;
-		return (ENOTSUP);
-	}
-
-	/* Set phys_addr only if MMIO is used */
-	prg->phys_addr = 0;
-	if (!req.ioacc && mcfg_mem_base != 0) {
-		prg->phys_addr = mcfg_mem_base + prg->offset +
-		    ((prg->bus_no << PCIEX_REG_BUS_SHIFT) |
-		    (prg->dev_no << PCIEX_REG_DEV_SHIFT) |
-		    (prg->func_no << PCIEX_REG_FUNC_SHIFT));
 	}
 
 	return (rval);

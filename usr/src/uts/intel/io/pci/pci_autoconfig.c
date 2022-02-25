@@ -54,6 +54,8 @@ void pci_setup_tree(void);
 void pci_reprogram(void);
 dev_info_t *pci_boot_bus_to_dip(uint32_t);
 
+uint_t pci_autoconfig_detach = 0;
+
 static struct modlmisc modlmisc = {
 	&mod_miscops, "PCI BIOS interface"
 };
@@ -88,6 +90,13 @@ int
 _fini(void)
 {
 	int	err;
+
+	/*
+	 * Detach of this module is fairly unsafe and reattach even more so.
+	 * Don't detach unless someone has gone out of the way with mdb -kw.
+	 */
+	if (pci_autoconfig_detach == 0)
+		return (EBUSY);
 
 	if ((err = mod_remove(&modlinkage)) != 0)
 		return (err);

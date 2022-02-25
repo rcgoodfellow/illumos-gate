@@ -80,6 +80,13 @@ extern int xmemlist_add_span(struct memlist_pool *, uint64_t, uint64_t,
 extern int xmemlist_delete_span(struct memlist_pool *, uint64_t, uint64_t,
     struct memlist **, uint64_t);
 
+/*
+ * Duplicate a given memlist using kmem and the given kmem flags. This is useful
+ * when tranisitioning a memlist from something that used a pool to something
+ * that expects to have memlists managed by kmem.
+ */
+extern struct memlist *memlist_kmem_dup(const struct memlist *, int);
+
 #ifdef __cplusplus
 }
 #endif

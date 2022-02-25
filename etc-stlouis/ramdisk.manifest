@@ -292,9 +292,6 @@ f kernel/crypto/amd64/swrand 0755 root sys
 d kernel/drv 0755 root sys
 f kernel/drv/amdzen.conf 0644 root sys
 d kernel/drv/amd64 0755 root sys
-f kernel/drv/amd64/amdzen 0755 root sys
-f kernel/drv/amd64/amdzen_stub 0755 root sys
-f kernel/drv/amd64/amdnbtemp 0755 root sys
 f kernel/drv/amd64/arp 0755 root sys
 f kernel/drv/amd64/asy 0755 root sys
 f kernel/drv/amd64/blkdev 0755 root sys
@@ -303,7 +300,6 @@ f kernel/drv/amd64/cn 0755 root sys
 f kernel/drv/amd64/cpuid 0755 root sys
 f kernel/drv/amd64/cpunex 0755 root sys
 f kernel/drv/amd64/crypto 0755 root sys
-f kernel/drv/amd64/cxgbe 0755 root sys
 h kernel/drv/amd64/dcpc=kernel/dtrace/amd64/dcpc
 f kernel/drv/amd64/devinfo 0755 root sys
 f kernel/drv/amd64/dld 0755 root sys
@@ -335,15 +331,13 @@ f kernel/drv/amd64/ramdisk 0755 root sys
 f kernel/drv/amd64/random 0755 root sys
 f kernel/drv/amd64/sad 0755 root sys
 h kernel/drv/amd64/sdt=kernel/dtrace/amd64/sdt
-f kernel/drv/amd64/smntemp 0755 root sys
+f kernel/drv/amd64/softmac 0755 root sys
 f kernel/drv/amd64/spdsock 0755 root sys
 f kernel/drv/amd64/sy 0755 root sys
 f kernel/drv/amd64/sysevent 0755 root sys
 f kernel/drv/amd64/sysmsg 0755 root sys
 h kernel/drv/amd64/systrace=kernel/dtrace/amd64/systrace
-f kernel/drv/amd64/t4nex 0755 root sys
 f kernel/drv/amd64/tcp 0755 root sys
-f kernel/drv/amd64/ucode 0755 root sys
 f kernel/drv/amd64/udp 0755 root sys
 f kernel/drv/arp.conf 0644 root sys
 f kernel/drv/asy.conf 0644 root sys
@@ -381,13 +375,13 @@ f kernel/drv/ramdisk.conf 0644 root sys
 f kernel/drv/random.conf 0644 root sys
 f kernel/drv/sad.conf 0644 root sys
 f kernel/drv/sdt.conf 0644 root sys
+f kernel/drv/softmac.conf 0644 root sys
 f kernel/drv/spdsock.conf 0644 root sys
 f kernel/drv/sy.conf 0644 root sys
 f kernel/drv/sysevent.conf 0644 root sys
 f kernel/drv/sysmsg.conf 0644 root sys
 f kernel/drv/systrace.conf 0644 root sys
 f kernel/drv/tcp.conf 0644 root sys
-f kernel/drv/ucode.conf 0644 root sys
 f kernel/drv/udp.conf 0644 root sys
 d kernel/dtrace 0755 root sys
 d kernel/dtrace/amd64 0755 root sys
@@ -447,9 +441,12 @@ f kernel/misc/amd64/mac 0755 root sys
 f kernel/misc/amd64/md5 0755 root sys
 f kernel/misc/amd64/mii 0755 root sys
 f kernel/misc/amd64/neti 0755 root sys
+f kernel/misc/amd64/pci_autoconfig 0755 root sys
 f kernel/misc/amd64/pcicfg 0755 root sys
 f kernel/misc/amd64/pcie 0755 root sys
 f kernel/misc/amd64/pcihp 0755 root sys
+f kernel/misc/amd64/sata 0755 root sys
+f kernel/misc/amd64/scsi 0755 root sys
 f kernel/misc/amd64/sha1 0755 root sys
 f kernel/misc/amd64/strplumb 0755 root sys
 d kernel/pcbe 0755 root sys
@@ -709,6 +706,9 @@ f platform/oxide/kernel/kmdb/amd64/unix 0555 root sys
 d platform/oxide/kernel/mach 0755 root sys
 d platform/oxide/kernel/mach/amd64 0755 root sys
 f platform/oxide/kernel/mach/amd64/apix 0755 root sys
+d platform/oxide/kernel/misc 0755 root sys
+d platform/oxide/kernel/misc/amd64 0755 root sys
+f platform/oxide/kernel/misc/amd64/pci_prd 0755 root sys
 d proc 0755 root root
 d root 0755 root root
 f root/.hushlogin 0600 root root
@@ -1124,7 +1124,6 @@ f usr/sbin/psrset 0555 root sys
 f usr/sbin/svcadm 0555 root bin
 f usr/sbin/svccfg 0555 root bin
 f usr/sbin/syslogd 0555 root sys
-f usr/sbin/ucodeadm 0555 root bin
 f usr/sbin/update_drv 0555 root sys
 d usr/share 0755 root sys
 d usr/share/hwdata 0755 root sys

@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _MILAN_MILAN_FABRIC_H
@@ -20,6 +20,9 @@
  * Definitions that allow us to access the Milan fabric. This consists of the
  * data fabric, northbridges, SMN, and more.
  */
+
+#include <sys/memlist.h>
+#include <sys/plat/pci_prd.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +40,8 @@ extern void milan_fabric_topo_init(void);
  * Northbridges, PCIe, and related.
  */
 extern void milan_fabric_init(void);
+
+extern struct memlist *milan_fabric_pci_subsume(uint32_t, pci_prd_rsrc_t);
 
 #ifdef __cplusplus
 }

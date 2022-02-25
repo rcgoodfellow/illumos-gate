@@ -202,6 +202,8 @@ VIONA_OBJS += viona_main.o \
 
 PPT_OBJS += ppt.o
 
+PCI_PRD_OBJS += pci_prd_oxide.o
+
 #
 #	Build up defines and paths.
 #

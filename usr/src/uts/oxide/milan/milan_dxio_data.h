@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _MILAN_DXIO_DATA_H
@@ -459,6 +459,7 @@ extern const uint32_t ethanolx_pcie_slot_cap_entssd;
 extern const uint32_t ethanolx_pcie_slot_cap_express;
 
 extern const zen_dxio_platform_t gimlet_engine;
+extern const smu_hotplug_entry_t gimlet_hotplug_ents[];
 
 #ifdef __cplusplus
 }

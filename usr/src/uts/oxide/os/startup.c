@@ -161,6 +161,13 @@ static void startup_end(void);
 static void layout_kernel_va(void);
 
 /*
+ * XXX For the moment pci_boot.c expects this data to exist to create a list of
+ * graphics devices for later use by things like the IOMMU. We should figure out
+ * the right path forward here. But for now put it here to unblock things.
+ */
+void *gfx_devinfo_list;
+
+/*
  * For now we can handle memory with physical addresses up to about
  * 64 Terabytes. This keeps the kernel above the VA hole, leaving roughly
  * half the VA space for seg_kpm. When systems get bigger than 64TB this

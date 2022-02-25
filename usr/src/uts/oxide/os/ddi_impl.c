@@ -2527,6 +2527,12 @@ impl_bus_initialprobe(void)
 {
 	struct bus_probe *probe;
 
+	/* XXXBOOT load modules to install bus probes, tihs may want deletion */
+	if (modload("misc", "pci_autoconfig") < 0) {
+		panic("failed to load misc/pci_autoconfig");
+	}
+
+
 	/* XXXBOOT needed for the console for now, will be deleted. */
 	if (modload("drv", "isa") < 0)
 		panic("failed to load drv/isa");
