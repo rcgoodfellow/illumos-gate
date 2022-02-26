@@ -47,7 +47,7 @@ $(OBJECTS): $(INLINES)
 #	on modstubs simplifies things...
 #
 $(BINARY):		$(OBJECTS) $(DTRACE_MAPFILE) $(MAPFILE)
-	$(LD) -r $(LDFLAGS) -o $@ $(OBJECTS)
+	$(LD) -ztype=kmod $(LDFLAGS) -o $@ $(OBJECTS)
 	$(CTFMERGE_UNIQUIFY_AGAINST_GENUNIX)
 	$(POST_PROCESS)
 
@@ -175,6 +175,9 @@ $(ROOT_FONT_DIR)/%:	$(OBJS_DIR)/% $(ROOT_MOD_DIR) $(ROOT_FONT_DIR) FRC
 	$(INS.file)
 
 $(ROOT_MAC_DIR)/%:	$(OBJS_DIR)/% $(ROOT_MOD_DIR) $(ROOT_MAC_DIR) FRC
+	$(INS.file)
+
+$(ROOT_OVERLAY_DIR)/%:	$(OBJS_DIR)/% $(ROOT_MOD_DIR) $(ROOT_OVERLAY_DIR) FRC
 	$(INS.file)
 
 $(USR_DRV_DIR)/%:	$(OBJS_DIR)/% $(USR_DRV_DIR) FRC

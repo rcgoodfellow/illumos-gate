@@ -14,6 +14,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2019 Western Digital Corporation
  * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #ifndef _SYS_NVME_H
@@ -52,7 +53,8 @@ extern "C" {
 #define	NVME_IOC_ATTACH			(NVME_IOC | 10)
 #define	NVME_IOC_FIRMWARE_DOWNLOAD	(NVME_IOC | 11)
 #define	NVME_IOC_FIRMWARE_COMMIT	(NVME_IOC | 12)
-#define	NVME_IOC_MAX			NVME_IOC_FIRMWARE_COMMIT
+#define	NVME_IOC_PASSTHRU		(NVME_IOC | 13)
+#define	NVME_IOC_MAX			NVME_IOC_PASSTHRU
 
 #define	IS_NVME_IOC(x)			((x) > NVME_IOC && (x) <= NVME_IOC_MAX)
 #define	NVME_IOC_CMD(x)			((x) & 0xff)
@@ -556,6 +558,7 @@ typedef struct {
 #define	NVME_LOGPAGE_ERROR	0x1	/* Error Information */
 #define	NVME_LOGPAGE_HEALTH	0x2	/* SMART/Health Information */
 #define	NVME_LOGPAGE_FWSLOT	0x3	/* Firmware Slot Information */
+#define	NVME_LOGPAGE_NSCHANGE	0x4	/* Changed namespace (1.2) */
 
 typedef struct {
 	uint64_t el_count;		/* Error Count */
@@ -633,6 +636,18 @@ typedef struct {
 	uint8_t fw_rsvd4[512 - 64];
 } nvme_fwslot_log_t;
 
+/*
+ * The NVMe spec specifies that the changed namespace list contains up to
+ * 1024 entries.
+ */
+#define	NVME_NSCHANGE_LIST_SIZE	1024
+
+typedef struct {
+	uint32_t	nscl_ns[NVME_NSCHANGE_LIST_SIZE];
+} __packed nvme_nschange_list_t;
+
+/* CSTYLED */
+_Static_assert(sizeof (nvme_nschange_list_t) == 4096, "bad size for nvme_nschange_list_t");
 
 /*
  * NVMe Format NVM
@@ -797,13 +812,21 @@ typedef union {
 /* Asynchronous Event Configuration Feature */
 typedef union {
 	struct {
-		uint8_t aec_avail:1;	/* available space too low */
-		uint8_t aec_temp:1;	/* temperature too high */
-		uint8_t aec_reliab:1;	/* degraded reliability */
-		uint8_t aec_readonly:1;	/* media is read-only */
-		uint8_t aec_volatile:1;	/* volatile memory backup failed */
+		uint8_t aec_avail:1;	/* Available space too low */
+		uint8_t aec_temp:1;	/* Temperature too high */
+		uint8_t aec_reliab:1;	/* Degraded reliability */
+		uint8_t aec_readonly:1;	/* Media is read-only */
+		uint8_t aec_volatile:1;	/* Volatile memory backup failed */
 		uint8_t aec_rsvd1:3;
-		uint8_t aec_rsvd2[3];
+		uint8_t aec_nsan:1;	/* Namespace attribute notices (1.2) */
+		uint8_t aec_fwact:1;	/* Firmware activation notices (1.2) */
+		uint8_t aec_telln:1;	/* Telemetry log notices (1.3) */
+		uint8_t aec_ansacn:1;	/* Asymm. NS access change (1.4) */
+		uint8_t aec_plat:1;	/* Predictable latency ev. agg. (1.4) */
+		uint8_t aec_lbasi:1;	/* LBA status information (1.4) */
+		uint8_t aec_egeal:1;	/* Endurance group ev. agg. (1.4) */
+		uint8_t aec_rsvd2:1;
+		uint8_t aec_rsvd3[2];
 	} b;
 	uint32_t r;
 } nvme_async_event_conf_t;
@@ -945,6 +968,65 @@ typedef union {
 #define	NVME_CQE_SC_INT_NVM_REF_TAG	0x84	/* Reference Tag Check Err */
 #define	NVME_CQE_SC_INT_NVM_COMPARE	0x85	/* Compare Failure */
 #define	NVME_CQE_SC_INT_NVM_ACCESS	0x86	/* Access Denied */
+
+/* Flags for NVMe passthru commands. */
+#define	NVME_PASSTHRU_READ	0x1 /* Read from device */
+#define	NVME_PASSTHRU_WRITE	0x2 /* Write to device */
+
+/* Error codes for NVMe passthru command validation. */
+/* Must be sizeof(nvme_passthru_cmd_t) */
+#define	NVME_PASSTHRU_ERR_CMD_SIZE	0x01
+#define	NVME_PASSTHRU_ERR_NOT_SUPPORTED	0x02	/* Not supported on device */
+#define	NVME_PASSTHRU_ERR_INVALID_OPCODE	0x03
+#define	NVME_PASSTHRU_ERR_READ_AND_WRITE	0x04	/* Must read ^ write */
+#define	NVME_PASSTHRU_ERR_INVALID_TIMEOUT	0x05
+
+/*
+ * Must be
+ * - multiple of 4 bytes in length
+ * - non-null iff length is non-zero
+ * - null if neither reading nor writing
+ * - non-null if either reading or writing
+ * - <= `nvme_vendor_specific_admin_cmd_size` in length, 16 MiB
+ * - <= UINT32_MAX in length
+ */
+#define	NVME_PASSTHRU_ERR_INVALID_BUFFER	0x06
+
+
+/* Generic struct for passing through vendor-unique commands to a device. */
+typedef struct {
+	uint8_t npc_opcode;	/* Command opcode. */
+	uint8_t npc_status;	/* Command completion status code. */
+	uint8_t npc_err;	/* Error-code if validation fails. */
+	uint8_t npc_rsvd0;	/* Align to 4 bytes */
+	uint32_t npc_timeout;	/* Command timeout, in seconds. */
+	uint32_t npc_flags;	/* Flags for the command. */
+	uint32_t npc_cdw0;	/* Command-specific result DWord 0 */
+	uint32_t npc_cdw12;	/* Command-specific DWord 12 */
+	uint32_t npc_cdw13;	/* Command-specific DWord 13 */
+	uint32_t npc_cdw14;	/* Command-specific DWord 14 */
+	uint32_t npc_cdw15;	/* Command-specific DWord 15 */
+	size_t npc_buflen;	/* Size of npc_buf. */
+	uintptr_t npc_buf;	/* I/O source or destination */
+} nvme_passthru_cmd_t;
+
+#ifdef _KERNEL
+typedef struct {
+	uint8_t npc_opcode;	/* Command opcode. */
+	uint8_t npc_status;	/* Command completion status code. */
+	uint8_t npc_err;	/* Error-code if validation fails. */
+	uint8_t npc_rsvd0;	/* Align to 4 bytes */
+	uint32_t npc_timeout;	/* Command timeout, in seconds. */
+	uint32_t npc_flags;	/* Flags for the command. */
+	uint32_t npc_cdw0;	/* Command-specific result DWord 0 */
+	uint32_t npc_cdw12;	/* Command-specific DWord 12 */
+	uint32_t npc_cdw13;	/* Command-specific DWord 13 */
+	uint32_t npc_cdw14;	/* Command-specific DWord 14 */
+	uint32_t npc_cdw15;	/* Command-specific DWord 15 */
+	size32_t npc_buflen;	/* Size of npc_buf. */
+	uintptr32_t npc_buf;	/* I/O source or destination */
+} nvme_passthru_cmd32_t;
+#endif
 
 #ifdef __cplusplus
 }

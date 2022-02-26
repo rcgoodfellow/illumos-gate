@@ -24,7 +24,7 @@
 # Copyright 2015, OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2016 RackTop Systems.
-# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 # Copyright 2020 Peter Tribble
 #
 
@@ -195,10 +195,13 @@ PKGMOG_DEFINES= \
 	BUILDPERL64=$(BUILDPERL64) \
 	PYTHON_VERSION=$(PYTHON_VERSION) \
 	PYTHON3_VERSION=$(PYTHON3_VERSION) \
+	PYTHON3b_VERSION=$(PYTHON3b_VERSION) \
 	PYTHON_PKGVERS=$(PYTHON_PKGVERS) \
 	PYTHON3_PKGVERS=$(PYTHON3_PKGVERS) \
+	PYTHON3b_PKGVERS=$(PYTHON3b_PKGVERS) \
 	python2_ONLY=$(BUILDPY2) \
 	python3_ONLY=$(BUILDPY3) \
+	python3b_ONLY=$(BUILDPY3b) \
 	python2tools_ONLY=$(BUILDPY2TOOLS) \
 	python3tools_ONLY=$(BUILDPY3TOOLS) \
 	JAVA_11_ONLY=$(JAVA_11_ONLY) \
@@ -249,21 +252,25 @@ CLOBBERFILES= $(PDIR) proto_list_$(PKGMACH) install-$(PKGMACH).out \
 # SUNW.* as one useful example.
 #
 SPECIAL_MANIFESTS = system-library-python-.*
-LIST_MANIFESTS_CMD = (cd manifests ; /usr/bin/ls -1 *.mf |\
+LIST_MANIFESTS_CMD = (cd manifests ; /usr/bin/ls -1 *.p5m |\
 	$(SED) $(SPECIAL_MANIFESTS:%=-e '/^%$$/d') )
 MANIFESTS = $(LIST_MANIFESTS_CMD:sh)
 
 # Conditionally add back python modules
 $(BUILDPY2) MANIFESTS += \
-	system-library-python-libbe-2.mf \
-	system-library-python-solaris-2.mf \
-	system-library-python-zfs-2.mf
+	system-library-python-libbe-2.p5m \
+	system-library-python-solaris-2.p5m \
+	system-library-python-zfs-2.p5m
 $(BUILDPY3) MANIFESTS += \
-	system-library-python-libbe-3.mf \
-	system-library-python-solaris-3.mf \
-	system-library-python-zfs-3.mf
+	system-library-python-libbe-3.p5m \
+	system-library-python-solaris-3.p5m \
+	system-library-python-zfs-3.p5m
+$(BUILDPY3b) MANIFESTS += \
+	system-library-python-libbe-3b.p5m \
+	system-library-python-solaris-3b.p5m \
+	system-library-python-zfs-3b.p5m
 
-PKGS= $(MANIFESTS:%.mf=%)
+PKGS= $(MANIFESTS:%.p5m=%)
 DEP_PKGS= $(PKGS:%=$(PDIR)/%.dep)
 PROC_PKGS= $(PKGS:%=$(PDIR)/%.mog)
 FIN_PKGS= $(PKGS:%=$(PDIR)/%.fin)
@@ -326,7 +333,7 @@ PKGLISTS= \
 #
 # For a single manifest, the dependency chain looks like this:
 #
-#	raw manifest (mypkg.mf)
+#	raw manifest (mypkg.p5m)
 #		|
 #		| use pkgmogrify to process raw manifest
 #		|
@@ -532,11 +539,11 @@ $(REPOS:%=$(PKGDEST)/repo.%):
 #   pkgmogrify encounters an abort in the publish transforms.
 #
 
-.SUFFIXES: .mf .mog .dep .res .fin .pub
+.SUFFIXES: .p5m .mog .dep .res .fin .pub
 
-$(PDIR)/%.mog: manifests/%.mf
+$(PDIR)/%.mog: manifests/%.p5m
 	@print "Processing manifest $(<F)"
-	@env PKGFMT_OUTPUT=v1 pkgfmt -c $<
+	@pkgfmt -fv2 -c $<
 	$(PKGDEBUG)$(RM) $(@) $(@:%.mog=%) $(@:%.mog=%.nodepend) \
 		$(@:%.mog=%.lics) $(PDIR)/$(@F:%.mog=%).metadata.* $(@).vars
 	$(PKGDEBUG)$(PKGMOGRIFY) $(PKGMOG_VERBOSE) $(PM_INC:%= -I %) \
@@ -611,12 +618,12 @@ $(PDIR)/%.pub: $(PDIR)/%.fin
 # The implementation notes from the previous rule are applicable
 # here, too.
 #
-$(PROC_SYNTH_PKGS): $(PKGLISTS) $$(@F:%.mog=%.mf)
-	@print "Processing synthetic manifest $(@F:%.mog=%.mf)"
+$(PROC_SYNTH_PKGS): $(PKGLISTS) $$(@F:%.mog=%.p5m)
+	@print "Processing synthetic manifest $(@F:%.mog=%.p5m)"
 	$(PKGDEBUG)$(RM) $(@) $(PDIR)/$(@F:%.mog=%).metadata.* $(@).vars
 	$(PKGDEBUG)$(PKGMOGRIFY) $(PKGMOG_VERBOSE) -I transforms -I $(PDIR) \
 		$(PKGMOG_DEFINES:%=-D %) -D PKGDEP_TYPE=$(PKGDEP_TYPE) \
-		-P $(@).vars -O $(@) $(@F:%.mog=%.mf) \
+		-P $(@).vars -O $(@) $(@F:%.mog=%.p5m) \
 		$(PM_TRANSFORMS) synthetic
 	$(PKGDEBUG)eval REPO=redist PKGSTAT=current `$(CAT) -s $(@).vars`; \
 	if [ -f $(@) ]; then \

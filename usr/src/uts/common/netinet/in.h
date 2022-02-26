@@ -3,6 +3,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2015, Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 /*
@@ -226,6 +227,7 @@ typedef	uint16_t	sa_family_t;
 #define	IPPORT_SLP		427
 #define	IPPORT_MIP		434
 #define	IPPORT_SMB		445		/* a.k.a. microsoft-ds */
+#define	IPPORT_VXLAN		4789
 
 /*
  * Internet Key Exchange (IKE) ports
@@ -268,6 +270,11 @@ typedef	uint16_t	sa_family_t;
  */
 #define	IPPORT_RESERVED		1024
 #define	IPPORT_USERRESERVED	5000
+
+#ifdef _KERNEL
+#define	IPPORT_DYNAMIC_MIN	49152
+#define	IPPORT_DYNAMIC_MAX	65535
+#endif
 
 /*
  * Link numbers

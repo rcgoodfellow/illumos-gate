@@ -156,6 +156,24 @@ ifl_setup(const char *name, Ehdr *ehdr, Elf *elf, Word flags, Ofl_desc *ofl,
 }
 
 /*
+ * Return TRUE if shdr is to be excluded via SHF_EXCLUDE.
+ *
+ * If SHF_EXCLUDE is set, a section should be excluded from dynamic output.
+ * Additionally, it will be excluded from kernel modules (-ztype=kmod).
+ */
+static inline Boolean
+section_is_exclude(Ofl_desc *ofl, Shdr *shdr)
+{
+	if (shdr->sh_flags & SHF_EXCLUDE) {
+		if ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)
+			return (TRUE);
+		if (ofl->ofl_flags & FLG_OF_KMOD)
+			return (TRUE);
+	}
+	return (FALSE);
+}
+
+/*
  * Process a generic section.  The appropriate section information is added
  * to the files input descriptor list.
  */
@@ -185,10 +203,8 @@ process_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
 		return (0);
 	}
 
-	if ((shdr->sh_flags & SHF_EXCLUDE) &&
-	    ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)) {
+	if (section_is_exclude(ofl, shdr))
 		isp->is_flags |= FLG_IS_DISCARD;
-	}
 
 	/*
 	 * Add the new input section to the files input section list and
@@ -1380,7 +1396,8 @@ invalid_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
 	ld_eprintf(ofl, ERR_WARNING, MSG_INTL(MSG_FIL_INVALSEC),
 	    ifl->ifl_name, EC_WORD(ndx), name,
 	    conv_sec_type(ifl->ifl_ehdr->e_ident[EI_OSABI],
-	    ifl->ifl_ehdr->e_machine, shdr->sh_type, 0, &inv_buf));
+	    ifl->ifl_ehdr->e_machine, shdr->sh_type, CONV_FMT_ALT_CF,
+	    &inv_buf));
 	return (1);
 }
 
@@ -1398,7 +1415,7 @@ invalid_section(const char *name, Ifl_desc *ifl, Shdr *shdr, Elf_Scn *scn,
  * exit:
  *	Returns True (1) if the names match, and False (0) otherwise.
  */
-inline static int
+static int
 is_name_cmp(const char *is_name, const char *match_name, size_t match_len)
 {
 	/*
@@ -2369,7 +2386,8 @@ rel_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 		ld_eprintf(ofl, ERR_FATAL, MSG_INTL(MSG_FIL_INVALSEC),
 		    ifl->ifl_name, EC_WORD(isc->is_scnndx), isc->is_name,
 		    conv_sec_type(ifl->ifl_ehdr->e_ident[EI_OSABI],
-		    ifl->ifl_ehdr->e_machine, shdr->sh_type, 0, &inv_buf));
+		    ifl->ifl_ehdr->e_machine, shdr->sh_type, CONV_FMT_ALT_CF,
+		    &inv_buf));
 		return (0);
 	}
 
@@ -2639,12 +2657,7 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 
 		row = shdr->sh_type;
 
-		/*
-		 * If the section has the SHF_EXCLUDE flag on, and we're not
-		 * generating a relocatable object, exclude the section.
-		 */
-		if (((shdr->sh_flags & SHF_EXCLUDE) != 0) &&
-		    ((ofl->ofl_flags & FLG_OF_RELOBJ) == 0)) {
+		if (section_is_exclude(ofl, shdr)) {
 			if ((error = process_exclude(name, ifl, shdr, scn,
 			    ndx, ofl)) == S_ERROR)
 				return (S_ERROR);
@@ -2665,10 +2678,15 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 		} else {
 			/*
 			 * If this section is below SHT_LOSUNW then we don't
-			 * really know what to do with it, issue a warning
-			 * message but do the basic section processing anyway.
+			 * really know what to do with it.
+			 *
+			 * If SHF_EXCLUDE is set we're being told we should
+			 * (or may) ignore the section.	 Otherwise issue a
+			 * warning message but do the basic section processing
+			 * anyway.
 			 */
-			if (row < (Word)SHT_LOSUNW) {
+			if ((row < (Word)SHT_LOSUNW) &&
+			    ((shdr->sh_flags & SHF_EXCLUDE) == 0)) {
 				Conv_inv_buf_t inv_buf;
 
 				ld_eprintf(ofl, ERR_WARNING,
@@ -2676,7 +2694,7 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 				    EC_WORD(ndx), name, conv_sec_type(
 				    ifl->ifl_ehdr->e_ident[EI_OSABI],
 				    ifl->ifl_ehdr->e_machine,
-				    shdr->sh_type, 0, &inv_buf));
+				    shdr->sh_type, CONV_FMT_ALT_CF, &inv_buf));
 			}
 
 			/*

@@ -10,20 +10,23 @@
  */
 
 /*
- * Copyright 2018 Nexenta Systems, Inc.
- * Copyright 2016 Tegile Systems, Inc. All rights reserved.
  * Copyright (c) 2016 The MathWorks, Inc.  All rights reserved.
  * Copyright 2020 Joyent, Inc.
- * Copyright 2019 Western Digital Corporation.
  * Copyright 2020 Racktop Systems.
+ * Copyright 2022 Oxide Computer Company.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 /*
  * blkdev driver for NVMe compliant storage devices
  *
- * This driver was written to conform to version 1.2.1 of the NVMe
- * specification.  It may work with newer versions, but that is completely
- * untested and disabled by default.
+ * This driver targets and is designed to support all NVMe 1.x devices.
+ * Features are added to the driver as we encounter devices that require them
+ * and our needs, so some commands or log pages may not take advantage of newer
+ * features that devices support at this time. When you encounter such a case,
+ * it is generally fine to add that support to the driver as long as you take
+ * care to ensure that the requisite device version is met before using it.
  *
  * The driver has only been tested on x86 systems and will not work on big-
  * endian systems without changes to the code accessing registers and data
@@ -212,7 +215,7 @@
  *
  * While the callback registration relies on the NDI event framework, the
  * removal event itself is kicked off in the PCIe hotplug framework, when the
- * PCIe bridge driver ("pcieb") gets a hotplug interrupt indicatating that a
+ * PCIe bridge driver ("pcieb") gets a hotplug interrupt indicating that a
  * device was removed from the slot.
  *
  * The NVMe driver instance itself will remain until the final close of the
@@ -337,6 +340,18 @@ int nvme_format_cmd_timeout = 600;
 /* tunable for firmware commit with NVME_FWC_SAVE, default is 15s */
 int nvme_commit_save_cmd_timeout = 15;
 
+/*
+ * tunable for the size of arbitrary vendor specific admin commands,
+ * default is 16MiB.
+ */
+uint32_t nvme_vendor_specific_admin_cmd_size = 1 << 24;
+
+/*
+ * tunable for the max timeout of arbitary vendor specific admin commands,
+ * default is 60s.
+ */
+uint_t nvme_vendor_specific_admin_cmd_max_timeout = 60;
+
 static int nvme_attach(dev_info_t *, ddi_attach_cmd_t);
 static int nvme_detach(dev_info_t *, ddi_detach_cmd_t);
 static int nvme_quiesce(dev_info_t *);
@@ -400,7 +415,7 @@ static inline uint32_t nvme_get32(nvme_t *, uintptr_t);
 static boolean_t nvme_check_regs_hdl(nvme_t *);
 static boolean_t nvme_check_dma_hdl(nvme_dma_t *);
 
-static int nvme_fill_prp(nvme_cmd_t *, bd_xfer_t *);
+static int nvme_fill_prp(nvme_cmd_t *, ddi_dma_handle_t);
 
 static void nvme_bd_xfer_done(void *);
 static void nvme_bd_driveinfo(void *, bd_drive_t *);
@@ -428,6 +443,8 @@ static int nvme_open(dev_t *, int, int, cred_t *);
 static int nvme_close(dev_t, int, int, cred_t *);
 static int nvme_ioctl(dev_t, int, intptr_t, int, cred_t *, int *);
 
+static void nvme_changed_ns(nvme_t *, int);
+
 static ddi_ufm_ops_t nvme_ufm_ops = {
 	NULL,
 	nvme_ufm_fill_image,
@@ -440,6 +457,35 @@ static ddi_ufm_ops_t nvme_ufm_ops = {
 #define	NVME_MINOR_INST(minor)	((minor) >> NVME_MINOR_INST_SHIFT)
 #define	NVME_MINOR_NSID(minor)	((minor) & ((1 << NVME_MINOR_INST_SHIFT) - 1))
 #define	NVME_MINOR_MAX		(NVME_MINOR(1, 0) - 2)
+#define	NVME_IS_VENDOR_SPECIFIC_CMD(x)	(((x) >= 0xC0) && ((x) <= 0xFF))
+#define	NVME_VENDOR_SPECIFIC_LOGPAGE_MIN	0xC0
+#define	NVME_VENDOR_SPECIFIC_LOGPAGE_MAX	0xFF
+#define	NVME_IS_VENDOR_SPECIFIC_LOGPAGE(x)	\
+		(((x) >= NVME_VENDOR_SPECIFIC_LOGPAGE_MIN) && \
+		((x) <= NVME_VENDOR_SPECIFIC_LOGPAGE_MAX))
+
+/*
+ * NVMe versions 1.3 and later actually support log pages up to UINT32_MAX
+ * DWords in size. However, revision 1.3 also modified the layout of the Get Log
+ * Page command significantly relative to version 1.2, including changing
+ * reserved bits, adding new bitfields, and requiring the use of command DWord
+ * 11 to fully specify the size of the log page (the lower and upper 16 bits of
+ * the number of DWords in the page are split between DWord 10 and DWord 11,
+ * respectively).
+ *
+ * All of these impose significantly different layout requirements on the
+ * `nvme_getlogpage_t` type. This could be solved with two different types, or a
+ * complicated/nested union with the two versions as the overlying members. Both
+ * of these are reasonable, if a bit convoluted. However, these is no current
+ * need for such large pages, or a way to test them, as most log pages actually
+ * fit within the current size limit. So for simplicity, we retain the size cap
+ * from version 1.2.
+ *
+ * Note that the number of DWords is zero-based, so we add 1. It is subtracted
+ * to form a zero-based value in `nvme_get_logpage`.
+ */
+#define	NVME_VENDOR_SPECIFIC_LOGPAGE_MAX_SIZE	\
+		(((1 << 12) + 1) * sizeof (uint32_t))
 
 static void *nvme_state;
 static kmem_cache_t *nvme_cmd_cache;
@@ -1059,12 +1105,13 @@ nvme_free_cmd(nvme_cmd_t *cmd)
 		return;
 
 	if (cmd->nc_dma) {
-		if (cmd->nc_dma->nd_cached)
-			kmem_cache_free(cmd->nc_nvme->n_prp_cache,
-			    cmd->nc_dma);
-		else
-			nvme_free_dma(cmd->nc_dma);
+		nvme_free_dma(cmd->nc_dma);
 		cmd->nc_dma = NULL;
+	}
+
+	if (cmd->nc_prp) {
+		kmem_cache_free(cmd->nc_nvme->n_prp_cache, cmd->nc_prp);
+		cmd->nc_prp = NULL;
 	}
 
 	cv_destroy(&cmd->nc_cv);
@@ -1744,6 +1791,7 @@ nvme_async_event_task(void *arg)
 	nvme_t *nvme = cmd->nc_nvme;
 	nvme_error_log_entry_t *error_log = NULL;
 	nvme_health_log_t *health_log = NULL;
+	nvme_nschange_list_t *nslist = NULL;
 	size_t logsize = 0;
 	nvme_async_event_t event;
 
@@ -1785,7 +1833,6 @@ nvme_async_event_task(void *arg)
 		nvme_free_cmd(cmd);
 		return;
 	}
-
 
 	event.r = cmd->nc_cqe.cqe_dw0;
 
@@ -1880,6 +1927,91 @@ nvme_async_event_task(void *arg)
 		}
 		break;
 
+	case NVME_ASYNC_TYPE_NOTICE:
+		switch (event.b.ae_info) {
+		case NVME_ASYNC_NOTICE_NS_CHANGE:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "namespace attribute change event, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+
+			if (event.b.ae_logpage != NVME_LOGPAGE_NSCHANGE)
+				break;
+
+			if (nvme_get_logpage(nvme, B_FALSE, (void **)&nslist,
+			    &logsize, event.b.ae_logpage, -1) != 0) {
+				break;
+			}
+
+			if (nslist->nscl_ns[0] == UINT32_MAX) {
+				dev_err(nvme->n_dip, CE_CONT,
+				    "more than %u namespaces have changed.\n",
+				    NVME_NSCHANGE_LIST_SIZE);
+				break;
+			}
+
+			for (uint_t i = 0; i < NVME_NSCHANGE_LIST_SIZE; i++) {
+				uint32_t nsid = nslist->nscl_ns[i];
+
+				if (nsid == 0)	/* end of list */
+					break;
+				nvme_changed_ns(nvme, nsid);
+			}
+
+			break;
+
+		case NVME_ASYNC_NOTICE_FW_ACTIVATE:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "firmware activation starting, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+			break;
+
+		case NVME_ASYNC_NOTICE_TELEMETRY:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "telemetry log changed, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+			break;
+
+		case NVME_ASYNC_NOTICE_NS_ASYMM:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "asymmetric namespace access change, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+			break;
+
+		case NVME_ASYNC_NOTICE_LATENCYLOG:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "predictable latency event aggregate log change, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+			break;
+
+		case NVME_ASYNC_NOTICE_LBASTATUS:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "LBA status information alert, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+			break;
+
+		case NVME_ASYNC_NOTICE_ENDURANCELOG:
+			dev_err(nvme->n_dip, CE_NOTE,
+			    "endurance group event aggregate log page change, "
+			    "logpage = %x", event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_notice_event);
+			break;
+
+		default:
+			dev_err(nvme->n_dip, CE_WARN,
+			    "!unknown notice async event received, "
+			    "info = %x, logpage = %x", event.b.ae_info,
+			    event.b.ae_logpage);
+			atomic_inc_32(&nvme->n_unknown_event);
+			break;
+		}
+		break;
+
 	case NVME_ASYNC_TYPE_VENDOR:
 		dev_err(nvme->n_dip, CE_WARN, "!vendor specific async event "
 		    "received, info = %x, logpage = %x", event.b.ae_info,
@@ -1895,11 +2027,14 @@ nvme_async_event_task(void *arg)
 		break;
 	}
 
-	if (error_log)
+	if (error_log != NULL)
 		kmem_free(error_log, logsize);
 
-	if (health_log)
+	if (health_log != NULL)
 		kmem_free(health_log, logsize);
+
+	if (nslist != NULL)
+		kmem_free(nslist, logsize);
 }
 
 static void
@@ -1970,6 +2105,12 @@ nvme_format_nvm(nvme_t *nvme, boolean_t user, uint32_t nsid, uint8_t lbaf,
 	return (ret);
 }
 
+/*
+ * The `bufsize` parameter is usually an output parameter, set by this routine
+ * when filling in the supported types of logpages from the device. However, for
+ * vendor-specific pages, it is an input parameter, and must be set
+ * appropriately by callers.
+ */
 static int
 nvme_get_logpage(nvme_t *nvme, boolean_t user, void **buf, size_t *bufsize,
     uint8_t logpage, ...)
@@ -1993,11 +2134,7 @@ nvme_get_logpage(nvme_t *nvme, boolean_t user, void **buf, size_t *bufsize,
 	switch (logpage) {
 	case NVME_LOGPAGE_ERROR:
 		cmd->nc_sqe.sqe_nsid = (uint32_t)-1;
-		/*
-		 * The GET LOG PAGE command can use at most 2 pages to return
-		 * data, PRP lists are not supported.
-		 */
-		*bufsize = MIN(2 * nvme->n_pagesize,
+		*bufsize = MIN(NVME_VENDOR_SPECIFIC_LOGPAGE_MAX_SIZE,
 		    nvme->n_error_log_len * sizeof (nvme_error_log_entry_t));
 		break;
 
@@ -2011,12 +2148,26 @@ nvme_get_logpage(nvme_t *nvme, boolean_t user, void **buf, size_t *bufsize,
 		*bufsize = sizeof (nvme_fwslot_log_t);
 		break;
 
+	case NVME_LOGPAGE_NSCHANGE:
+		cmd->nc_sqe.sqe_nsid = (uint32_t)-1;
+		*bufsize = sizeof (nvme_nschange_list_t);
+		break;
+
 	default:
-		dev_err(nvme->n_dip, CE_WARN, "!unknown log page requested: %d",
-		    logpage);
-		atomic_inc_32(&nvme->n_unknown_logpage);
-		ret = EINVAL;
-		goto fail;
+		/*
+		 * This intentionally only checks against the minimum valid
+		 * log page ID. `logpage` is a uint8_t, and `0xFF` is a valid
+		 * page ID, so this one-sided check avoids a compiler error
+		 * about a check that's always true.
+		 */
+		if (logpage < NVME_VENDOR_SPECIFIC_LOGPAGE_MIN) {
+			dev_err(nvme->n_dip, CE_WARN,
+			    "!unknown log page requested: %d", logpage);
+			atomic_inc_32(&nvme->n_unknown_logpage);
+			ret = EINVAL;
+			goto fail;
+		}
+		cmd->nc_sqe.sqe_nsid = va_arg(ap, uint32_t);
 	}
 
 	va_end(ap);
@@ -2033,22 +2184,8 @@ nvme_get_logpage(nvme_t *nvme, boolean_t user, void **buf, size_t *bufsize,
 		goto fail;
 	}
 
-	if (cmd->nc_dma->nd_ncookie > 2) {
-		dev_err(nvme->n_dip, CE_WARN,
-		    "!too many DMA cookies for GET LOG PAGE");
-		atomic_inc_32(&nvme->n_too_many_cookies);
-		ret = ENOMEM;
+	if ((ret = nvme_fill_prp(cmd, cmd->nc_dma->nd_dmah)) != 0)
 		goto fail;
-	}
-
-	cmd->nc_sqe.sqe_dptr.d_prp[0] = cmd->nc_dma->nd_cookie.dmac_laddress;
-	if (cmd->nc_dma->nd_ncookie > 1) {
-		ddi_dma_nextcookie(cmd->nc_dma->nd_dmah,
-		    &cmd->nc_dma->nd_cookie);
-		cmd->nc_sqe.sqe_dptr.d_prp[1] =
-		    cmd->nc_dma->nd_cookie.dmac_laddress;
-	}
-
 	nvme_admin_cmd(cmd, nvme_admin_cmd_timeout);
 
 	if ((ret = nvme_check_cmd_status(cmd)) != 0) {
@@ -2349,7 +2486,7 @@ nvme_set_nqueues(nvme_t *nvme)
 		nvme->n_completion_queues = nvme->n_intr_cnt;
 
 	/*
-	 * There is no point in having more compeletion queues than
+	 * There is no point in having more completion queues than
 	 * interrupt vectors.
 	 */
 	nvme->n_completion_queues = MIN(nvme->n_completion_queues,
@@ -2550,6 +2687,41 @@ nvme_prepare_devid(nvme_t *nvme, uint32_t nsid)
 
 	nvme->n_ns[nsid - 1].ns_devid = kmem_asprintf("%4X-%s-%s-%X",
 	    nvme->n_idctl->id_vid, model, serial, nsid);
+}
+
+static void
+nvme_changed_ns(nvme_t *nvme, int nsid)
+{
+	nvme_namespace_t *ns = &nvme->n_ns[nsid - 1];
+	nvme_identify_nsid_t *idns, *oidns;
+
+	dev_err(nvme->n_dip, CE_NOTE, "!namespace %u (%s) has changed.",
+	    nsid, ns->ns_name);
+
+	if (ns->ns_ignore)
+		return;
+
+	/*
+	 * The namespace has changed in some way. At present, we only update
+	 * the device capacity and trigger blkdev to check the device state.
+	 */
+
+	if (nvme_identify(nvme, B_FALSE, nsid, (void **)&idns) != 0) {
+		dev_err(nvme->n_dip, CE_WARN,
+		    "!failed to identify namespace %d", nsid);
+		return;
+	}
+
+	oidns = ns->ns_idns;
+	ns->ns_idns = idns;
+	kmem_free(oidns, sizeof (nvme_identify_nsid_t));
+
+	ns->ns_block_count = idns->id_nsize;
+	ns->ns_block_size =
+	    1 << idns->id_lbaf[idns->id_flbas.lba_format].lbaf_lbads;
+	ns->ns_best_block_size = ns->ns_block_size;
+
+	bd_state_change(ns->ns_bd_hdl);
 }
 
 static int
@@ -2824,7 +2996,7 @@ nvme_init(nvme_t *nvme)
 	sema_init(&nvme->n_abort_sema, 1, NULL, SEMA_DRIVER, NULL);
 
 	/*
-	 * Setup initial interrupt for admin queue.
+	 * Set up initial interrupt for admin queue.
 	 */
 	if ((nvme_setup_interrupts(nvme, DDI_INTR_TYPE_MSIX, 1)
 	    != DDI_SUCCESS) &&
@@ -3456,7 +3628,7 @@ nvme_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	nvme->n_sgl_dma_attr = nvme_sgl_dma_attr;
 
 	/*
-	 * Setup FMA support.
+	 * Set up FMA support.
 	 */
 	nvme->n_fm_cap = ddi_getprop(DDI_DEV_T_ANY, dip,
 	    DDI_PROP_CANSLEEP | DDI_PROP_DONTPASS, "fm-capable",
@@ -3724,53 +3896,66 @@ nvme_quiesce(dev_info_t *dip)
 }
 
 static int
-nvme_fill_prp(nvme_cmd_t *cmd, bd_xfer_t *xfer)
+nvme_fill_prp(nvme_cmd_t *cmd, ddi_dma_handle_t dma)
 {
 	nvme_t *nvme = cmd->nc_nvme;
-	int nprp_page, nprp;
+	uint_t nprp_per_page, nprp;
 	uint64_t *prp;
+	const ddi_dma_cookie_t *cookie;
+	uint_t idx;
+	uint_t ncookies = ddi_dma_ncookies(dma);
 
-	if (xfer->x_ndmac == 0)
+	if (ncookies == 0)
 		return (DDI_FAILURE);
 
-	cmd->nc_sqe.sqe_dptr.d_prp[0] = xfer->x_dmac.dmac_laddress;
+	if ((cookie = ddi_dma_cookie_get(dma, 0)) == NULL)
+		return (DDI_FAILURE);
+	cmd->nc_sqe.sqe_dptr.d_prp[0] = cookie->dmac_laddress;
 
-	if (xfer->x_ndmac == 1) {
+	if (ncookies == 1) {
 		cmd->nc_sqe.sqe_dptr.d_prp[1] = 0;
 		return (DDI_SUCCESS);
-	} else if (xfer->x_ndmac == 2) {
-		ddi_dma_nextcookie(xfer->x_dmah, &xfer->x_dmac);
-		cmd->nc_sqe.sqe_dptr.d_prp[1] = xfer->x_dmac.dmac_laddress;
+	} else if (ncookies == 2) {
+		if ((cookie = ddi_dma_cookie_get(dma, 1)) == NULL)
+			return (DDI_FAILURE);
+		cmd->nc_sqe.sqe_dptr.d_prp[1] = cookie->dmac_laddress;
 		return (DDI_SUCCESS);
 	}
 
-	xfer->x_ndmac--;
-
-	nprp_page = nvme->n_pagesize / sizeof (uint64_t);
-	ASSERT(nprp_page > 0);
-	nprp = (xfer->x_ndmac + nprp_page - 1) / nprp_page;
+	/*
+	 * At this point, we're always operating on cookies at
+	 * index >= 1 and writing the addresses of those cookies
+	 * into a new page. The address of that page is stored
+	 * as the second PRP entry.
+	 */
+	nprp_per_page = nvme->n_pagesize / sizeof (uint64_t);
+	ASSERT(nprp_per_page > 0);
 
 	/*
 	 * We currently don't support chained PRPs and set up our DMA
 	 * attributes to reflect that. If we still get an I/O request
-	 * that needs a chained PRP something is very wrong.
+	 * that needs a chained PRP something is very wrong. Account
+	 * for the first cookie here, which we've placed in d_prp[0].
 	 */
+	nprp = howmany(ncookies - 1, nprp_per_page);
 	VERIFY(nprp == 1);
 
-	cmd->nc_dma = kmem_cache_alloc(nvme->n_prp_cache, KM_SLEEP);
-	bzero(cmd->nc_dma->nd_memp, cmd->nc_dma->nd_len);
+	/*
+	 * Allocate a page of pointers, in which we'll write the
+	 * addresses of cookies 1 to `ncookies`.
+	 */
+	cmd->nc_prp = kmem_cache_alloc(nvme->n_prp_cache, KM_SLEEP);
+	bzero(cmd->nc_prp->nd_memp, cmd->nc_prp->nd_len);
+	cmd->nc_sqe.sqe_dptr.d_prp[1] = cmd->nc_prp->nd_cookie.dmac_laddress;
 
-	cmd->nc_sqe.sqe_dptr.d_prp[1] = cmd->nc_dma->nd_cookie.dmac_laddress;
-
-	/*LINTED: E_PTR_BAD_CAST_ALIGN*/
-	for (prp = (uint64_t *)cmd->nc_dma->nd_memp;
-	    xfer->x_ndmac > 0;
-	    prp++, xfer->x_ndmac--) {
-		ddi_dma_nextcookie(xfer->x_dmah, &xfer->x_dmac);
-		*prp = xfer->x_dmac.dmac_laddress;
+	prp = (uint64_t *)cmd->nc_prp->nd_memp;
+	for (idx = 1; idx < ncookies; idx++) {
+		if ((cookie = ddi_dma_cookie_get(dma, idx)) == NULL)
+			return (DDI_FAILURE);
+		*prp++ = cookie->dmac_laddress;
 	}
 
-	(void) ddi_dma_sync(cmd->nc_dma->nd_dmah, 0, cmd->nc_dma->nd_len,
+	(void) ddi_dma_sync(cmd->nc_prp->nd_dmah, 0, cmd->nc_prp->nd_len,
 	    DDI_DMA_SYNC_FORDEV);
 	return (DDI_SUCCESS);
 }
@@ -3809,14 +3994,14 @@ nvme_fill_ranges(nvme_cmd_t *cmd, bd_xfer_t *xfer, uint64_t blocksize,
 
 	cmd->nc_sqe.sqe_cdw11 = NVME_DSET_MGMT_ATTR_DEALLOCATE;
 
-	cmd->nc_dma = kmem_cache_alloc(nvme->n_prp_cache, allocflag);
-	if (cmd->nc_dma == NULL)
+	cmd->nc_prp = kmem_cache_alloc(nvme->n_prp_cache, allocflag);
+	if (cmd->nc_prp == NULL)
 		return (DDI_FAILURE);
 
-	bzero(cmd->nc_dma->nd_memp, cmd->nc_dma->nd_len);
-	ranges = (nvme_range_t *)cmd->nc_dma->nd_memp;
+	bzero(cmd->nc_prp->nd_memp, cmd->nc_prp->nd_len);
+	ranges = (nvme_range_t *)cmd->nc_prp->nd_memp;
 
-	cmd->nc_sqe.sqe_dptr.d_prp[0] = cmd->nc_dma->nd_cookie.dmac_laddress;
+	cmd->nc_sqe.sqe_dptr.d_prp[0] = cmd->nc_prp->nd_cookie.dmac_laddress;
 	cmd->nc_sqe.sqe_dptr.d_prp[1] = 0;
 
 	for (i = 0; i < dfl->dfl_num_exts; i++) {
@@ -3833,7 +4018,7 @@ nvme_fill_ranges(nvme_cmd_t *cmd, bd_xfer_t *xfer, uint64_t blocksize,
 		ranges[i].nr_lba = lba;
 	}
 
-	(void) ddi_dma_sync(cmd->nc_dma->nd_dmah, 0, cmd->nc_dma->nd_len,
+	(void) ddi_dma_sync(cmd->nc_prp->nd_dmah, 0, cmd->nc_prp->nd_len,
 	    DDI_DMA_SYNC_FORDEV);
 
 	return (DDI_SUCCESS);
@@ -3870,7 +4055,7 @@ nvme_create_nvm_cmd(nvme_namespace_t *ns, uint8_t opc, bd_xfer_t *xfer)
 		cmd->nc_sqe.sqe_cdw11 = (xfer->x_blkno >> 32);
 		cmd->nc_sqe.sqe_cdw12 = (uint16_t)(xfer->x_nblks - 1);
 
-		if (nvme_fill_prp(cmd, xfer) != DDI_SUCCESS)
+		if (nvme_fill_prp(cmd, xfer->x_dmah) != DDI_SUCCESS)
 			goto fail;
 		break;
 
@@ -4253,25 +4438,20 @@ nvme_ioc_cmd(nvme_t *nvme, nvme_sqe_t *sqe, boolean_t is_admin, void *data_addr,
 		ioq = nvme->n_ioq[cmd->nc_sqid];
 	}
 
+	/*
+	 * This function is used to facilitate requests from
+	 * userspace, so don't panic if the command fails. This
+	 * is especially true for admin passthru commands, where
+	 * the actual command data structure is entirely defined
+	 * by userspace.
+	 */
+	cmd->nc_dontpanic = B_TRUE;
+
 	cmd->nc_callback = nvme_wakeup_cmd;
 	cmd->nc_sqe = *sqe;
 
 	if ((rwk & (FREAD | FWRITE)) != 0) {
 		if (data_addr == NULL) {
-			rv = EINVAL;
-			goto free_cmd;
-		}
-
-		/*
-		 * Because we use PRPs and haven't implemented PRP
-		 * lists here, the maximum data size is restricted to
-		 * 2 pages.
-		 */
-		if (data_len > 2 * nvme->n_pagesize) {
-			dev_err(nvme->n_dip, CE_WARN, "!Data size %u is too "
-			    "large for nvme_ioc_cmd(). Limit is 2 pages "
-			    "(%u bytes)", data_len,  2 * nvme->n_pagesize);
-
 			rv = EINVAL;
 			goto free_cmd;
 		}
@@ -4285,24 +4465,8 @@ nvme_ioc_cmd(nvme_t *nvme, nvme_sqe_t *sqe, boolean_t is_admin, void *data_addr,
 			goto free_cmd;
 		}
 
-		if (cmd->nc_dma->nd_ncookie > 2) {
-			dev_err(nvme->n_dip, CE_WARN,
-			    "!too many DMA cookies for nvme_ioc_cmd()");
-			atomic_inc_32(&nvme->n_too_many_cookies);
-
-			rv = E2BIG;
+		if ((rv = nvme_fill_prp(cmd, cmd->nc_dma->nd_dmah)) != 0)
 			goto free_cmd;
-		}
-
-		cmd->nc_sqe.sqe_dptr.d_prp[0] =
-		    cmd->nc_dma->nd_cookie.dmac_laddress;
-
-		if (cmd->nc_dma->nd_ncookie > 1) {
-			ddi_dma_nextcookie(cmd->nc_dma->nd_dmah,
-			    &cmd->nc_dma->nd_cookie);
-			cmd->nc_sqe.sqe_dptr.d_prp[1] =
-			    cmd->nc_dma->nd_cookie.dmac_laddress;
-		}
 
 		if ((rwk & FWRITE) != 0) {
 			if (ddi_copyin(data_addr, cmd->nc_dma->nd_memp,
@@ -4416,7 +4580,19 @@ nvme_ioctl_get_logpage(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 			return (EINVAL);
 		break;
 	default:
-		return (EINVAL);
+		if (!NVME_IS_VENDOR_SPECIFIC_LOGPAGE(nioc->n_arg))
+			return (EINVAL);
+		if (nioc->n_len > NVME_VENDOR_SPECIFIC_LOGPAGE_MAX_SIZE) {
+			dev_err(nvme->n_dip, CE_NOTE, "!Vendor-specific log "
+			    "page size exceeds device maximum supported size: "
+			    "%lu", NVME_VENDOR_SPECIFIC_LOGPAGE_MAX_SIZE);
+			return (EINVAL);
+		}
+		if (nioc->n_len == 0)
+			return (EINVAL);
+		bufsize = nioc->n_len;
+		if (nsid == 0)
+			nsid = (uint32_t)-1;
 	}
 
 	if (nvme_get_logpage(nvme, B_TRUE, &log, &bufsize, nioc->n_arg, nsid)
@@ -4724,6 +4900,7 @@ nvme_ioctl_firmware_download(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 	size_t len, copylen;
 	offset_t offset;
 	uintptr_t buf;
+	nvme_cqe_t cqe = { 0 };
 	nvme_sqe_t sqe = {
 	    .sqe_opc	= NVME_OPC_FW_IMAGE_LOAD
 	};
@@ -4749,6 +4926,9 @@ nvme_ioctl_firmware_download(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 	len = nioc->n_len;
 	offset = nioc->n_arg;
 	buf = (uintptr_t)nioc->n_buf;
+
+	nioc->n_arg = 0;
+
 	while (len > 0 && rv == 0) {
 		/*
 		 * nvme_ioc_cmd() does not use SGLs or PRP lists.
@@ -4761,7 +4941,22 @@ nvme_ioctl_firmware_download(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 		sqe.sqe_cdw11 = (uint32_t)(offset >> NVME_DWORD_SHIFT);
 
 		rv = nvme_ioc_cmd(nvme, &sqe, B_TRUE, (void *)buf, copylen,
-		    FWRITE, NULL, nvme_admin_cmd_timeout);
+		    FWRITE, &cqe, nvme_admin_cmd_timeout);
+
+		/*
+		 * Regardless of whether the command succeeded or not, whether
+		 * there's an errno in rv to be returned, we'll return any
+		 * command-specific status code in n_arg.
+		 *
+		 * As n_arg isn't cleared in all other possible code paths
+		 * returning an error, we return the status code as a negative
+		 * value so it can be distinguished easily from whatever value
+		 * was passed in n_arg originally. This of course only works as
+		 * long as arguments passed in n_arg are less than INT64_MAX,
+		 * which they currently are.
+		 */
+		if (cqe.cqe_sf.sf_sct == NVME_CQE_SCT_SPECIFIC)
+			nioc->n_arg = (uint64_t)-cqe.cqe_sf.sf_sc;
 
 		buf += copylen;
 		offset += copylen;
@@ -4805,6 +5000,8 @@ nvme_ioctl_firmware_commit(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 	case NVME_FWC_SAVE:
 	case NVME_FWC_SAVE_ACTIVATE:
 		timeout = nvme_commit_save_cmd_timeout;
+		if (slot == 1 && nvme->n_idctl->id_frmw.fw_readonly)
+			return (EROFS);
 		break;
 	case NVME_FWC_ACTIVATE:
 	case NVME_FWC_ACTIVATE_IMMED:
@@ -4818,9 +5015,23 @@ nvme_ioctl_firmware_commit(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 	fc_dw10.b.fc_action = action;
 	sqe.sqe_cdw10 = fc_dw10.r;
 
+	nioc->n_arg = 0;
 	rv = nvme_ioc_cmd(nvme, &sqe, B_TRUE, NULL, 0, 0, &cqe, timeout);
 
-	nioc->n_arg = ((uint64_t)cqe.cqe_sf.sf_sct << 16) | cqe.cqe_sf.sf_sc;
+	/*
+	 * Regardless of whether the command succeeded or not, whether
+	 * there's an errno in rv to be returned, we'll return any
+	 * command-specific status code in n_arg.
+	 *
+	 * As n_arg isn't cleared in all other possible code paths
+	 * returning an error, we return the status code as a negative
+	 * value so it can be distinguished easily from whatever value
+	 * was passed in n_arg originally. This of course only works as
+	 * long as arguments passed in n_arg are less than INT64_MAX,
+	 * which they currently are.
+	 */
+	if (cqe.cqe_sf.sf_sct == NVME_CQE_SCT_SPECIFIC)
+		nioc->n_arg = (uint64_t)-cqe.cqe_sf.sf_sc;
 
 	/*
 	 * Let the DDI UFM subsystem know that the firmware information for
@@ -4828,6 +5039,229 @@ nvme_ioctl_firmware_commit(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc,
 	 */
 	nvme_ufm_update(nvme);
 
+	return (rv);
+}
+
+/*
+ * Helper to copy in a passthru command from userspace, handling
+ * different data models.
+ */
+static int
+nvme_passthru_copy_cmd_in(const void *buf, nvme_passthru_cmd_t *cmd, int mode)
+{
+#ifdef _MULTI_DATAMODEL
+	switch (ddi_model_convert_from(mode & FMODELS)) {
+	case DDI_MODEL_ILP32: {
+		nvme_passthru_cmd32_t cmd32;
+		if (ddi_copyin(buf, (void*)&cmd32, sizeof (cmd32), mode) != 0)
+			return (-1);
+		cmd->npc_opcode = cmd32.npc_opcode;
+		cmd->npc_timeout = cmd32.npc_timeout;
+		cmd->npc_flags = cmd32.npc_flags;
+		cmd->npc_cdw12 = cmd32.npc_cdw12;
+		cmd->npc_cdw13 = cmd32.npc_cdw13;
+		cmd->npc_cdw14 = cmd32.npc_cdw14;
+		cmd->npc_cdw15 = cmd32.npc_cdw15;
+		cmd->npc_buflen = cmd32.npc_buflen;
+		cmd->npc_buf = cmd32.npc_buf;
+		break;
+	}
+	case DDI_MODEL_NONE:
+#endif
+	if (ddi_copyin(buf, (void*)cmd, sizeof (nvme_passthru_cmd_t),
+	    mode) != 0)
+		return (-1);
+#ifdef _MULTI_DATAMODEL
+		break;
+	}
+#endif
+	return (0);
+}
+
+/*
+ * Helper to copy out a passthru command result to userspace, handling
+ * different data models.
+ */
+static int
+nvme_passthru_copy_cmd_out(const nvme_passthru_cmd_t *cmd, void *buf, int mode)
+{
+#ifdef _MULTI_DATAMODEL
+	switch (ddi_model_convert_from(mode & FMODELS)) {
+	case DDI_MODEL_ILP32: {
+		nvme_passthru_cmd32_t cmd32;
+		bzero(&cmd32, sizeof (cmd32));
+		cmd32.npc_opcode = cmd->npc_opcode;
+		cmd32.npc_status = cmd->npc_status;
+		cmd32.npc_err = cmd->npc_err;
+		cmd32.npc_timeout = cmd->npc_timeout;
+		cmd32.npc_flags = cmd->npc_flags;
+		cmd32.npc_cdw0 = cmd->npc_cdw0;
+		cmd32.npc_cdw12 = cmd->npc_cdw12;
+		cmd32.npc_cdw13 = cmd->npc_cdw13;
+		cmd32.npc_cdw14 = cmd->npc_cdw14;
+		cmd32.npc_cdw15 = cmd->npc_cdw15;
+		cmd32.npc_buflen = (size32_t)cmd->npc_buflen;
+		cmd32.npc_buf = (uintptr32_t)cmd->npc_buf;
+		if (ddi_copyout(&cmd32, buf, sizeof (cmd32), mode) != 0)
+			return (-1);
+		break;
+	}
+	case DDI_MODEL_NONE:
+#endif
+		if (ddi_copyout(cmd, buf, sizeof (nvme_passthru_cmd_t),
+		    mode) != 0)
+			return (-1);
+#ifdef _MULTI_DATAMODEL
+		break;
+	}
+#endif
+	return (0);
+}
+
+/*
+ * Run an arbitrary vendor-specific admin command on the device.
+ */
+static int
+nvme_ioctl_passthru(nvme_t *nvme, int nsid, nvme_ioctl_t *nioc, int mode,
+    cred_t *cred_p)
+{
+	int rv = 0;
+	uint_t timeout = 0;
+	int rwk = 0;
+	nvme_passthru_cmd_t cmd;
+	size_t expected_passthru_size = 0;
+	nvme_sqe_t sqe;
+	nvme_cqe_t cqe;
+
+	bzero(&cmd, sizeof (cmd));
+	bzero(&sqe, sizeof (sqe));
+	bzero(&cqe, sizeof (cqe));
+
+	/*
+	 * Basic checks: permissions, data model, argument size.
+	 */
+	if ((mode & FWRITE) == 0 || secpolicy_sys_config(cred_p, B_FALSE) != 0)
+		return (EPERM);
+
+	/*
+	 * Compute the expected size of the argument buffer
+	 */
+#ifdef _MULTI_DATAMODEL
+	switch (ddi_model_convert_from(mode & FMODELS)) {
+	case DDI_MODEL_ILP32:
+		expected_passthru_size = sizeof (nvme_passthru_cmd32_t);
+		break;
+	case DDI_MODEL_NONE:
+#endif
+		expected_passthru_size = sizeof (nvme_passthru_cmd_t);
+#ifdef _MULTI_DATAMODEL
+		break;
+	}
+#endif
+
+	if (nioc->n_len != expected_passthru_size) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_CMD_SIZE;
+		rv = EINVAL;
+		goto out;
+	}
+
+	/*
+	 * Ensure the device supports the standard vendor specific
+	 * admin command format.
+	 */
+	if (!nvme->n_idctl->id_nvscc.nv_spec) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_NOT_SUPPORTED;
+		rv = ENOTSUP;
+		goto out;
+	}
+
+	if (nvme_passthru_copy_cmd_in((const void*)nioc->n_buf, &cmd, mode))
+		return (EFAULT);
+
+	if (!NVME_IS_VENDOR_SPECIFIC_CMD(cmd.npc_opcode)) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_OPCODE;
+		rv = EINVAL;
+		goto out;
+	}
+
+	/*
+	 * This restriction is not mandated by the spec, so future work
+	 * could relax this if it's necessary to support commands that both
+	 * read and write.
+	 */
+	if ((cmd.npc_flags & NVME_PASSTHRU_READ) != 0 &&
+	    (cmd.npc_flags & NVME_PASSTHRU_WRITE) != 0) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_READ_AND_WRITE;
+		rv = EINVAL;
+		goto out;
+	}
+	if (cmd.npc_timeout > nvme_vendor_specific_admin_cmd_max_timeout) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_TIMEOUT;
+		rv = EINVAL;
+		goto out;
+	}
+	timeout = cmd.npc_timeout;
+
+	/*
+	 * Passed-thru command buffer verification:
+	 *  - Size is multiple of DWords
+	 *  - Non-null iff the length is non-zero
+	 *  - Null if neither reading nor writing data.
+	 *  - Non-null if reading or writing.
+	 *  - Maximum buffer size.
+	 */
+	if ((cmd.npc_buflen % sizeof (uint32_t)) != 0) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_BUFFER;
+		rv = EINVAL;
+		goto out;
+	}
+	if (((void*)cmd.npc_buf != NULL && cmd.npc_buflen == 0) ||
+	    ((void*)cmd.npc_buf == NULL && cmd.npc_buflen != 0)) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_BUFFER;
+		rv = EINVAL;
+		goto out;
+	}
+	if (cmd.npc_flags == 0 && (void*)cmd.npc_buf != NULL) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_BUFFER;
+		rv = EINVAL;
+		goto out;
+	}
+	if ((cmd.npc_flags != 0) && ((void*)cmd.npc_buf == NULL)) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_BUFFER;
+		rv = EINVAL;
+		goto out;
+	}
+	if (cmd.npc_buflen > nvme_vendor_specific_admin_cmd_size) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_BUFFER;
+		rv = EINVAL;
+		goto out;
+	}
+	if ((cmd.npc_buflen >> NVME_DWORD_SHIFT) > UINT32_MAX) {
+		cmd.npc_err = NVME_PASSTHRU_ERR_INVALID_BUFFER;
+		rv = EINVAL;
+		goto out;
+	}
+
+	sqe.sqe_opc = cmd.npc_opcode;
+	sqe.sqe_nsid = nsid;
+	sqe.sqe_cdw10 = (uint32_t)(cmd.npc_buflen >> NVME_DWORD_SHIFT);
+	sqe.sqe_cdw12 = cmd.npc_cdw12;
+	sqe.sqe_cdw13 = cmd.npc_cdw13;
+	sqe.sqe_cdw14 = cmd.npc_cdw14;
+	sqe.sqe_cdw15 = cmd.npc_cdw15;
+	if ((cmd.npc_flags & NVME_PASSTHRU_READ) != 0)
+		rwk = FREAD;
+	else if ((cmd.npc_flags & NVME_PASSTHRU_WRITE) != 0)
+		rwk = FWRITE;
+
+	rv = nvme_ioc_cmd(nvme, &sqe, B_TRUE, (void*)cmd.npc_buf,
+	    cmd.npc_buflen, rwk, &cqe, timeout);
+	cmd.npc_status = cqe.cqe_sf.sf_sc;
+	cmd.npc_cdw0 = cqe.cqe_dw0;
+
+out:
+	if (nvme_passthru_copy_cmd_out(&cmd, (void*)nioc->n_buf, mode))
+		rv = EFAULT;
 	return (rv);
 }
 
@@ -4857,7 +5291,8 @@ nvme_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *cred_p,
 		nvme_ioctl_detach,
 		nvme_ioctl_attach,
 		nvme_ioctl_firmware_download,
-		nvme_ioctl_firmware_commit
+		nvme_ioctl_firmware_commit,
+		nvme_ioctl_passthru
 	};
 
 	if (nvme == NULL)

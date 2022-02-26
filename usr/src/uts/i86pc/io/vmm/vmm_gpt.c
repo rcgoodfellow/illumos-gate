@@ -11,7 +11,7 @@
 
 /*
  * Copyright 2019 Joyent, Inc.
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -80,6 +80,12 @@
  * each node contains the host PFN of the page that it links into the page
  * table, as well as a kernel pointer to table.
  *
+ * On leaf nodes, the reference count tracks how many entries in the table are
+ * covered by mapping from the containing vmspace.  This is maintained during
+ * calls to vmm_populate_region() and vmm_gpt_vacate_region() as part of vmspace
+ * map/unmap operations, rather than in the data path of faults populating the
+ * PTEs themselves.
+ *
  * Note, this is carefully sized to fit exactly into a 64-byte cache line.
  */
 typedef struct vmm_gpt_node vmm_gpt_node_t;
@@ -92,7 +98,8 @@ struct vmm_gpt_node {
 	vmm_gpt_node_t	*vgn_children;
 	vmm_gpt_node_t	*vgn_siblings;
 	uint64_t	*vgn_entries;
-	uint64_t	_vgn_pad[2];
+	uint64_t	vgn_gpa;
+	uint64_t	_vgn_pad;
 };
 
 /*
@@ -107,7 +114,6 @@ struct vmm_gpt_node {
 struct vmm_gpt {
 	vmm_gpt_node_t	*vgpt_root;
 	vmm_pte_ops_t	*vgpt_pte_ops;
-	uint64_t	vgpt_mapped_page_count;
 };
 
 /*
@@ -150,24 +156,6 @@ vmm_gpt_alloc(vmm_pte_ops_t *pte_ops)
 	gpt->vgpt_root = vmm_gpt_node_alloc();
 
 	return (gpt);
-}
-
-/*
- * Retrieves the host kernel address of the GPT root.
- */
-void *
-vmm_gpt_root_kaddr(vmm_gpt_t *gpt)
-{
-	return (gpt->vgpt_root->vgn_entries);
-}
-
-/*
- * Retrieves the host PFN of the GPT root.
- */
-uint64_t
-vmm_gpt_root_pfn(vmm_gpt_t *gpt)
-{
-	return (gpt->vgpt_root->vgn_host_pfn);
 }
 
 /*
@@ -310,11 +298,18 @@ vmm_gpt_add_child(vmm_gpt_t *gpt, vmm_gpt_node_t *parent, vmm_gpt_node_t *child,
 	ASSERT(gpt->vgpt_pte_ops != NULL);
 	ASSERT(parent != NULL);
 	ASSERT(child != NULL);
+	ASSERT3U(parent->vgn_level, <, LEVEL1);
 
+	const uint64_t gpa_mask[3] = {
+		[LEVEL4] = 0xffffff8000000000ul, /* entries cover 512G */
+		[LEVEL3] = 0xffffffffc0000000ul, /* entries cover 1G */
+		[LEVEL2] = 0xffffffffffe00000ul, /* entries cover 2M */
+	};
 	const int index = vmm_gpt_node_index(gpa, parent->vgn_level);
 	child->vgn_index = index;
 	child->vgn_level = parent->vgn_level + 1;
 	child->vgn_parent = parent;
+	child->vgn_gpa = gpa & gpa_mask[parent->vgn_level];
 	parent_entries = parent->vgn_entries;
 	entry = gpt->vgpt_pte_ops->vpeo_map_table(child->vgn_host_pfn);
 	parent_entries[index] = entry;
@@ -338,12 +333,14 @@ vmm_gpt_add_child(vmm_gpt_t *gpt, vmm_gpt_node_t *parent, vmm_gpt_node_t *child,
  * that this does not actually map the entry, but simply ensures that the
  * entries exist.
  */
-void
+static void
 vmm_gpt_populate_entry(vmm_gpt_t *gpt, uint64_t gpa)
 {
 	vmm_gpt_node_t *node, *child;
 
 	ASSERT(gpt != NULL);
+	ASSERT0(gpa & PAGEOFFSET);
+
 	node = gpt->vgpt_root;
 	for (uint_t i = 0; i < LEVEL1; i++) {
 		ASSERT(node != NULL);
@@ -355,6 +352,14 @@ vmm_gpt_populate_entry(vmm_gpt_t *gpt, uint64_t gpa)
 		}
 		node = child;
 	}
+
+	/*
+	 * Bump the reference count for this leaf for the PTE that is now usable
+	 * by the mapping covering its GPA.
+	 */
+	ASSERT3U(node->vgn_level, ==, LEVEL1);
+	ASSERT3U(node->vgn_ref_cnt, <, 512);
+	node->vgn_ref_cnt++;
 }
 
 /*
@@ -364,38 +369,50 @@ vmm_gpt_populate_entry(vmm_gpt_t *gpt, uint64_t gpa)
 void
 vmm_gpt_populate_region(vmm_gpt_t *gpt, uint64_t start, uint64_t end)
 {
+	ASSERT0(start & PAGEOFFSET);
+	ASSERT0(end & PAGEOFFSET);
+
 	for (uint64_t page = start; page < end; page += PAGESIZE) {
 		vmm_gpt_populate_entry(gpt, page);
 	}
 }
 
 /*
+ * Format a PTE and install it in the provided PTE-pointer.
+ */
+bool
+vmm_gpt_map_at(vmm_gpt_t *gpt, uint64_t *ptep, pfn_t pfn, uint_t prot,
+    uint8_t attr)
+{
+	uint64_t entry, old_entry;
+
+	entry = gpt->vgpt_pte_ops->vpeo_map_page(pfn, prot, attr);
+	old_entry = atomic_cas_64(ptep, 0, entry);
+	if (old_entry != 0) {
+		ASSERT3U(gpt->vgpt_pte_ops->vpeo_pte_pfn(entry), ==,
+		    gpt->vgpt_pte_ops->vpeo_pte_pfn(old_entry));
+		return (false);
+	}
+
+	return (true);
+}
+
+/*
  * Inserts an entry for a given GPA into the table.  The caller must
- * ensure that the entry is not currently mapped, though note that this
- * can race with another thread inserting the same page into the tree.
- * If we lose the race, we ensure that the page we thought we were
- * inserting is the page that was inserted.
+ * ensure that a conflicting PFN is not mapped at the requested location.
+ * Racing operations to map the same PFN at one location is acceptable and
+ * properly handled.
  */
 bool
 vmm_gpt_map(vmm_gpt_t *gpt, uint64_t gpa, pfn_t pfn, uint_t prot, uint8_t attr)
 {
-	uint64_t *entries[MAX_GPT_LEVEL], entry, old_entry;
+	uint64_t *entries[MAX_GPT_LEVEL];
 
 	ASSERT(gpt != NULL);
 	vmm_gpt_walk(gpt, gpa, entries, MAX_GPT_LEVEL);
 	ASSERT(entries[LEVEL1] != NULL);
 
-	entry = gpt->vgpt_pte_ops->vpeo_map_page(pfn, prot, attr);
-	old_entry = atomic_cas_64(entries[LEVEL1], 0, entry);
-	if (old_entry != 0) {
-		ASSERT3U(gpt->vgpt_pte_ops->vpeo_pte_pfn(entry),
-		    ==,
-		    gpt->vgpt_pte_ops->vpeo_pte_pfn(old_entry));
-		return (false);
-	}
-	gpt->vgpt_mapped_page_count++;
-
-	return (true);
+	return (vmm_gpt_map_at(gpt, entries[LEVEL1], pfn, prot, attr));
 }
 
 /*
@@ -421,9 +438,8 @@ vmm_gpt_node_remove_child(vmm_gpt_node_t *parent, vmm_gpt_node_t *child)
 }
 
 /*
- * Cleans up unused inner nodes in the GPT.  Asserts that the
- * leaf corresponding to the entry does not map any additional
- * pages.
+ * Cleans up unused inner nodes in the GPT.  Asserts that the leaf corresponding
+ * to the entry does not map any additional pages.
  */
 static void
 vmm_gpt_vacate_entry(vmm_gpt_t *gpt, uint64_t gpa)
@@ -435,42 +451,54 @@ vmm_gpt_vacate_entry(vmm_gpt_t *gpt, uint64_t gpa)
 		nodes[i] = node;
 		node = vmm_gpt_node_find_child(node, gpa);
 	}
-	if (nodes[LEVEL1] != NULL) {
-		uint64_t *ptes = nodes[LEVEL1]->vgn_entries;
-		for (uint_t i = 0; i < (PAGESIZE / sizeof (uint64_t)); i++)
-			ASSERT3U(ptes[i], ==, 0);
-	}
 	for (uint_t i = LEVEL1; i > 0; i--) {
-		if (nodes[i] == NULL)
+		node = nodes[i];
+
+		if (node == NULL)
 			continue;
-		if (nodes[i]->vgn_ref_cnt != 0)
+
+		if (i == LEVEL1) {
+			ASSERT0(node->vgn_entries[vmm_gpt_node_index(gpa, i)]);
+			ASSERT3U(node->vgn_ref_cnt, !=, 0);
+
+			/*
+			 * Just as vmm_gpt_populate_entry() increments the
+			 * reference count for leaf PTEs which become usable,
+			 * here we decrement it as they become unusable as the
+			 * mapping covering its GPA is removed.
+			 */
+			node->vgn_ref_cnt--;
+		}
+
+		if (node->vgn_ref_cnt != 0)
 			break;
 		vmm_gpt_node_remove_child(nodes[i - 1], nodes[i]);
 	}
 }
 
 /*
- * Cleans up the unused inner nodes in the GPT for a region of guest
- * physical address space bounded by [start..end).  The region must
- * map no pages.
+ * Cleans up the unused inner nodes in the GPT for a region of guest physical
+ * address space of [start, end).  The region must map no pages.
  */
 void
 vmm_gpt_vacate_region(vmm_gpt_t *gpt, uint64_t start, uint64_t end)
 {
+	ASSERT0(start & PAGEOFFSET);
+	ASSERT0(end & PAGEOFFSET);
+
 	for (uint64_t page = start; page < end; page += PAGESIZE) {
 		vmm_gpt_vacate_entry(gpt, page);
 	}
 }
 
 /*
- * Remove a mapping from the table.  Returns false if the page was not
- * mapped, otherwise returns true.
+ * Remove a mapping from the table.  Returns false if the page was not mapped,
+ * otherwise returns true.
  */
 bool
 vmm_gpt_unmap(vmm_gpt_t *gpt, uint64_t gpa)
 {
 	uint64_t *entries[MAX_GPT_LEVEL], entry;
-	bool was_mapped;
 
 	ASSERT(gpt != NULL);
 	vmm_gpt_walk(gpt, gpa, entries, MAX_GPT_LEVEL);
@@ -479,28 +507,27 @@ vmm_gpt_unmap(vmm_gpt_t *gpt, uint64_t gpa)
 
 	entry = *entries[LEVEL1];
 	*entries[LEVEL1] = 0;
-	was_mapped = gpt->vgpt_pte_ops->vpeo_pte_is_present(entry);
-	if (was_mapped)
-		gpt->vgpt_mapped_page_count--;
-
-	return (was_mapped);
+	return (gpt->vgpt_pte_ops->vpeo_pte_is_present(entry));
 }
 
 /*
- * Un-maps the region of guest physical address space bounded by
- * [start..end).  Returns the number of pages that are unmapped.
+ * Un-maps the region of guest physical address space bounded by [start..end).
+ * Returns the number of pages that are unmapped.
  */
 size_t
 vmm_gpt_unmap_region(vmm_gpt_t *gpt, uint64_t start, uint64_t end)
 {
-	size_t n = 0;
+	ASSERT0(start & PAGEOFFSET);
+	ASSERT0(end & PAGEOFFSET);
 
+	size_t num_unmapped = 0;
 	for (uint64_t page = start; page < end; page += PAGESIZE) {
-		if (vmm_gpt_unmap(gpt, page) != 0)
-			n++;
+		if (vmm_gpt_unmap(gpt, page) != 0) {
+			num_unmapped++;
+		}
 	}
 
-	return (n);
+	return (num_unmapped);
 }
 
 /*
@@ -509,28 +536,20 @@ vmm_gpt_unmap_region(vmm_gpt_t *gpt, uint64_t start, uint64_t end)
  * bits of the entry.  Otherwise, it will be ignored.
  */
 bool
-vmm_gpt_is_mapped(vmm_gpt_t *gpt, uint64_t gpa, uint_t *protp)
+vmm_gpt_is_mapped(vmm_gpt_t *gpt, uint64_t *ptep, pfn_t *pfnp, uint_t *protp)
 {
-	uint64_t *entries[MAX_GPT_LEVEL], entry;
+	uint64_t entry;
 
-	vmm_gpt_walk(gpt, gpa, entries, MAX_GPT_LEVEL);
-	if (entries[LEVEL1] == NULL)
+	if (ptep == NULL) {
 		return (false);
-	entry = *entries[LEVEL1];
-	if (!gpt->vgpt_pte_ops->vpeo_pte_is_present(entry))
+	}
+	entry = *ptep;
+	if (!gpt->vgpt_pte_ops->vpeo_pte_is_present(entry)) {
 		return (false);
+	}
+	*pfnp = gpt->vgpt_pte_ops->vpeo_pte_pfn(entry);
 	*protp = gpt->vgpt_pte_ops->vpeo_pte_prot(entry);
-
 	return (true);
-}
-
-/*
- * Returns the number of pages that are mapped in by this GPT.
- */
-size_t
-vmm_gpt_mapped_count(vmm_gpt_t *gpt)
-{
-	return (gpt->vgpt_mapped_page_count);
 }
 
 /*
@@ -555,4 +574,13 @@ vmm_gpt_reset_dirty(vmm_gpt_t *gpt, uint64_t *entry, bool on)
 {
 	ASSERT(entry != NULL);
 	return (gpt->vgpt_pte_ops->vpeo_reset_dirty(entry, on));
+}
+
+/*
+ * Get properly formatted PML4 (EPTP/nCR3) for GPT.
+ */
+uint64_t
+vmm_gpt_get_pmtp(vmm_gpt_t *gpt)
+{
+	return (gpt->vgpt_pte_ops->vpeo_get_pmtp(gpt->vgpt_root->vgn_host_pfn));
 }

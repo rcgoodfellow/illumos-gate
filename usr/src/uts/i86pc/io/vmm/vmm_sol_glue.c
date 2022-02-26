@@ -58,9 +58,7 @@
 #include <sys/x86_archext.h>
 
 #include <machine/cpufunc.h>
-#include <machine/fpu.h>
 #include <machine/md_var.h>
-#include <machine/pmap.h>
 #include <machine/specialreg.h>
 #include <machine/vmm.h>
 #include <machine/vmparam.h>
@@ -95,7 +93,7 @@ uint8_t const bin2bcd_data[] = {
 };
 
 void
-pmap_invalidate_cache(void)
+invalidate_cache_all(void)
 {
 	cpuset_t cpuset;
 
@@ -108,7 +106,7 @@ pmap_invalidate_cache(void)
 }
 
 vm_paddr_t
-pmap_kextract(vm_offset_t va)
+vtophys(void *va)
 {
 	pfn_t	pfn;
 
@@ -411,18 +409,6 @@ vmm_glue_callout_localize(struct callout *c)
 	mutex_exit(&cpu_lock);
 }
 
-void
-ipi_cpu(int cpu, uint_t ipi)
-{
-	/*
-	 * This was previously implemented as an invocation of asynchronous
-	 * no-op crosscalls to interrupt the target CPU.  Since even nowait
-	 * crosscalls can block in certain circumstances, a direct poke_cpu()
-	 * is safer when called from delicate contexts.
-	 */
-	poke_cpu(cpu);
-}
-
 uint_t	cpu_high;		/* Highest arg to CPUID */
 uint_t	cpu_exthigh;		/* Highest arg to extended CPUID */
 uint_t	cpu_id;			/* Stepping ID */
@@ -445,67 +431,6 @@ vmm_cpuid_init(void)
 
 	do_cpuid(0x80000000, regs);
 	cpu_exthigh = regs[0];
-}
-
-/*
- * FreeBSD uses the struct savefpu for managing the FPU state. That is mimicked
- * by our hypervisor multiplexor framework structure.
- */
-struct savefpu *
-fpu_save_area_alloc(void)
-{
-	return ((struct savefpu *)hma_fpu_alloc(KM_SLEEP));
-}
-
-void
-fpu_save_area_free(struct savefpu *fsa)
-{
-	hma_fpu_t *fpu = (hma_fpu_t *)fsa;
-	hma_fpu_free(fpu);
-}
-
-void
-fpu_save_area_reset(struct savefpu *fsa)
-{
-	hma_fpu_t *fpu = (hma_fpu_t *)fsa;
-	hma_fpu_init(fpu);
-}
-
-/*
- * This glue function is supposed to save the host's FPU state. This is always
- * paired in the general bhyve code with a call to fpusave. Therefore, we treat
- * this as a nop and do all the work in fpusave(), which will have the context
- * argument that we want anyways.
- */
-void
-fpuexit(kthread_t *td)
-{
-}
-
-/*
- * This glue function is supposed to restore the guest's FPU state from the save
- * area back to the host. In FreeBSD, it is assumed that the host state has
- * already been saved by a call to fpuexit(); however, we do both here.
- */
-void
-fpurestore(void *arg)
-{
-	hma_fpu_t *fpu = arg;
-
-	hma_fpu_start_guest(fpu);
-}
-
-/*
- * This glue function is supposed to save the guest's FPU state. The host's FPU
- * state is not expected to be restored necessarily due to the use of FPU
- * emulation through CR0.TS. However, we can and do restore it here.
- */
-void
-fpusave(void *arg)
-{
-	hma_fpu_t *fpu = arg;
-
-	hma_fpu_stop_guest(fpu);
 }
 
 void

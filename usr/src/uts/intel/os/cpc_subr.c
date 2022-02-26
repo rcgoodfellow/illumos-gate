@@ -44,7 +44,6 @@
 #include <sys/spl.h>
 #include <sys/apic.h>
 
-static const uint64_t allstopped = 0;
 static kcpc_ctx_t *(*overflow_intr_handler)(caddr_t);
 
 /* Do threads share performance monitoring hardware? */
@@ -168,8 +167,7 @@ kcpc_hw_init(cpu_t *cp)
 	if (kcpc_counts_include_idle)
 		return;
 
-	installctx(t, cp, kcpc_idle_save, kcpc_idle_restore,
-	    NULL, NULL, NULL, NULL, NULL);
+	kcpc_idle_ctxop_install(t, cp);
 }
 
 void

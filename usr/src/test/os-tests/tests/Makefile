@@ -19,7 +19,9 @@
 SUBDIRS_i386 = i386 imc
 
 SUBDIRS =       \
+		cores \
 		ddi_ufm \
+		definit \
 		file-locking \
 		ksensor \
 		libtopo \

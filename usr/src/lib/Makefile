@@ -140,6 +140,7 @@ SUBDIRS +=				\
 	libgss		\
 	libhotplug	\
 	libidmap	\
+	libidspace	\
 	libilb		\
 	libima		\
 	libinetsvc	\
@@ -271,6 +272,7 @@ SUBDIRS +=				\
 	sun_fc		\
 	sun_sas		\
 	udapl		\
+	varpd		\
 	watchmalloc	\
 	$($(MACH)_SUBDIRS)
 
@@ -403,6 +405,7 @@ HDRSUBDIRS=				\
 	libgen		\
 	libgrubmgmt	\
 	libidmap	\
+	libidspace	\
 	libilb		\
 	libima		\
 	libinetsvc	\
@@ -489,6 +492,7 @@ HDRSUBDIRS=				\
 	smbsrv		\
 	smhba		\
 	udapl		\
+	varpd		\
 	$($(MACH)_HDRSUBDIRS)
 
 i386_HDRSUBDIRS=	\
@@ -607,7 +611,7 @@ libdhcputil:	libgen libinetutil libdlpi
 libdiskmgt:	libdevid libdevinfo libadm libefi libkstat libsysevent
 $(INTEL_BLD)libdiskmgt: libfdisk
 libdladm:	libdevinfo libinetutil libscf librcm libexacct libkstat \
-		libpool
+		libpool varpd
 libdlpi:	libinetutil libdladm
 libds:		libsysevent
 libdtrace:	libproc libgen libctf libmapmalloc
@@ -625,10 +629,12 @@ libfsmgt:	libkstat
 libgrubmgmt:	libdevinfo libzfs libfstyp libefi
 $(INTEL_BLD)libgrubmgmt: libfdisk
 libidmap:	libavl libuutil
+libidspace:	libumem
 libinetsvc:	libscf
 libinetutil:	libsocket
 libinstzones:	libzonecfg libcontract
-libipadm:	libinetutil libdlpi libdhcpagent libdladm libsecdb libdhcputil
+libipadm:	libinetutil libdlpi libdhcpagent libdladm libsecdb libdhcputil \
+		libcmdutils libipmp
 libipmi:	libm libnvpair libsocket libnsl
 libipmp:	libinetutil
 libipsecutil:	libtecla libtsol libkmf
@@ -717,6 +723,8 @@ storage:	libdevice libdevinfo libdevid
 sun_fc:		libdevinfo libsysevent
 sun_sas:	libdevinfo libsysevent libkstat libdevid
 udapl:		libdevinfo libdladm
+varpd:		libavl libidspace libumem libnsl libnvpair libmd5 librename \
+		libcustr
 
 #
 # The reason this rule checks for the existence of the

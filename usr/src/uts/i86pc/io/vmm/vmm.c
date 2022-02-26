@@ -58,12 +58,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/rwlock.h>
 #include <sys/sched.h>
-#include <sys/smp.h>
 #include <sys/systm.h>
 #include <sys/sunddi.h>
+#include <sys/hma.h>
 
-#include <machine/pcb.h>
-#include <machine/smp.h>
 #include <machine/md_var.h>
 #include <x86/psl.h>
 #include <x86/apicreg.h>
@@ -74,11 +72,11 @@ __FBSDID("$FreeBSD$");
 #include <machine/vmparam.h>
 #include <sys/vmm_instruction_emul.h>
 #include <sys/vmm_vm.h>
+#include <sys/vmm_gpt.h>
 
 #include "vmm_ioport.h"
 #include "vmm_ktr.h"
 #include "vmm_host.h"
-#include "vmm_mem.h"
 #include "vmm_util.h"
 #include "vatpic.h"
 #include "vatpit.h"
@@ -94,6 +92,17 @@ __FBSDID("$FreeBSD$");
 #include "io/iommu.h"
 
 struct vlapic;
+
+/* Flags for vtc_status */
+#define	VTCS_FPU_RESTORED	1 /* guest FPU restored, host FPU saved */
+#define	VTCS_FPU_CTX_CRITICAL	2 /* in ctx where FPU restore cannot be lazy */
+
+typedef struct vm_thread_ctx {
+	struct vm	*vtc_vm;
+	int		vtc_vcpuid;
+	uint_t		vtc_status;
+	enum vcpu_ustate vtc_ustate;
+} vm_thread_ctx_t;
 
 /*
  * Initialization:
@@ -123,17 +132,20 @@ struct vcpu {
 	int	exc_errcode_valid;
 	uint32_t exc_errcode;
 	uint8_t		sipi_vector;	/* (i) SIPI vector */
-	struct savefpu	*guestfpu;	/* (a,i) guest fpu state */
+	hma_fpu_t	*guestfpu;	/* (a,i) guest fpu state */
 	uint64_t	guest_xcr0;	/* (i) guest %xcr0 register */
 	void		*stats;		/* (a,i) statistics */
 	struct vm_exit	exitinfo;	/* (x) exit reason and collateral */
 	uint64_t	nextrip;	/* (x) next instruction to execute */
 	struct vie	*vie_ctx;	/* (x) instruction emulation context */
+	vm_client_t	*vmclient;	/* (a) VM-system client */
 	uint64_t	tsc_offset;	/* (x) offset from host TSC */
 
 	enum vcpu_ustate ustate;	/* (i) microstate for the vcpu */
 	hrtime_t	ustate_when;	/* (i) time of last ustate change */
 	uint64_t ustate_total[VU_MAX];	/* (o) total time spent in ustates */
+	vm_thread_ctx_t	vtc;		/* (o) thread state for ctxops */
+	struct ctxop	*ctxop;		/* (o) ctxop storage for vcpu */
 };
 
 #define	vcpu_lock_initialized(v) mtx_initialized(&((v)->mtx))
@@ -145,7 +157,7 @@ struct vcpu {
 struct mem_seg {
 	size_t	len;
 	bool	sysmem;
-	struct vm_object *object;
+	vm_object_t *object;
 };
 #define	VM_MAX_MEMSEGS	4
 
@@ -219,8 +231,6 @@ static struct vmm_ops vmm_ops_null = {
 	.vmsetdesc	= (vmi_set_desc_t)nullop_panic,
 	.vmgetcap	= (vmi_get_cap_t)nullop_panic,
 	.vmsetcap	= (vmi_set_cap_t)nullop_panic,
-	.vmspace_alloc	= (vmi_vmspace_alloc)nullop_panic,
-	.vmspace_free	= (vmi_vmspace_free)nullop_panic,
 	.vlapic_init	= (vmi_vlapic_init)nullop_panic,
 	.vlapic_cleanup	= (vmi_vlapic_cleanup)nullop_panic,
 	.vmsavectx	= (vmi_savectx)nullop_panic,
@@ -228,17 +238,15 @@ static struct vmm_ops vmm_ops_null = {
 };
 
 static struct vmm_ops *ops = &vmm_ops_null;
+static vmm_pte_ops_t *pte_ops = NULL;
 
-#define	VMM_INIT(num)			((*ops->init)(num))
+#define	VMM_INIT()			((*ops->init)())
 #define	VMM_CLEANUP()			((*ops->cleanup)())
 #define	VMM_RESUME()			((*ops->resume)())
 
-#define	VMINIT(vm, pmap)		((*ops->vminit)(vm, pmap))
-#define	VMRUN(vmi, vcpu, rip, pmap) \
-	((*ops->vmrun)(vmi, vcpu, rip, pmap))
+#define	VMINIT(vm)		((*ops->vminit)(vm))
+#define	VMRUN(vmi, vcpu, rip)	((*ops->vmrun)(vmi, vcpu, rip))
 #define	VMCLEANUP(vmi)			((*ops->vmcleanup)(vmi))
-#define	VMSPACE_ALLOC(min, max)		((*ops->vmspace_alloc)(min, max))
-#define	VMSPACE_FREE(vmspace)		((*ops->vmspace_free)(vmspace))
 
 #define	VMGETREG(vmi, vcpu, num, rv)	((*ops->vmgetreg)(vmi, vcpu, num, rv))
 #define	VMSETREG(vmi, vcpu, num, val)	((*ops->vmsetreg)(vmi, vcpu, num, val))
@@ -265,9 +273,6 @@ SYSCTL_NODE(_hw, OID_AUTO, vmm, CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
  */
 static int halt_detection_enabled = 1;
 
-/* IPI vector used for vcpu notifications */
-static int vmm_ipinum;
-
 /* Trap into hypervisor on all guest exceptions and reflect them back */
 static int trace_guest_exceptions;
 
@@ -277,16 +282,13 @@ static void vcpu_notify_event_locked(struct vcpu *vcpu, vcpu_notify_t);
 static bool vcpu_sleep_bailout_checks(struct vm *vm, int vcpuid);
 static int vcpu_vector_sipi(struct vm *vm, int vcpuid, uint8_t vector);
 
-/* Flags for vtc_status */
-#define	VTCS_FPU_RESTORED	1 /* guest FPU restored, host FPU saved */
-#define	VTCS_FPU_CTX_CRITICAL	2 /* in ctx where FPU restore cannot be lazy */
-
-typedef struct vm_thread_ctx {
-	struct vm	*vtc_vm;
-	int		vtc_vcpuid;
-	uint_t		vtc_status;
-	enum vcpu_ustate vtc_ustate;
-} vm_thread_ctx_t;
+static void vmm_savectx(void *);
+static void vmm_restorectx(void *);
+static const struct ctxop_template vmm_ctxop_tpl = {
+	.ct_rev		= CTXOP_TPL_REV,
+	.ct_save	= vmm_savectx,
+	.ct_restore	= vmm_restorectx,
+};
 
 #ifdef KTR
 static const char *
@@ -316,9 +318,13 @@ vcpu_cleanup(struct vm *vm, int i, bool destroy)
 	VLAPIC_CLEANUP(vm->cookie, vcpu->vlapic);
 	if (destroy) {
 		vmm_stat_free(vcpu->stats);
-		fpu_save_area_free(vcpu->guestfpu);
+		hma_fpu_free(vcpu->guestfpu);
+		vcpu->guestfpu = NULL;
 		vie_free(vcpu->vie_ctx);
 		vcpu->vie_ctx = NULL;
+		vmc_destroy(vcpu->vmclient);
+		vcpu->vmclient = NULL;
+		ctxop_free(vcpu->ctxop);
 	}
 }
 
@@ -337,12 +343,16 @@ vcpu_init(struct vm *vm, int vcpu_id, bool create)
 		vcpu->state = VCPU_IDLE;
 		vcpu->hostcpu = NOCPU;
 		vcpu->lastloccpu = NOCPU;
-		vcpu->guestfpu = fpu_save_area_alloc();
+		vcpu->guestfpu = hma_fpu_alloc(KM_SLEEP);
 		vcpu->stats = vmm_stat_alloc();
 		vcpu->vie_ctx = vie_alloc();
 
 		vcpu->ustate = VU_INIT;
 		vcpu->ustate_when = gethrtime();
+
+		vcpu->vtc.vtc_vm = vm;
+		vcpu->vtc.vtc_vcpuid = vcpu_id;
+		vcpu->ctxop = ctxop_allocate(&vmm_ctxop_tpl, &vcpu->vtc);
 	} else {
 		vie_reset(vcpu->vie_ctx);
 		bzero(&vcpu->exitinfo, sizeof (vcpu->exitinfo));
@@ -360,7 +370,7 @@ vcpu_init(struct vm *vm, int vcpu_id, bool create)
 	vcpu->extint_pending = 0;
 	vcpu->exception_pending = 0;
 	vcpu->guest_xcr0 = XFEATURE_ENABLED_X87;
-	fpu_save_area_reset(vcpu->guestfpu);
+	hma_fpu_init(vcpu->guestfpu);
 	vmm_stat_init(vcpu->stats);
 	vcpu->tsc_offset = 0;
 }
@@ -397,25 +407,19 @@ vm_vie_ctx(struct vm *vm, int cpuid)
 static int
 vmm_init(void)
 {
-	int error;
-
 	vmm_host_state_init();
 
-	/* We use cpu_poke() for IPIs */
-	vmm_ipinum = 0;
-
-	error = vmm_mem_init();
-	if (error)
-		return (error);
-
-	if (vmm_is_intel())
+	if (vmm_is_intel()) {
 		ops = &vmm_ops_intel;
-	else if (vmm_is_svm())
+		pte_ops = &ept_pte_ops;
+	} else if (vmm_is_svm()) {
 		ops = &vmm_ops_amd;
-	else
+		pte_ops = &rvi_pte_ops;
+	} else {
 		return (ENXIO);
+	}
 
-	return (VMM_INIT(vmm_ipinum));
+	return (VMM_INIT());
 }
 
 int
@@ -453,7 +457,7 @@ vm_init(struct vm *vm, bool create)
 {
 	int i;
 
-	vm->cookie = VMINIT(vm, vmspace_pmap(vm->vmspace));
+	vm->cookie = VMINIT(vm);
 	vm->iommu = NULL;
 	vm->vioapic = vioapic_init(vm);
 	vm->vhpet = vhpet_init(vm);
@@ -492,6 +496,12 @@ vm_init(struct vm *vm, bool create)
 uint_t cores_per_package = 1;
 uint_t threads_per_core = 1;
 
+/*
+ * Debugging tunable to enable dirty-page-tracking.
+ * (Remains off by default for now)
+ */
+bool gpt_track_dirty = false;
+
 int
 vm_create(const char *name, uint64_t flags, struct vm **retvm)
 {
@@ -508,14 +518,18 @@ vm_create(const char *name, uint64_t flags, struct vm **retvm)
 	/* Name validation has already occurred */
 	VERIFY3U(strnlen(name, VM_MAX_NAMELEN), <, VM_MAX_NAMELEN);
 
-	vmspace = VMSPACE_ALLOC(0, VM_MAXUSER_ADDRESS);
+	vmspace = vmspace_alloc(VM_MAXUSER_ADDRESS, pte_ops, gpt_track_dirty);
 	if (vmspace == NULL)
 		return (ENOMEM);
 
 	vm = malloc(sizeof (struct vm), M_VM, M_WAITOK | M_ZERO);
 	strcpy(vm->name, name);
+
 	vm->vmspace = vmspace;
 	vm->mem_transient = (flags & VCF_RESERVOIR_MEM) == 0;
+	for (uint_t i = 0; i < VM_MAXCPU; i++) {
+		vm->vcpu[i].vmclient = vmspace_client_alloc(vmspace);
+	}
 
 	vm->sockets = 1;
 	vm->cores = cores_per_package;	/* XXX backwards compatibility */
@@ -621,7 +635,7 @@ vm_cleanup(struct vm *vm, bool destroy)
 		for (i = 0; i < VM_MAX_MEMSEGS; i++)
 			vm_free_memseg(vm, i);
 
-		VMSPACE_FREE(vm->vmspace);
+		vmspace_destroy(vm->vmspace);
 		vm->vmspace = NULL;
 	}
 }
@@ -681,7 +695,7 @@ vm_name(struct vm *vm)
 int
 vm_map_mmio(struct vm *vm, vm_paddr_t gpa, size_t len, vm_paddr_t hpa)
 {
-	vm_object_t obj;
+	vm_object_t *obj;
 
 	if ((obj = vmm_mmio_alloc(vm->vmspace, gpa, len, hpa)) == NULL)
 		return (ENOMEM);
@@ -692,7 +706,7 @@ vm_map_mmio(struct vm *vm, vm_paddr_t gpa, size_t len, vm_paddr_t hpa)
 int
 vm_unmap_mmio(struct vm *vm, vm_paddr_t gpa, size_t len)
 {
-	return (vm_map_remove(&vm->vmspace->vm_map, gpa, gpa + len));
+	return (vmspace_unmap(vm->vmspace, gpa, gpa + len));
 }
 
 /*
@@ -730,7 +744,7 @@ int
 vm_alloc_memseg(struct vm *vm, int ident, size_t len, bool sysmem)
 {
 	struct mem_seg *seg;
-	vm_object_t obj;
+	vm_object_t *obj;
 
 	if (ident < 0 || ident >= VM_MAX_MEMSEGS)
 		return (EINVAL);
@@ -746,8 +760,7 @@ vm_alloc_memseg(struct vm *vm, int ident, size_t len, bool sysmem)
 			return (EINVAL);
 	}
 
-	obj = vm_object_allocate(OBJT_DEFAULT, len >> PAGE_SHIFT,
-	    vm->mem_transient);
+	obj = vm_object_mem_allocate(len, vm->mem_transient);
 	if (obj == NULL)
 		return (ENOMEM);
 
@@ -759,7 +772,7 @@ vm_alloc_memseg(struct vm *vm, int ident, size_t len, bool sysmem)
 
 int
 vm_get_memseg(struct vm *vm, int ident, size_t *len, bool *sysmem,
-    vm_object_t *objptr)
+    vm_object_t **objptr)
 {
 	struct mem_seg *seg;
 
@@ -786,7 +799,7 @@ vm_free_memseg(struct vm *vm, int ident)
 
 	seg = &vm->mem_segs[ident];
 	if (seg->object != NULL) {
-		vm_object_deallocate(seg->object);
+		vm_object_release(seg->object);
 		bzero(seg, sizeof (struct mem_seg));
 	}
 }
@@ -832,18 +845,16 @@ vm_mmap_memseg(struct vm *vm, vm_paddr_t gpa, int segid, vm_ooffset_t first,
 	if (map == NULL)
 		return (ENOSPC);
 
-	error = vm_map_find(&vm->vmspace->vm_map, seg->object, first, &gpa,
-	    len, 0, VMFS_NO_SPACE, prot, prot, 0);
+	error = vmspace_map(vm->vmspace, seg->object, first, gpa, len, prot);
 	if (error != 0)
 		return (EFAULT);
 
 	vm_object_reference(seg->object);
 
 	if ((flags & VM_MEMMAP_F_WIRED) != 0) {
-		error = vm_map_wire(&vm->vmspace->vm_map, gpa, gpa + len,
-		    VM_MAP_WIRE_USER | VM_MAP_WIRE_NOHOLES);
+		error = vmspace_populate(vm->vmspace, gpa, gpa + len);
 		if (error != 0) {
-			vm_map_remove(&vm->vmspace->vm_map, gpa, gpa + len);
+			vmspace_unmap(vm->vmspace, gpa, gpa + len);
 			return (EFAULT);
 		}
 	}
@@ -917,9 +928,9 @@ vm_free_memmap(struct vm *vm, int ident)
 
 	mm = &vm->mem_maps[ident];
 	if (mm->len) {
-		error = vm_map_remove(&vm->vmspace->vm_map, mm->gpa,
+		error = vmspace_unmap(vm->vmspace, mm->gpa,
 		    mm->gpa + mm->len);
-		KASSERT(error == 0, ("%s: vm_map_remove error %d",
+		KASSERT(error == 0, ("%s: vmspace_unmap error %d",
 		    __func__, error));
 		bzero(mm, sizeof (struct mem_map));
 	}
@@ -961,12 +972,14 @@ vm_iommu_modify(struct vm *vm, bool map)
 	struct mem_map *mm;
 #ifdef __FreeBSD__
 	void *vp, *cookie, *host_domain;
-#else
-	void *vp, *cookie, *host_domain __unused;
 #endif
+	vm_client_t *vmc;
 
 	sz = PAGE_SIZE;
+#ifdef __FreeBSD__
 	host_domain = iommu_host_domain();
+#endif
+	vmc = vmspace_client_alloc(vm->vmspace);
 
 	for (i = 0; i < VM_MAX_MEMMAPS; i++) {
 		mm = &vm->mem_maps[i];
@@ -991,14 +1004,13 @@ vm_iommu_modify(struct vm *vm, bool map)
 
 		gpa = mm->gpa;
 		while (gpa < mm->gpa + mm->len) {
-			vp = vm_gpa_hold(vm, -1, gpa, PAGE_SIZE, PROT_WRITE,
-			    &cookie);
-			KASSERT(vp != NULL, ("vm(%s) could not map gpa %lx",
-			    vm_name(vm), gpa));
+			vm_page_t *vmp;
 
-			vm_gpa_release(cookie);
+			vmp = vmc_hold(vmc, gpa, PROT_WRITE);
+			ASSERT(vmp != NULL);
+			hpa = ((uintptr_t)vmp_get_pfn(vmp) << PAGESHIFT);
+			vmp_release(vmp);
 
-			hpa = DMAP_TO_PHYS((uintptr_t)vp);
 			if (map) {
 				iommu_create_mapping(vm->iommu, gpa, hpa, sz);
 #ifdef __FreeBSD__
@@ -1014,6 +1026,7 @@ vm_iommu_modify(struct vm *vm, bool map)
 			gpa += PAGE_SIZE;
 		}
 	}
+	vmc_destroy(vmc);
 
 	/*
 	 * Invalidate the cached translations associated with the domain
@@ -1029,9 +1042,6 @@ vm_iommu_modify(struct vm *vm, bool map)
 #endif
 }
 
-#define	vm_iommu_unmap(vm)	vm_iommu_modify((vm), false)
-#define	vm_iommu_map(vm)	vm_iommu_modify((vm), true)
-
 int
 vm_unassign_pptdev(struct vm *vm, int pptfd)
 {
@@ -1042,7 +1052,7 @@ vm_unassign_pptdev(struct vm *vm, int pptfd)
 		return (error);
 
 	if (ppt_assigned_devices(vm) == 0)
-		vm_iommu_unmap(vm);
+		vm_iommu_modify(vm, false);
 
 	return (0);
 }
@@ -1061,69 +1071,11 @@ vm_assign_pptdev(struct vm *vm, int pptfd)
 		vm->iommu = iommu_create_domain(maxaddr);
 		if (vm->iommu == NULL)
 			return (ENXIO);
-		vm_iommu_map(vm);
+		vm_iommu_modify(vm, true);
 	}
 
 	error = ppt_assign_device(vm, pptfd);
 	return (error);
-}
-
-void *
-vm_gpa_hold(struct vm *vm, int vcpuid, vm_paddr_t gpa, size_t len, int reqprot,
-    void **cookie)
-{
-	int i, count, pageoff;
-	struct mem_map *mm;
-	vm_page_t m;
-#ifdef INVARIANTS
-	/*
-	 * All vcpus are frozen by ioctls that modify the memory map
-	 * (e.g. VM_MMAP_MEMSEG). Therefore 'vm->memmap[]' stability is
-	 * guaranteed if at least one vcpu is in the VCPU_FROZEN state.
-	 */
-	int state;
-	KASSERT(vcpuid >= -1 && vcpuid < vm->maxcpus, ("%s: invalid vcpuid %d",
-	    __func__, vcpuid));
-	for (i = 0; i < vm->maxcpus; i++) {
-		if (vcpuid != -1 && vcpuid != i)
-			continue;
-		state = vcpu_get_state(vm, i, NULL);
-		KASSERT(state == VCPU_FROZEN, ("%s: invalid vcpu state %d",
-		    __func__, state));
-	}
-#endif
-	pageoff = gpa & PAGE_MASK;
-	if (len > PAGE_SIZE - pageoff)
-		panic("vm_gpa_hold: invalid gpa/len: 0x%016lx/%lu", gpa, len);
-
-	count = 0;
-	for (i = 0; i < VM_MAX_MEMMAPS; i++) {
-		mm = &vm->mem_maps[i];
-		if (mm->len == 0) {
-			continue;
-		}
-		if (gpa >= mm->gpa && gpa < mm->gpa + mm->len) {
-			count = vm_fault_quick_hold_pages(&vm->vmspace->vm_map,
-			    trunc_page(gpa), PAGE_SIZE, reqprot, &m, 1);
-			break;
-		}
-	}
-
-	if (count == 1) {
-		*cookie = m;
-		return ((void *)(PHYS_TO_DMAP(VM_PAGE_TO_PHYS(m)) + pageoff));
-	} else {
-		*cookie = NULL;
-		return (NULL);
-	}
-}
-
-void
-vm_gpa_release(void *cookie)
-{
-	vm_page_t m = cookie;
-
-	vm_page_unwire(m, PQ_ACTIVE);
 }
 
 int
@@ -1217,6 +1169,50 @@ vm_set_seg_desc(struct vm *vm, int vcpu, int reg, const struct seg_desc *desc)
 	return (VMSETDESC(vm->cookie, vcpu, reg, desc));
 }
 
+static int
+translate_hma_xsave_result(hma_fpu_xsave_result_t res)
+{
+	switch (res) {
+	case HFXR_OK:
+		return (0);
+	case HFXR_NO_SPACE:
+		return (ENOSPC);
+	case HFXR_BAD_ALIGN:
+	case HFXR_UNSUP_FMT:
+	case HFXR_UNSUP_FEAT:
+	case HFXR_INVALID_DATA:
+		return (EINVAL);
+	default:
+		panic("unexpected xsave result");
+	}
+}
+
+int
+vm_get_fpu(struct vm *vm, int vcpuid, void *buf, size_t len)
+{
+	if (vcpuid < 0 || vcpuid >= vm->maxcpus)
+		return (EINVAL);
+
+	struct vcpu *vcpu = &vm->vcpu[vcpuid];
+	hma_fpu_xsave_result_t res;
+
+	res = hma_fpu_get_xsave_state(vcpu->guestfpu, buf, len);
+	return (translate_hma_xsave_result(res));
+}
+
+int
+vm_set_fpu(struct vm *vm, int vcpuid, void *buf, size_t len)
+{
+	if (vcpuid < 0 || vcpuid >= vm->maxcpus)
+		return (EINVAL);
+
+	struct vcpu *vcpu = &vm->vcpu[vcpuid];
+	hma_fpu_xsave_result_t res;
+
+	res = hma_fpu_set_xsave_state(vcpu->guestfpu, buf, len);
+	return (translate_hma_xsave_result(res));
+}
+
 int
 vm_get_run_state(struct vm *vm, int vcpuid, uint32_t *state, uint8_t *sipi_vec)
 {
@@ -1259,17 +1255,19 @@ vm_set_run_state(struct vm *vm, int vcpuid, uint32_t state, uint8_t sipi_vec)
 	return (0);
 }
 
+void
+vm_track_dirty_pages(struct vm *vm, uint64_t gpa, size_t len, uint8_t *bitmap)
+{
+	vmspace_t *vms = vm_get_vmspace(vm);
+	vmspace_track_dirty(vms, gpa, len, bitmap);
+}
 
 static void
 restore_guest_fpustate(struct vcpu *vcpu)
 {
-
-	/* flush host state to the pcb */
-	fpuexit(curthread);
-
-	/* restore guest FPU state */
+	/* Save host FPU and restore guest FPU */
 	fpu_stop_emulating();
-	fpurestore(vcpu->guestfpu);
+	hma_fpu_start_guest(vcpu->guestfpu);
 
 	/* restore guest XCR0 if XSAVE is enabled in the host */
 	if (rcr4() & CR4_XSAVE)
@@ -1295,9 +1293,9 @@ save_guest_fpustate(struct vcpu *vcpu)
 		load_xcr(0, vmm_get_host_xcr0());
 	}
 
-	/* save guest FPU state */
+	/* save guest FPU and restore host FPU */
 	fpu_stop_emulating();
-	fpusave(vcpu->guestfpu);
+	hma_fpu_stop_guest(vcpu->guestfpu);
 	/*
 	 * When the host state has been restored, we should not re-enable
 	 * CR0.TS on illumos for eager FPU.
@@ -1478,13 +1476,10 @@ vm_handle_hlt(struct vm *vm, int vcpuid, bool intr_disabled)
 static int
 vm_handle_paging(struct vm *vm, int vcpuid)
 {
+	struct vcpu *vcpu = &vm->vcpu[vcpuid];
+	vm_client_t *vmc = vcpu->vmclient;
+	struct vm_exit *vme = &vcpu->exitinfo;
 	int rv, ftype;
-	struct vm_map *map;
-	struct vcpu *vcpu;
-	struct vm_exit *vme;
-
-	vcpu = &vm->vcpu[vcpuid];
-	vme = &vcpu->exitinfo;
 
 	KASSERT(vme->inst_length == 0, ("%s: invalid inst_length %d",
 	    __func__, vme->inst_length));
@@ -1494,26 +1489,13 @@ vm_handle_paging(struct vm *vm, int vcpuid)
 	    ftype == PROT_WRITE || ftype == PROT_EXEC,
 	    ("vm_handle_paging: invalid fault_type %d", ftype));
 
-	if (ftype == PROT_READ || ftype == PROT_WRITE) {
-		rv = pmap_emulate_accessed_dirty(vmspace_pmap(vm->vmspace),
-		    vme->u.paging.gpa, ftype);
-		if (rv == 0) {
-			VCPU_CTR2(vm, vcpuid, "%s bit emulation for gpa %lx",
-			    ftype == PROT_READ ? "accessed" : "dirty",
-			    vme->u.paging.gpa);
-			goto done;
-		}
-	}
-
-	map = &vm->vmspace->vm_map;
-	rv = vm_fault(map, vme->u.paging.gpa, ftype, VM_FAULT_NORMAL);
+	rv = vmc_fault(vmc, vme->u.paging.gpa, ftype);
 
 	VCPU_CTR3(vm, vcpuid, "vm_handle_paging rv = %d, gpa = %lx, "
 	    "ftype = %d", rv, vme->u.paging.gpa, ftype);
 
 	if (rv != 0)
 		return (EFAULT);
-done:
 	return (0);
 }
 
@@ -2124,15 +2106,6 @@ vmm_restorectx(void *arg)
 
 }
 
-/*
- * If we're in removectx(), we might still have state to tidy up.
- */
-static void
-vmm_freectx(void *arg, int isexec)
-{
-	vmm_savectx(arg);
-}
-
 static int
 vm_entry_actions(struct vm *vm, int vcpuid, const struct vm_entry *entry,
     struct vm_exit *vme)
@@ -2221,8 +2194,6 @@ vm_run(struct vm *vm, int vcpuid, const struct vm_entry *entry)
 	struct vcpu *vcpu;
 	struct vm_exit *vme;
 	bool intr_disabled;
-	pmap_t pmap;
-	vm_thread_ctx_t vtc;
 	int affinity_type = CPU_CURRENT;
 
 	if (vcpuid < 0 || vcpuid >= vm->maxcpus)
@@ -2230,17 +2201,13 @@ vm_run(struct vm *vm, int vcpuid, const struct vm_entry *entry)
 	if (!CPU_ISSET(vcpuid, &vm->active_cpus))
 		return (EINVAL);
 
-	pmap = vmspace_pmap(vm->vmspace);
 	vcpu = &vm->vcpu[vcpuid];
 	vme = &vcpu->exitinfo;
 
 	vcpu_ustate_change(vm, vcpuid, VU_EMU_KERN);
 
-	vtc.vtc_vm = vm;
-	vtc.vtc_vcpuid = vcpuid;
-	vtc.vtc_status = 0;
-	installctx(curthread, &vtc, vmm_savectx, vmm_restorectx, NULL, NULL,
-	    NULL, vmm_freectx, NULL);
+	vcpu->vtc.vtc_status = 0;
+	ctxop_attach(curthread, vcpu->ctxop);
 
 	error = vm_entry_actions(vm, vcpuid, entry, vme);
 	if (error != 0) {
@@ -2266,27 +2233,24 @@ restart:
 	affinity_type = CPU_CURRENT;
 	critical_enter();
 
-	KASSERT(!CPU_ISSET(curcpu, &pmap->pm_active),
-	    ("vm_run: absurd pm_active"));
-
 	/* Force a trip through update_sregs to reload %fs/%gs and friends */
 	PCB_SET_UPDATE_SEGS(&ttolwp(curthread)->lwp_pcb);
 
-	if ((vtc.vtc_status & VTCS_FPU_RESTORED) == 0) {
+	if ((vcpu->vtc.vtc_status & VTCS_FPU_RESTORED) == 0) {
 		restore_guest_fpustate(vcpu);
-		vtc.vtc_status |= VTCS_FPU_RESTORED;
+		vcpu->vtc.vtc_status |= VTCS_FPU_RESTORED;
 	}
-	vtc.vtc_status |= VTCS_FPU_CTX_CRITICAL;
+	vcpu->vtc.vtc_status |= VTCS_FPU_CTX_CRITICAL;
 
 	vcpu_require_state(vm, vcpuid, VCPU_RUNNING);
-	error = VMRUN(vm->cookie, vcpuid, vcpu->nextrip, pmap);
+	error = VMRUN(vm->cookie, vcpuid, vcpu->nextrip);
 	vcpu_require_state(vm, vcpuid, VCPU_FROZEN);
 
 	/*
 	 * Once clear of the delicate contexts comprising the VM_RUN handler,
 	 * thread CPU affinity can be loosened while other processing occurs.
 	 */
-	vtc.vtc_status &= ~VTCS_FPU_CTX_CRITICAL;
+	vcpu->vtc.vtc_status &= ~VTCS_FPU_CTX_CRITICAL;
 	thread_affinity_clear(curthread);
 	critical_exit();
 
@@ -2356,8 +2320,11 @@ restart:
 	}
 
 exit:
-	removectx(curthread, &vtc, vmm_savectx, vmm_restorectx, NULL, NULL,
-	    NULL, vmm_freectx);
+	kpreempt_disable();
+	ctxop_detach(curthread, vcpu->ctxop);
+	/* Make sure all of the needed vCPU context state is saved */
+	vmm_savectx(&vcpu->vtc);
+	kpreempt_enable();
 
 	VCPU_CTR2(vm, vcpuid, "retu %d/%d", error, vme->exitcode);
 
@@ -2986,7 +2953,7 @@ vcpu_arch_reset(struct vm *vm, int vcpuid, bool init_only)
 	 */
 	if (!init_only) {
 		vcpu->guest_xcr0 = XFEATURE_ENABLED_X87;
-		fpu_save_area_reset(vcpu->guestfpu);
+		hma_fpu_init(vcpu->guestfpu);
 
 		/* XXX: clear MSRs and other pieces */
 	}
@@ -3355,10 +3322,9 @@ vcpu_notify_event_locked(struct vcpu *vcpu, vcpu_notify_t ntype)
 		KASSERT(hostcpu != NOCPU, ("vcpu running on invalid hostcpu"));
 		if (hostcpu != curcpu) {
 			if (ntype == VCPU_NOTIFY_APIC) {
-				vlapic_post_intr(vcpu->vlapic, hostcpu,
-				    vmm_ipinum);
+				vlapic_post_intr(vcpu->vlapic, hostcpu);
 			} else {
-				ipi_cpu(hostcpu, vmm_ipinum);
+				poke_cpu(hostcpu);
 			}
 		} else {
 			/*
@@ -3427,6 +3393,12 @@ vm_get_vmspace(struct vm *vm)
 	return (vm->vmspace);
 }
 
+struct vm_client *
+vm_get_vmclient(struct vm *vm, int vcpuid)
+{
+	return (vm->vcpu[vcpuid].vmclient);
+}
+
 int
 vm_apicid2vcpuid(struct vm *vm, int apicid)
 {
@@ -3481,13 +3453,12 @@ vm_segment_name(int seg)
 
 void
 vm_copy_teardown(struct vm *vm, int vcpuid, struct vm_copyinfo *copyinfo,
-    int num_copyinfo)
+    uint_t num_copyinfo)
 {
-	int idx;
-
-	for (idx = 0; idx < num_copyinfo; idx++) {
-		if (copyinfo[idx].cookie != NULL)
-			vm_gpa_release(copyinfo[idx].cookie);
+	for (uint_t idx = 0; idx < num_copyinfo; idx++) {
+		if (copyinfo[idx].cookie != NULL) {
+			vmp_release((vm_page_t *)copyinfo[idx].cookie);
+		}
 	}
 	bzero(copyinfo, num_copyinfo * sizeof (struct vm_copyinfo));
 }
@@ -3495,24 +3466,26 @@ vm_copy_teardown(struct vm *vm, int vcpuid, struct vm_copyinfo *copyinfo,
 int
 vm_copy_setup(struct vm *vm, int vcpuid, struct vm_guest_paging *paging,
     uint64_t gla, size_t len, int prot, struct vm_copyinfo *copyinfo,
-    int num_copyinfo, int *fault)
+    uint_t num_copyinfo, int *fault)
 {
-	int error, idx, nused;
+	uint_t idx, nused;
 	size_t n, off, remaining;
-	void *hva, *cookie;
-	uint64_t gpa;
+	vm_client_t *vmc = vm_get_vmclient(vm, vcpuid);
 
 	bzero(copyinfo, sizeof (struct vm_copyinfo) * num_copyinfo);
 
 	nused = 0;
 	remaining = len;
 	while (remaining > 0) {
+		uint64_t gpa;
+		int error;
+
 		KASSERT(nused < num_copyinfo, ("insufficient vm_copyinfo"));
 		error = vm_gla2gpa(vm, vcpuid, paging, gla, prot, &gpa, fault);
 		if (error || *fault)
 			return (error);
-		off = gpa & PAGE_MASK;
-		n = min(remaining, PAGE_SIZE - off);
+		off = gpa & PAGEOFFSET;
+		n = min(remaining, PAGESIZE - off);
 		copyinfo[nused].gpa = gpa;
 		copyinfo[nused].len = n;
 		remaining -= n;
@@ -3521,12 +3494,21 @@ vm_copy_setup(struct vm *vm, int vcpuid, struct vm_guest_paging *paging,
 	}
 
 	for (idx = 0; idx < nused; idx++) {
-		hva = vm_gpa_hold(vm, vcpuid, copyinfo[idx].gpa,
-		    copyinfo[idx].len, prot, &cookie);
-		if (hva == NULL)
+		vm_page_t *vmp;
+		caddr_t hva;
+
+		vmp = vmc_hold(vmc, copyinfo[idx].gpa & PAGEMASK, prot);
+		if (vmp == NULL) {
 			break;
-		copyinfo[idx].hva = hva;
-		copyinfo[idx].cookie = cookie;
+		}
+		if ((prot & PROT_WRITE) != 0) {
+			hva = (caddr_t)vmp_get_writable(vmp);
+		} else {
+			hva = (caddr_t)vmp_get_readable(vmp);
+		}
+		copyinfo[idx].hva = hva + (copyinfo[idx].gpa & PAGEOFFSET);
+		copyinfo[idx].cookie = vmp;
+		copyinfo[idx].prot = prot;
 	}
 
 	if (idx != nused) {
@@ -3548,6 +3530,8 @@ vm_copyin(struct vm *vm, int vcpuid, struct vm_copyinfo *copyinfo, void *kaddr,
 	dst = kaddr;
 	idx = 0;
 	while (len > 0) {
+		ASSERT(copyinfo[idx].prot & PROT_READ);
+
 		bcopy(copyinfo[idx].hva, dst, copyinfo[idx].len);
 		len -= copyinfo[idx].len;
 		dst += copyinfo[idx].len;
@@ -3565,6 +3549,8 @@ vm_copyout(struct vm *vm, int vcpuid, const void *kaddr,
 	src = kaddr;
 	idx = 0;
 	while (len > 0) {
+		ASSERT(copyinfo[idx].prot & PROT_WRITE);
+
 		bcopy(src, copyinfo[idx].hva, copyinfo[idx].len);
 		len -= copyinfo[idx].len;
 		src += copyinfo[idx].len;
@@ -3577,30 +3563,17 @@ vm_copyout(struct vm *vm, int vcpuid, const void *kaddr,
  * these are global stats, only return the values with for vCPU 0
  */
 VMM_STAT_DECLARE(VMM_MEM_RESIDENT);
-VMM_STAT_DECLARE(VMM_MEM_WIRED);
 
 static void
 vm_get_rescnt(struct vm *vm, int vcpu, struct vmm_stat_type *stat)
 {
-
 	if (vcpu == 0) {
 		vmm_stat_set(vm, vcpu, VMM_MEM_RESIDENT,
 		    PAGE_SIZE * vmspace_resident_count(vm->vmspace));
 	}
 }
 
-static void
-vm_get_wiredcnt(struct vm *vm, int vcpu, struct vmm_stat_type *stat)
-{
-
-	if (vcpu == 0) {
-		vmm_stat_set(vm, vcpu, VMM_MEM_WIRED,
-		    PAGE_SIZE * pmap_wired_count(vmspace_pmap(vm->vmspace)));
-	}
-}
-
 VMM_STAT_FUNC(VMM_MEM_RESIDENT, "Resident memory", vm_get_rescnt);
-VMM_STAT_FUNC(VMM_MEM_WIRED, "Wired memory", vm_get_wiredcnt);
 
 int
 vm_ioport_access(struct vm *vm, int vcpuid, bool in, uint16_t port,

@@ -605,6 +605,7 @@ mac_srs_cpu_setup(cpu_setup_t what, int id, void *arg)
  *
  * TODO: Cleanup and tighten some of the assumptions.
  */
+boolean_t mac_check_overlay = B_TRUE;
 boolean_t mac_use_bw_heuristic = B_TRUE;
 static int
 mac_compute_soft_ring_count(flow_entry_t *flent, int rx_srs_cnt, int maxcpus)
@@ -612,6 +613,7 @@ mac_compute_soft_ring_count(flow_entry_t *flent, int rx_srs_cnt, int maxcpus)
 	uint64_t cpu_speed, bw = 0;
 	int srings = 0;
 	boolean_t bw_enabled = B_FALSE;
+	mac_client_impl_t *mcip = flent->fe_mcip;
 
 	ASSERT(!(flent->fe_type & FLOW_USER));
 	if (flent->fe_resource_props.mrp_mask & MRP_MAXBW &&
@@ -639,7 +641,16 @@ mac_compute_soft_ring_count(flow_entry_t *flent, int rx_srs_cnt, int maxcpus)
 			 */
 			if (mac_soft_ring_enable)
 				srings = srings * 2;
+		} else if (mac_check_overlay == B_TRUE &&
+		    (mcip->mci_state_flags & MCIS_IS_VNIC) != 0) {
+			/* Is this a VNIC on an overlay? */
+			mac_handle_t mh = (mac_handle_t)mcip->mci_mip;
+			if (mac_is_overlay(mh) == B_TRUE) {
+				srings = mac_rx_soft_ring_10gig_count;
+			}
 		}
+
+
 	} else {
 		/*
 		 * Soft ring computation using CPU speed and specified
@@ -2203,7 +2214,14 @@ mac_srs_create(mac_client_impl_t *mcip, flow_entry_t *flent, uint32_t srs_type,
 			mac_srs->srs_state |= SRS_SOFTRING_QUEUE;
 	}
 
-	mac_srs->srs_worker = thread_create(NULL, 0,
+	/*
+	 * Create the srs_worker with twice the stack of a normal kernel thread
+	 * to reduce the likelihood of stack overflows in receive-side
+	 * processing.  (The larger stacks are not the only precaution taken
+	 * against stack overflows; see the use of mac_rx_srs_stack_needed
+	 * in mac_sched.c).
+	 */
+	mac_srs->srs_worker = thread_create(NULL, default_stksize << 1,
 	    mac_srs_worker, mac_srs, 0, &p0, TS_RUN, mac_srs->srs_pri);
 
 	if (is_tx_srs) {

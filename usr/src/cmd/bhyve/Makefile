@@ -89,7 +89,7 @@ SRCS =	acpi.c			\
 # trouble of fixing the header tangle for this is not worth the complexity.
 	#kernemu_dev.c		\
 
-# The virtio-scsi driver appears to include  a slew of materials from FreeBSD's
+# The virtio-scsi driver appears to include a slew of materials from FreeBSD's
 # native SCSI implementation.  We will omit that complexity for now.
 	#ctl_util.c		\
 	#ctl_scsi_all.c		\
@@ -99,6 +99,9 @@ SRCS =	acpi.c			\
 	#audio.c		\
 	#hda_codec.c		\
 	#pci_hda.c		\
+
+# The virtio input device expects to link to a FreeBSD /dev/input/eventX device
+	#pci_virtio_input.c	\
 
 OBJS = $(SRCS:.c=.o)
 
@@ -126,13 +129,16 @@ CPPFLAGS =	-I$(COMPAT)/bhyve -I$(CONTRIB)/bhyve \
 
 pci_nvme.o := CERRWARN += -_gcc=-Wno-pointer-sign
 pci_nvme.o := CERRWARN += -_gcc10=-Wno-address-of-packed-member
+pci_nvme.o := CERRWARN += -_gcc11=-Wno-address-of-packed-member
 pci_nvme.o := SMOFF += kmalloc_wrong_size
 
 pci_passthru.o := CERRWARN += -_gcc10=-Wno-address-of-packed-member
+pci_passthru.o := CERRWARN += -_gcc11=-Wno-address-of-packed-member
 
 pci_virtio_9p.o := SMOFF += kmalloc_wrong_size
 
 pci_xhci.o := CERRWARN += -_gcc10=-Wno-address-of-packed-member
+pci_xhci.o := CERRWARN += -_gcc11=-Wno-address-of-packed-member
 
 SMOFF += all_func_returns,leaks,no_if_block
 
@@ -147,12 +153,13 @@ $(PROG) := LDLIBS += \
 	-ldladm \
 	-lmd \
 	-lnvpair \
+	-lproc \
 	-lcrypto \
 	-luuid \
 	-lvmmapi \
 	-lz
 NATIVE_LIBS += libz.so libcrypto.so
-$(MEVENT_TEST_PROG) := LDLIBS += -lsocket
+$(MEVENT_TEST_PROG) := LDLIBS += -lsocket -lproc
 $(PROG) := LDFLAGS += $(ZASLR)
 
 .KEEP_STATE:

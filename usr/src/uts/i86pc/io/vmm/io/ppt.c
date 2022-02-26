@@ -30,6 +30,7 @@
 
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <sys/cdefs.h>
@@ -42,7 +43,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/bus.h>
 #include <sys/pciio.h>
-#include <sys/smp.h>
 #include <sys/sysctl.h>
 
 #include <dev/pci/pcivar.h>
@@ -98,6 +98,7 @@ struct pptbar {
 	uint_t type;
 	ddi_acc_handle_t io_handle;
 	caddr_t io_ptr;
+	uint_t ddireg;
 };
 
 struct pptdev {
@@ -321,21 +322,21 @@ ppt_ioctl(dev_t dev, int cmd, intptr_t arg, int md, cred_t *cr, int *rv)
 }
 
 static int
-ppt_find_pba_bar(struct pptdev *ppt)
+ppt_find_msix_table_bar(struct pptdev *ppt)
 {
 	uint16_t base;
-	uint32_t pba_off;
+	uint32_t off;
 
 	if (PCI_CAP_LOCATE(ppt->pptd_cfg, PCI_CAP_ID_MSI_X, &base) !=
 	    DDI_SUCCESS)
 		return (-1);
 
-	pba_off = pci_config_get32(ppt->pptd_cfg, base + PCI_MSIX_PBA_OFFSET);
+	off = pci_config_get32(ppt->pptd_cfg, base + PCI_MSIX_TBL_OFFSET);
 
-	if (pba_off == PCI_EINVAL32)
+	if (off == PCI_EINVAL32)
 		return (-1);
 
-	return (pba_off & PCI_MSIX_PBA_BIR_MASK);
+	return (off & PCI_MSIX_TBL_BIR_MASK);
 }
 
 static int
@@ -344,8 +345,8 @@ ppt_devmap(dev_t dev, devmap_cookie_t dhp, offset_t off, size_t len,
 {
 	minor_t minor;
 	struct pptdev *ppt;
-	int err;
-	int bar;
+	int err, bar;
+	uint_t ddireg;
 
 	minor = getminor(dev);
 
@@ -360,16 +361,15 @@ ppt_devmap(dev_t dev, devmap_cookie_t dhp, offset_t off, size_t len,
 	if (off < 0 || off != P2ALIGN(off, PAGESIZE))
 		return (EINVAL);
 
-	if ((bar = ppt_find_pba_bar(ppt)) == -1)
+	if ((bar = ppt_find_msix_table_bar(ppt)) == -1)
 		return (EINVAL);
 
-	/*
-	 * Add 1 to the BAR number to get the register number used by DDI.
-	 * Register 0 corresponds to PCI config space, the PCI BARs start at 1.
-	 */
-	bar += 1;
+	ddireg = ppt->pptd_bars[bar].ddireg;
 
-	err = devmap_devmem_setup(dhp, ppt->pptd_dip, NULL, bar, off, len,
+	if (ddireg == 0)
+		return (EINVAL);
+
+	err = devmap_devmem_setup(dhp, ppt->pptd_dip, NULL, ddireg, off, len,
 	    PROT_USER | PROT_READ | PROT_WRITE, IOMEM_DATA_CACHED, &ppt_attr);
 
 	if (err == DDI_SUCCESS)
@@ -377,7 +377,6 @@ ppt_devmap(dev_t dev, devmap_cookie_t dhp, offset_t off, size_t len,
 
 	return (err);
 }
-
 
 static void
 ppt_bar_wipe(struct pptdev *ppt)
@@ -425,6 +424,13 @@ ppt_bar_crawl(struct pptdev *ppt)
 			err = EEXIST;
 			break;
 		}
+
+		/*
+		 * Register 0 corresponds to the PCI config space.
+		 * The registers which match the assigned-addresses list are
+		 * offset by 1.
+		 */
+		pbar->ddireg = i + 1;
 
 		pbar->type = reg->pci_phys_hi & PCI_ADDR_MASK;
 		pbar->base = ((uint64_t)reg->pci_phys_mid << 32) |
@@ -747,7 +753,7 @@ ppt_max_completion_tmo_us(dev_info_t *dip)
 	    PCIE_PCIECAP_VER_MASK) < PCIE_PCIECAP_VER_2_0)
 		goto out;
 
-	if ((PCI_CAP_GET16(hdl, 0, cap_ptr, PCIE_DEVCAP2) &
+	if ((PCI_CAP_GET32(hdl, 0, cap_ptr, PCIE_DEVCAP2) &
 	    PCIE_DEVCTL2_COM_TO_RANGE_MASK) == 0)
 		goto out;
 
@@ -775,7 +781,7 @@ ppt_flr(dev_info_t *dip, boolean_t force)
 	if (PCI_CAP_LOCATE(hdl, PCI_CAP_ID_PCI_E, &cap_ptr) != DDI_SUCCESS)
 		goto fail;
 
-	if ((PCI_CAP_GET16(hdl, 0, cap_ptr, PCIE_DEVCAP) & PCIE_DEVCAP_FLR)
+	if ((PCI_CAP_GET32(hdl, 0, cap_ptr, PCIE_DEVCAP) & PCIE_DEVCAP_FLR)
 	    == 0)
 		goto fail;
 

@@ -24,7 +24,7 @@
  */
 
 /*
- * Copyright (c) 2014, Joyent, Inc.  All rights reserved.
+ * Copyright (c) 2015, Joyent, Inc.  All rights reserved.
  * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
  */
 
@@ -586,11 +586,6 @@ so_sendmblk(struct sonode *so, struct nmsghdr *msg, int fflag,
 	int error;
 
 	SO_BLOCK_FALLBACK(so, SOP_SENDMBLK(so, msg, fflag, cr, mpp));
-
-	if ((so->so_mode & SM_SENDFILESUPP) == 0) {
-		SO_UNBLOCK_FALLBACK(so);
-		return (EOPNOTSUPP);
-	}
 
 	error = so_sendmblk_impl(so, msg, fflag, cr, mpp, so->so_filter_top,
 	    B_FALSE);
@@ -1330,6 +1325,26 @@ so_queue_msg_impl(struct sonode *so, mblk_t *mp,
 		}
 	}
 
+	mutex_enter(&so->so_lock);
+	if (so->so_krecv_cb != NULL) {
+		boolean_t cont;
+		so_krecv_f func = so->so_krecv_cb;
+		void *arg = so->so_krecv_arg;
+
+		mutex_exit(&so->so_lock);
+		cont = func(so, mp, msg_size, flags & MSG_OOB, arg);
+		mutex_enter(&so->so_lock);
+		if (cont == B_TRUE) {
+			space_left = so->so_rcvbuf;
+		} else {
+			so->so_rcv_queued = so->so_rcvlowat;
+			*errorp = ENOSPC;
+			space_left = -1;
+		}
+		goto done_unlock;
+	}
+	mutex_exit(&so->so_lock);
+
 	if (flags & MSG_OOB) {
 		so_queue_oob(so, mp, msg_size);
 		mutex_enter(&so->so_lock);
@@ -1619,6 +1634,13 @@ so_recvmsg(struct sonode *so, struct nmsghdr *msg, struct uio *uiop,
 		SO_UNBLOCK_FALLBACK(so);
 		return (ENOTCONN);
 	}
+
+	mutex_enter(&so->so_lock);
+	if (so->so_krecv_cb != NULL) {
+		mutex_exit(&so->so_lock);
+		return (EOPNOTSUPP);
+	}
+	mutex_exit(&so->so_lock);
 
 	if (msg->msg_flags & MSG_PEEK)
 		msg->msg_flags &= ~MSG_WAITALL;
