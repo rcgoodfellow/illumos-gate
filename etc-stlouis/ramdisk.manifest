@@ -163,6 +163,7 @@ d etc/crypto 0755 root sys
 f etc/crypto/kcf.conf 0644 root sys
 f etc/crypto/kmf.conf 0644 root sys
 f etc/crypto/pkcs11.conf 0644 root sys
+f etc/dacf.conf 0644 root root
 d etc/default 0755 root sys
 f etc/default/devfsadm 0644 root sys
 f etc/default/init 0644 root sys
@@ -289,6 +290,9 @@ f kernel/cc/amd64/cc_sunreno 0755 root sys
 d kernel/crypto 0755 root sys
 d kernel/crypto/amd64 0755 root sys
 f kernel/crypto/amd64/swrand 0755 root sys
+d kernel/dacf 0755 root sys
+d kernel/dacf/amd64 0755 root sys
+f kernel/dacf/amd64/net_dacf 0755 root sys
 d kernel/drv 0755 root sys
 f kernel/drv/amdzen.conf 0644 root sys
 d kernel/drv/amd64 0755 root sys
