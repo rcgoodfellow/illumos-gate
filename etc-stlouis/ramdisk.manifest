@@ -447,7 +447,6 @@ f kernel/misc/amd64/mii 0755 root sys
 f kernel/misc/amd64/neti 0755 root sys
 f kernel/misc/amd64/pci_autoconfig 0755 root sys
 f kernel/misc/amd64/pcicfg 0755 root sys
-f kernel/misc/amd64/pcie 0755 root sys
 f kernel/misc/amd64/pcihp 0755 root sys
 f kernel/misc/amd64/sata 0755 root sys
 f kernel/misc/amd64/scsi 0755 root sys
@@ -712,6 +711,7 @@ d platform/oxide/kernel/mach/amd64 0755 root sys
 f platform/oxide/kernel/mach/amd64/apix 0755 root sys
 d platform/oxide/kernel/misc 0755 root sys
 d platform/oxide/kernel/misc/amd64 0755 root sys
+f platform/oxide/kernel/misc/amd64/pcie 0755 root sys
 f platform/oxide/kernel/misc/amd64/pci_prd 0755 root sys
 d proc 0755 root root
 d root 0755 root root

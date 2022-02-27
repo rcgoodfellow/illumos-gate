@@ -38,7 +38,7 @@ UTSBASE	= ../..
 MODULE		= pcie
 OBJECTS		= $(PCIE_MISC_OBJS:%=$(OBJS_DIR)/%) \
 		  $(PCI_STRING_OBJS:%=$(OBJS_DIR)/%)
-ROOTMODULE	= $(ROOT_MISC_DIR)/$(MODULE)
+ROOTMODULE	= $(ROOT_PSM_MISC_DIR)/$(MODULE)
 
 #
 #	Include common rules.
