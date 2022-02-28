@@ -136,6 +136,10 @@ kmdb_modlinktest.c: $(MAPFILE_INTERMEDIATE)
 	$(COMPILE.c) $<
 	$(CTFCONVERT_O)
 
+%.o: $(SRC)/common/bitext/%.c
+	$(COMPILE.c) $<
+	$(CTFCONVERT_O)
+
 %.o: $(SRC)/common/util/%.c
 	$(COMPILE.c) $<
 	$(CTFCONVERT_O)

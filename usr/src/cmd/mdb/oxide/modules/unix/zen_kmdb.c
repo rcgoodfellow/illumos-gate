@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -302,25 +302,56 @@ df_dcmd_check(uintptr_t addr, uint_t flags, boolean_t inst_set, uintptr_t inst,
 }
 
 static boolean_t
-df_read32_indirect(uint64_t sock, uintptr_t inst, uintptr_t func, uint16_t reg,
-    uint32_t *valp)
+df_read32(uint64_t sock, const df_reg_def_t df, uint32_t *valp)
 {
-	uint32_t val;
+	return (pcicfg_read32(0, 0x18 + sock, df.drd_func, df.drd_reg, valp));
+}
 
-	val = AMDZEN_DF_F4_FICAA_TARG_INST | AMDZEN_DF_F4_FICAA_SET_REG(reg) |
-	    AMDZEN_DF_F4_FICAA_SET_FUNC(func) |
-	    AMDZEN_DF_F4_FICAA_SET_INST(inst);
+static boolean_t
+df_write32(uint64_t sock, const df_reg_def_t df, uint32_t valp)
+{
+	return (pcicfg_write32(0, 0x18 + sock, df.drd_func, df.drd_reg, valp));
+}
 
-	if (!pcicfg_write32(0, 0x18 + sock, 4, AMDZEN_DF_F4_FICAA, val)) {
+static boolean_t
+df_read32_indirect_raw(uint64_t sock, uintptr_t inst, uintptr_t func,
+    uint16_t reg, uint32_t *valp)
+{
+	uint32_t val = 0;
+	const df_reg_def_t ficaa = DF_FICAA_V2;
+
+	val = DF_FICAA_V2_SET_TARG_INST(val, 1);
+	val = DF_FICAA_V2_SET_FUNC(val, func);
+	val = DF_FICAA_V2_SET_INST(val, inst);
+	val = DF_FICAA_V2_SET_64B(val, 0);
+	val = DF_FICAA_V2_SET_REG(val, reg >> 2);
+
+	if (!pcicfg_write32(0, 0x18 + sock, ficaa.drd_func, ficaa.drd_reg,
+	    val)) {
 		return (B_FALSE);
 	}
 
-	if (!pcicfg_read32(0, 0x18 + sock, 4, AMDZEN_DF_F4_FICAD_LO, &val)) {
+	if (!df_read32(sock, DF_FICAD_LO_V2, &val)) {
 		return (B_FALSE);
 	}
 
 	*valp = val;
 	return (B_TRUE);
+}
+
+static boolean_t
+df_read32_indirect(uint64_t sock, uintptr_t inst, const df_reg_def_t def,
+    uint32_t *valp)
+{
+	if ((def.drd_gens & DF_REV_3) == 0) {
+		mdb_warn("asked to read DF reg that doesn't support Gen 3: "
+		    "func/reg: %u/0x%x, gens: 0x%x\n", def.drd_func,
+		    def.drd_reg, def.drd_gens);
+		return (B_FALSE);
+	}
+
+	return (df_read32_indirect_raw(sock, inst, def.drd_func, def.drd_reg,
+	    valp));
 }
 
 int
@@ -355,7 +386,7 @@ rddf_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 			return (DCMD_ERR);
 		}
 	} else {
-		if (!df_read32_indirect(sock, inst, func, addr, &val)) {
+		if (!df_read32_indirect_raw(sock, inst, func, addr, &val)) {
 			return (DCMD_ERR);
 		}
 	}
@@ -406,18 +437,19 @@ wrdf_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 			return (DCMD_ERR);
 		}
 	} else {
-		uint32_t rval = AMDZEN_DF_F4_FICAA_TARG_INST |
-		    AMDZEN_DF_F4_FICAA_SET_REG(addr) |
-		    AMDZEN_DF_F4_FICAA_SET_FUNC(func) |
-		    AMDZEN_DF_F4_FICAA_SET_INST(inst);
+		uint32_t rval = 0;
 
-		if (!pcicfg_write32(0, 0x18 + sock, 4, AMDZEN_DF_F4_FICAA,
-		    rval)) {
+		rval = DF_FICAA_V2_SET_TARG_INST(rval, 1);
+		rval = DF_FICAA_V2_SET_REG(rval, addr >> 2);
+		rval = DF_FICAA_V2_SET_INST(rval, inst);
+		rval = DF_FICAA_V2_SET_64B(rval, 0);
+		rval = DF_FICAA_V2_SET_FUNC(rval, func);
+
+		if (!df_write32(sock, DF_FICAA_V2, rval)) {
 			return (DCMD_ERR);
 		}
 
-		if (!pcicfg_write32(0, 0x18 + sock, 4, AMDZEN_DF_F4_FICAD_LO,
-		    val)) {
+		if (!df_write32(sock, DF_FICAD_LO_V2, val)) {
 			return (DCMD_ERR);
 		}
 	}
@@ -468,8 +500,7 @@ rdsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_ERR);
 	}
 
-	if (!pcicfg_read32(0, 0x18 + sock, 0, AMDZEN_DF_F0_CFG_ADDR_CTL,
-	    &df_busctl)) {
+	if (!df_read32(sock, DF_CFG_ADDR_CTL_V2, &df_busctl)) {
 		mdb_warn("failed to read DF config address\n");
 		return (DCMD_ERR);
 	}
@@ -479,7 +510,7 @@ rdsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_ERR);
 	}
 
-	smn_busno = AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(df_busctl);
+	smn_busno = DF_CFG_ADDR_CTL_GET_BUS_NUM(df_busctl);
 	if (!pcicfg_write32(smn_busno, AMDZEN_NB_SMN_DEVNO,
 	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, addr)) {
 		mdb_warn("failed to write to IOHC SMN address register\n");
@@ -531,8 +562,7 @@ wrsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_ERR);
 	}
 
-	if (!pcicfg_read32(0, 0x18 + sock, 0, AMDZEN_DF_F0_CFG_ADDR_CTL,
-	    &df_busctl)) {
+	if (!df_read32(sock, DF_CFG_ADDR_CTL_V2, &df_busctl)) {
 		mdb_warn("failed to read DF config address\n");
 		return (DCMD_ERR);
 	}
@@ -542,7 +572,7 @@ wrsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_ERR);
 	}
 
-	smn_busno = AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(df_busctl);
+	smn_busno = DF_CFG_ADDR_CTL_GET_BUS_NUM(df_busctl);
 	if (!pcicfg_write32(smn_busno, AMDZEN_NB_SMN_DEVNO,
 	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, addr)) {
 		mdb_warn("failed to write to IOHC SMN address register\n");
@@ -563,16 +593,16 @@ df_fetch_masks(void)
 {
 	uint32_t fid0, fid1;
 
-	if (!pcicfg_read32(0, 0x18, 1, AMDZEN_DF_F1_FIDMASK0, &fid0) ||
-	    !pcicfg_read32(0, 0x18, 1, AMDZEN_DF_F1_FIDMASK1, &fid1)) {
+	if (!df_read32(0, DF_FIDMASK0_V3, &fid0) ||
+	    !df_read32(0, DF_FIDMASK1_V3, &fid1)) {
 		mdb_warn("failed to read masks register\n");
 		return (B_FALSE);
 	}
 
 
-	df_node_mask = AMDZEN_DF_F1_FIDMASK0_NODE_MASK(fid0);
-	df_comp_mask = AMDZEN_DF_F1_FIDMASK0_COMP_MASK(fid0);
-	df_node_shift = AMDZEN_DF_F1_FIDMASK1_NODE_SHIFT(fid1);
+	df_node_mask = DF_FIDMASK0_V3_GET_NODE_MASK(fid0);
+	df_comp_mask = DF_FIDMASK0_V3_GET_COMP_MASK(fid0);
+	df_node_shift = DF_FIDMASK1_V3_GET_NODE_SHIFT(fid1);
 
 	df_masks_valid = B_TRUE;
 	return (B_TRUE);
@@ -646,11 +676,10 @@ df_route_buses(uint_t flags, uint64_t sock, uintptr_t inst)
 		    "DESTINATION");
 	}
 
-	for (uint_t i = 0; i < AMDZEN_DF_F0_MAX_CFGMAP; i++) {
+	for (uint_t i = 0; i < DF_MAX_CFGMAP; i++) {
 		uint32_t val;
 
-		if (!df_read32_indirect(sock, inst, 0, AMDZEN_DF_F0_CFGMAP(i),
-		    &val)) {
+		if (!df_read32_indirect(sock, inst, DF_CFGMAP_V2(i), &val)) {
 			mdb_warn("failed to read cfgmap %u\n", i);
 			continue;
 		}
@@ -661,11 +690,11 @@ df_route_buses(uint_t flags, uint64_t sock, uintptr_t inst)
 		}
 
 		mdb_printf("%-7#x %-7#x %c%c       ",
-		    AMDZEN_DF_F0_GET_CFGMAP_BUS_BASE(val),
-		    AMDZEN_DF_F0_GET_CFGMAP_BUS_LIMIT(val),
-		    AMDZEN_DF_F0_GET_CFGMAP_RE(val) ? 'R' : '-',
-		    AMDZEN_DF_F0_GET_CFGMAP_WE(val) ? 'W' : '-');
-		df_print_dest(AMDZEN_DF_F0_GET_CFGMAP_DEST_ID(val));
+		    DF_CFGMAP_V2_GET_BUS_BASE(val),
+		    DF_CFGMAP_V2_GET_BUS_LIMIT(val),
+		    DF_CFGMAP_V2_GET_RE(val) ? 'R' : '-',
+		    DF_CFGMAP_V2_GET_WE(val) ? 'W' : '-');
+		df_print_dest(DF_CFGMAP_V3_GET_DEST_ID(val));
 		mdb_printf("\n");
 	}
 
@@ -693,37 +722,37 @@ df_route_dram(uint_t flags, uint64_t sock, uintptr_t inst)
 		const char *chan;
 		char ileave[16];
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_Z2_3_DF_F0_DRAM_BASE(i), &breg)) {
+		if (!df_read32_indirect(sock, inst, DF_DRAM_BASE_V2(i),
+		    &breg)) {
 			mdb_warn("failed to read DRAM port base %u\n", i);
 			continue;
 		}
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_Z2_3_DF_F0_DRAM_LIMIT(i), &lreg)) {
+		if (!df_read32_indirect(sock, inst, DF_DRAM_LIMIT_V2(i),
+		    &lreg)) {
 			mdb_warn("failed to read DRAM port limit %u\n", i);
 			continue;
 		}
 
-		base = AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_BASE(breg);
-		base <<= AMDZEN_Z2_3_DF_F0_DRAM_BASE_BASE_SHIFT;
-		limit = AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_LIMIT(lreg);
-		limit <<= AMDZEN_Z2_3_DF_F0_DRAM_LIMIT_LIMIT_SHIFT;
-		limit += (1 << AMDZEN_Z2_3_DF_F0_DRAM_LIMIT_LIMIT_SHIFT) - 1;
+		base = DF_DRAM_BASE_V2_GET_BASE(breg);
+		base <<= DF_DRAM_BASE_V2_BASE_SHIFT;
+		limit = DF_DRAM_LIMIT_V2_GET_LIMIT(lreg);
+		limit <<= DF_DRAM_LIMIT_V2_LIMIT_SHIFT;
+		limit += DF_DRAM_LIMIT_V2_LIMIT_EXCL - 1;
 
 		chan = df_chan_ileaves[
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_CHAN_ILEAVE(breg)];
+		    DF_DRAM_BASE_V3_GET_ILV_CHAN(breg)];
 		(void) mdb_snprintf(ileave, sizeof (ileave), "%u/%s/%u/%u",
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_ADDR_ILEAVE(breg) + 8, chan,
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_DIE_ILEAVE(breg) + 1,
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_SOCK_ILEAVE(breg) + 1);
+		    DF_DRAM_BASE_V3_GET_ILV_ADDR(breg) + 8, chan,
+		    DF_DRAM_BASE_V3_GET_ILV_DIE(breg) + 1,
+		    DF_DRAM_BASE_V3_GET_ILV_SOCK(breg) + 1);
 
 		mdb_printf("%-?#lx %-?#lx %c%c%c     %-15s ", base, limit,
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_VALID(breg) ? 'V' : '-',
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_BASE_HOLE_EN(breg) ? 'H' : '-',
-		    AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_BUS_BREAK(lreg) ?
+		    DF_DRAM_BASE_V2_GET_VALID(breg) ? 'V' : '-',
+		    DF_DRAM_BASE_V2_GET_HOLE_EN(breg) ? 'H' : '-',
+		    DF_DRAM_LIMIT_V3_GET_BUS_BREAK(lreg) ?
 		    'B' : '-', ileave);
-		df_print_dest(AMDZEN_Z2_3_DF_F0_GET_DRAM_LIMIT_DEST_ID(lreg));
+		df_print_dest(DF_DRAM_LIMIT_V3_GET_DEST_ID(lreg));
 		mdb_printf("\n");
 	}
 
@@ -738,32 +767,32 @@ df_route_ioports(uint_t flags, uint64_t sock, uintptr_t inst)
 		    "DESTINAION");
 	}
 
-	for (uint_t i = 0; i < AMDZEN_DF_F0_MAX_IO_RULES; i++) {
+	for (uint_t i = 0; i < DF_MAX_IO_RULES; i++) {
 		uint32_t breg, lreg, base, limit;
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_DF_F0_IO_BASE(i), &breg)) {
+		if (!df_read32_indirect(sock, inst, DF_IO_BASE_V2(i),
+		    &breg)) {
 			mdb_warn("failed to read I/O port base %u\n", i);
 			continue;
 		}
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_DF_F0_IO_LIMIT(i), &lreg)) {
+		if (!df_read32_indirect(sock, inst, DF_IO_LIMIT_V2(i),
+		    &lreg)) {
 			mdb_warn("failed to read I/O port limit %u\n", i);
 			continue;
 		}
 
-		base = AMDZEN_DF_F0_GET_IO_BASE_BASE(breg);
-		base <<= AMDZEN_DF_F0_IO_BASE_SHIFT;
-		limit = AMDZEN_DF_F0_GET_IO_LIMIT_LIMIT(lreg);
-		limit <<= AMDZEN_DF_F0_IO_LIMIT_SHIFT;
-		limit += (1 << AMDZEN_DF_F0_IO_LIMIT_SHIFT) - 1;
+		base = DF_IO_BASE_V2_GET_BASE(breg);
+		base <<= DF_IO_BASE_SHIFT;
+		limit = DF_IO_LIMIT_V2_GET_LIMIT(lreg);
+		limit <<= DF_IO_LIMIT_SHIFT;
+		limit += DF_IO_LIMIT_EXCL - 1;
 
 		mdb_printf("%-8#x %-8#x %c%c%c      ", base, limit,
-		    AMDZEN_DF_F0_GET_IO_BASE_RE(breg) ? 'R' : '-',
-		    AMDZEN_DF_F0_GET_IO_BASE_WE(breg) ? 'W' : '-',
-		    AMDZEN_DF_F0_GET_IO_BASE_IE(breg) ? 'I' : '-');
-		df_print_dest(AMDZEN_DF_F0_GET_IO_LIMIT_DEST_ID(lreg));
+		    DF_IO_BASE_V2_GET_RE(breg) ? 'R' : '-',
+		    DF_IO_BASE_V2_GET_WE(breg) ? 'W' : '-',
+		    DF_IO_BASE_V2_GET_IE(breg) ? 'I' : '-');
+		df_print_dest(DF_IO_LIMIT_V3_GET_DEST_ID(lreg));
 		mdb_printf("\n");
 	}
 
@@ -778,38 +807,38 @@ df_route_mmio(uint_t flags, uint64_t sock, uintptr_t inst)
 		    "DESTINAION");
 	}
 
-	for (uint_t i = 0; i < AMDZEN_DF_F0_MAX_MMIO_RULES; i++) {
+	for (uint_t i = 0; i < DF_MAX_MMIO_RULES; i++) {
 		uint32_t breg, lreg, control;
 		uint64_t base, limit;
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_DF_F0_MMIO_BASE(i), &breg)) {
+		if (!df_read32_indirect(sock, inst, DF_MMIO_BASE_V2(i),
+		    &breg)) {
 			mdb_warn("failed to read MMIO base %u\n", i);
 			continue;
 		}
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_DF_F0_MMIO_LIMIT(i), &lreg)) {
+		if (!df_read32_indirect(sock, inst, DF_MMIO_LIMIT_V2(i),
+		    &lreg)) {
 			mdb_warn("failed to read MMIO limit %u\n", i);
 			continue;
 		}
 
-		if (!df_read32_indirect(sock, inst, 0,
-		    AMDZEN_Z2_3_DF_F0_MMIO_CTRL(i), &control)) {
+		if (!df_read32_indirect(sock, inst, DF_MMIO_CTL_V2(i),
+		    &control)) {
 			mdb_warn("failed to read MMIO control %u\n", i);
 			continue;
 		}
 
-		base = (uint64_t)breg << AMDZEN_DF_F0_MMIO_SHIFT;
-		limit = (uint64_t)lreg << AMDZEN_DF_F0_MMIO_SHIFT;
-		limit += (1 << AMDZEN_DF_F0_MMIO_SHIFT) - 1;
+		base = (uint64_t)breg << DF_MMIO_SHIFT;
+		limit = (uint64_t)lreg << DF_MMIO_SHIFT;
+		limit += DF_MMIO_LIMIT_EXCL - 1;
 
 		mdb_printf("%-?#lx %-?#lx %c%c%c%c     ", base, limit,
-		    AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_RE(control) ? 'R' : '-',
-		    AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_WE(control) ? 'W' : '-',
-		    AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_NP(control) ? 'N' : '-',
-		    AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_CPU(control) ? 'C' : '-');
-		df_print_dest(AMDZEN_Z2_3_DF_F0_GET_MMIO_CTRL_DEST_ID(control));
+		    DF_MMIO_CTL_GET_RE(control) ? 'R' : '-',
+		    DF_MMIO_CTL_GET_WE(control) ? 'W' : '-',
+		    DF_MMIO_CTL_V3_GET_NP(control) ? 'N' : '-',
+		    DF_MMIO_CTL_GET_CPU_DIS(control) ? 'C' : '-');
+		df_print_dest(DF_MMIO_CTL_V3_GET_DEST_ID(control));
 		mdb_printf("\n");
 	}
 	return (DCMD_OK);

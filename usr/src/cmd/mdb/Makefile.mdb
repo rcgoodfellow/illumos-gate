@@ -35,6 +35,7 @@
 
 SRCS += \
 	ffs.c \
+	bitext.c \
 	mdb.c \
 	mdb_addrvec.c \
 	mdb_argvec.c \
@@ -165,6 +166,10 @@ ffs.o ffs.ln := CPPFLAGS += -Dffs=mdb_ffs
 	$(CTFCONVERT_O)
 
 %.o: $(SRC)/common/net/util/%.c
+	$(COMPILE.c) $<
+	$(CTFCONVERT_O)
+
+%.o: $(SRC)/common/bitext/%.c
 	$(COMPILE.c) $<
 	$(CTFCONVERT_O)
 

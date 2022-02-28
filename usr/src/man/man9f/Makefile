@@ -15,6 +15,7 @@
 # Copyright 2019 Joyent, Inc.
 # Copyright 2020-2021 Tintri by DDN, Inc. All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
+# Copyright 2022 Oxide Computer Company
 #
 
 include		$(SRC)/Makefile.master
@@ -53,6 +54,9 @@ MANFILES=	ASSERT.9f				\
 		bioreset.9f				\
 		biosize.9f				\
 		biowait.9f				\
+		bitdel64.9f				\
+		bitset64.9f				\
+		bitx64.9f				\
 		bp_copyin.9f				\
 		bp_copyout.9f				\
 		bp_mapin.9f				\
@@ -692,6 +696,12 @@ MANLINKS=	AVL_NEXT.9f					\
 		avl_remove.9f					\
 		avl_swap.9f					\
 		bcanputnext.9f					\
+		bitset8.9f					\
+		bitset16.9f					\
+		bitset32.9f					\
+		bitx8.9f					\
+		bitx16.9f					\
+		bitx32.9f					\
 		crdup.9f					\
 		crfree.9f					\
 		crget.9f					\
@@ -1411,6 +1421,13 @@ avl_remove.9f				:= LINKSRC = avl.9f
 avl_swap.9f				:= LINKSRC = avl.9f
 AVL_NEXT.9f				:= LINKSRC = avl.9f
 AVL_PREV.9f				:= LINKSRC = avl.9f
+
+bitset8.9f				:= LINKSRC = bitset64.9f
+bitset16.9f				:= LINKSRC = bitset64.9f
+bitset32.9f				:= LINKSRC = bitset64.9f
+bitx8.9f				:= LINKSRC = bitx64.9f
+bitx16.9f				:= LINKSRC = bitx64.9f
+bitx32.9f				:= LINKSRC = bitx64.9f
 
 dev_err.9f				:= LINKSRC = cmn_err.9f
 vcmn_err.9f				:= LINKSRC = cmn_err.9f

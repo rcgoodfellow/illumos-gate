@@ -767,6 +767,19 @@ kmdb_prom_assfail(const char *assertion, const char *file, int line)
 }
 
 /*
+ * Like the above, this is an assfail3 wrapper; however, we basically treat it
+ * like a normal assert and skip the 3 part of it.
+ */
+int
+kmdb_prom_assfail3(const char *assertion, uintmax_t lv, const char *op,
+    uintmax_t rv, const char *file, int line)
+{
+	(void) mdb_dassert(assertion, file, line);
+	/*NOTREACHED*/
+	return (0);
+}
+
+/*
  * Begin the initialization of the debugger/PROM interface.  Initialization is
  * performed in two steps due to interlocking dependencies between promif and
  * both the memory allocator and mdb_create.  The first phase is performed

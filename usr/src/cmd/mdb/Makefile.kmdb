@@ -135,6 +135,8 @@ KCTLTGTS	= $(KCTLOBJS) $(KCTLOBJS:%.o=%.ln)
 $(PROMTGTS) := CPPFLAGS += -D_BOOT -D_KERNEL -D_MACHDEP $(PROMINCDIRS:%=-I%) \
 	-Dassfail=kmdb_prom_assfail
 
+bitext.o := CPPFLAGS += -Dassfail3=kmdb_prom_assfail3
+
 $(VERSTGTS) := CPPFLAGS += -DKMDB_VERSION='$(KMDB_VERSION)'
 
 $(KCTLTGTS) := CPPFLAGS += -D_KERNEL

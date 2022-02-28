@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _SYS_BITEXT_H
@@ -23,100 +23,23 @@ extern "C" {
 #endif
 
 /*
- * A bunch of routines to make working with bits and registers easier.
+ * A bunch of routines to make working with bits and registers easier. This is
+ * designed to be a replacement for the BITX macro and provide additional error
+ * handling. See bitx64(9F), bitdel64(9F), and bitset64(9F) for more
+ * information.
  */
 
-/*
- * In case we don't have BITX.
- */
-#ifndef	BITX
-#define	BITX(u, h, l)	(((u) >> (l)) & ((1LU << ((h) - (l) + 1LU)) - 1LU))
-#endif
+extern uint8_t bitx8(uint8_t, uint_t, uint_t);
+extern uint16_t bitx16(uint16_t, uint_t, uint_t);
+extern uint32_t bitx32(uint32_t, uint_t, uint_t);
+extern uint64_t bitx64(uint64_t, uint_t, uint_t);
 
-static inline uint8_t
-bitset8(uint8_t reg, uint_t high, uint_t low, uint8_t val)
-{
-	uint8_t mask;
+extern uint8_t bitset8(uint8_t, uint_t, uint_t, uint8_t);
+extern uint16_t bitset16(uint16_t, uint_t, uint_t, uint16_t);
+extern uint32_t bitset32(uint32_t, uint_t, uint_t, uint32_t);
+extern uint64_t bitset64(uint64_t, uint_t, uint_t, uint64_t);
 
-	ASSERT3U(high, >=, low);
-	ASSERT3U(high, <, 8);
-	ASSERT3U(low, <, 8);
-
-	mask = (1LU << (high - low + 1)) - 1;
-	ASSERT0(~mask & val);
-
-	reg &= ~(mask << low);
-	reg |= val << low;
-
-	return (reg);
-}
-
-static inline uint16_t
-bitx16(uint16_t reg, uint_t high, uint_t low)
-{
-	ASSERT3U(high, >=, low);
-	ASSERT3U(high, <, 16);
-	ASSERT3U(low, <, 16);
-
-	return (BITX(reg, high, low));
-}
-
-
-static inline uint32_t
-bitx32(uint32_t reg, uint_t high, uint_t low)
-{
-	ASSERT3U(high, >=, low);
-	ASSERT3U(high, <, 32);
-	ASSERT3U(low, <, 32);
-
-	return (BITX(reg, high, low));
-}
-
-static inline uint64_t
-bitx64(uint64_t reg, uint_t high, uint_t low)
-{
-	ASSERT3U(high, >=, low);
-	ASSERT3U(high, <, 64);
-	ASSERT3U(low, <, 64);
-
-	return (BITX(reg, high, low));
-}
-
-static inline uint16_t
-bitset16(uint16_t reg, uint_t high, uint_t low, uint16_t val)
-{
-	uint16_t mask;
-
-	ASSERT3U(high, >=, low);
-	ASSERT3U(high, <, 16);
-	ASSERT3U(low, <, 16);
-
-	mask = (1LU << (high - low + 1)) - 1;
-	ASSERT0(~mask & val);
-
-	reg &= ~(mask << low);
-	reg |= val << low;
-
-	return (reg);
-}
-
-static inline uint32_t
-bitset32(uint32_t reg, uint_t high, uint_t low, uint32_t val)
-{
-	uint32_t mask;
-
-	ASSERT3U(high, >=, low);
-	ASSERT3U(high, <, 32);
-	ASSERT3U(low, <, 32);
-
-	mask = (1LU << (high - low + 1)) - 1;
-	ASSERT0(~mask & val);
-
-	reg &= ~(mask << low);
-	reg |= val << low;
-
-	return (reg);
-}
+extern uint64_t bitdel64(uint64_t, uint_t, uint_t);
 
 #ifdef __cplusplus
 }

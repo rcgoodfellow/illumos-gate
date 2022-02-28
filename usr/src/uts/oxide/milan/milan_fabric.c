@@ -51,6 +51,8 @@
 
 #include <asm/bitmap.h>
 
+#include <sys/amdzen/df.h>
+
 #include <milan/milan_apob.h>
 #include <milan/milan_ccx.h>
 #include <milan/milan_dxio_data.h>
@@ -64,12 +66,6 @@
  * this consolidated, hence this wacky include path.
  */
 #include <io/amdzen/amdzen.h>
-
-/*
- * XXX MOVE ME
- */
-#define	AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE0	0x300
-#define	AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE1	0x304
 
 /*
  * This defines what the maximum number of SoCs that are supported in Milan (and
@@ -2096,16 +2092,22 @@ milan_fabric_thread_get_brandstr(const milan_thread_t *thread,
 }
 
 static uint32_t
-milan_df_read32(milan_iodie_t *iodie, uint8_t inst, uint8_t func, uint16_t reg)
+milan_df_read32(milan_iodie_t *iodie, uint8_t inst, const df_reg_def_t def)
 {
-	uint32_t val;
+	uint32_t val = 0;
+	const df_reg_def_t ficaa = DF_FICAA_V2;
+	const df_reg_def_t ficad = DF_FICAD_LO_V2;
 
 	mutex_enter(&iodie->mi_df_ficaa_lock);
-	val = AMDZEN_DF_F4_FICAA_TARG_INST | AMDZEN_DF_F4_FICAA_SET_REG(reg) |
-	    AMDZEN_DF_F4_FICAA_SET_FUNC(func) |
-	    AMDZEN_DF_F4_FICAA_SET_INST(inst);
-	pci_putl_func(0, iodie->mi_dfno, 4, AMDZEN_DF_F4_FICAA, val);
-	val = pci_getl_func(0, iodie->mi_dfno, 4, AMDZEN_DF_F4_FICAD_LO);
+	ASSERT3U(def.drd_gens & DF_REV_3, ==, DF_REV_3);
+	val = DF_FICAA_V2_SET_TARG_INST(val, 1);
+	val = DF_FICAA_V2_SET_FUNC(val, def.drd_func);
+	val = DF_FICAA_V2_SET_INST(val, inst);
+	val = DF_FICAA_V2_SET_64B(val, 0);
+	val = DF_FICAA_V2_SET_REG(val, def.drd_reg >> 2);
+
+	pci_putl_func(0, iodie->mi_dfno, ficaa.drd_func, ficaa.drd_reg, val);
+	val = pci_getl_func(0, iodie->mi_dfno, ficad.drd_func, ficad.drd_reg);
 	mutex_exit(&iodie->mi_df_ficaa_lock);
 
 	return (val);
@@ -2118,16 +2120,28 @@ milan_df_read32(milan_iodie_t *iodie, uint8_t inst, uint8_t func, uint16_t reg)
  * there's only one use of it at any given time.
  */
 static uint32_t
-milan_df_bcast_read32(milan_iodie_t *iodie, uint8_t func, uint16_t reg)
+milan_df_bcast_read32(milan_iodie_t *iodie, const df_reg_def_t def)
 {
-	return (pci_getl_func(0, iodie->mi_dfno, func, reg));
+	return (pci_getl_func(0, iodie->mi_dfno, def.drd_func, def.drd_reg));
 }
 
 static void
-milan_df_bcast_write32(milan_iodie_t *iodie, uint8_t func, uint16_t reg,
+milan_df_bcast_write32(milan_iodie_t *iodie, const df_reg_def_t def,
     uint32_t val)
 {
-	pci_putl_func(0, iodie->mi_dfno, func, reg, val);
+	pci_putl_func(0, iodie->mi_dfno, def.drd_func, def.drd_reg, val);
+}
+
+/*
+ * This is used early in boot when we're trying to bootstrap the system so we
+ * can construct our fabric data structure. This always reads against the first
+ * data fabric instance which is required to be present.
+ */
+static uint32_t
+milan_df_early_read32(const df_reg_def_t def)
+{
+	return (pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE,
+	    def.drd_func, def.drd_reg));
 }
 
 static uint32_t
@@ -2660,12 +2674,11 @@ milan_ccx_init_soc(milan_soc_t *soc)
 		 * If it is disabled, we skip this CCD index as even if
 		 * it exists nothing can reach it.
 		 */
-		val = milan_df_read32(iodie,
-		    MILAN_DF_FIRST_CCM_ID + ccdpno, 0, AMDZEN_DF_F0_FBIINFO0);
+		val = milan_df_read32(iodie, MILAN_DF_FIRST_CCM_ID + ccdpno,
+		    DF_FBIINFO0);
 
-		VERIFY3U(AMDZEN_DF_F0_FBIINFO0_TYPE(val), ==,
-		    AMDZEN_DF_TYPE_CCM);
-		if (AMDZEN_DF_F0_FBIINFO0_ENABLED(val) == 0)
+		VERIFY3U(DF_FBIINFO0_GET_TYPE(val), ==, DF_TYPE_CCM);
+		if (DF_FBIINFO0_V3_GET_ENABLED(val) == 0)
 			continue;
 
 		/*
@@ -2677,9 +2690,8 @@ milan_ccx_init_soc(milan_soc_t *soc)
 		 *
 		 * XXX reduce magic
 		 */
-		val = milan_df_bcast_read32(iodie, 1,
-		    (ccdpno < 4) ? AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE0 :
-		    AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE1);
+		val = milan_df_bcast_read32(iodie, (ccdpno < 4) ?
+		    DF_PHYS_CORE_EN0_V3 : DF_PHYS_CORE_EN1_V3);
 		core_shift = (ccdpno & 3) * MILAN_MAX_CORES_PER_CCX *
 		    MILAN_MAX_CCXS_PER_CCD;
 		cores_enabled = bitx32(val, core_shift + 7, core_shift);
@@ -2812,19 +2824,17 @@ milan_fabric_topo_init(void)
 
 	PRM_POINT("milan_fabric_topo_init() starting...");
 
-	syscfg = pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE, 1,
-	    AMDZEN_DF_F1_SYSCFG);
-	syscomp = pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE, 1,
-	    AMDZEN_DF_F1_SYSCOMP);
-	nsocs = AMDZEN_DF_F1_SYSCFG_OTHERSOCK(syscfg) + 1;
+	syscfg = milan_df_early_read32(DF_SYSCFG_V3);
+	syscomp = milan_df_early_read32(DF_COMPCNT_V2);
+	nsocs = DF_SYSCFG_V3_GET_OTHER_SOCK(syscfg) + 1;
 
 	/*
 	 * These are used to ensure that we're on a platform that matches our
 	 * expectations. These are generally constraints of Rome and Milan.
 	 */
-	VERIFY3U(nsocs, ==, AMDZEN_DF_F1_SYSCOMP_PIE(syscomp));
+	VERIFY3U(nsocs, ==, DF_COMPCNT_V2_GET_PIE(syscomp));
 	VERIFY3U(nsocs * MILAN_IOMS_PER_IODIE, ==,
-	    AMDZEN_DF_F1_SYSCOMP_IOMS(syscomp));
+	    DF_COMPCNT_V2_GET_IOMS(syscomp));
 
 	fabric->mf_tom = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM));
 	fabric->mf_tom2 = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM2));
@@ -2841,19 +2851,17 @@ milan_fabric_topo_init(void)
 	 * Gather the register masks for decoding global fabric IDs into local
 	 * instance IDs.
 	 */
-	fidmask = pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE, 1,
-	    AMDZEN_DF_F1_FIDMASK0);
+	fidmask = milan_df_early_read32(DF_FIDMASK0_V3);
+	fabric->mf_node_mask = DF_FIDMASK0_V3_GET_NODE_MASK(fidmask);
+	fabric->mf_comp_mask = DF_FIDMASK0_V3_GET_COMP_MASK(fidmask);
 
-	fabric->mf_node_mask = AMDZEN_DF_F1_FIDMASK0_NODE_MASK(fidmask);
-	fabric->mf_comp_mask = AMDZEN_DF_F1_FIDMASK0_COMP_MASK(fidmask);
-
-	fidmask = pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE, 1,
-	    AMDZEN_DF_F1_FIDMASK1);
-	fabric->mf_node_shift = AMDZEN_DF_F1_FIDMASK1_NODE_SHIFT(fidmask);
+	fidmask = milan_df_early_read32(DF_FIDMASK1_V3);
+	fabric->mf_node_shift = DF_FIDMASK1_V3_GET_NODE_SHIFT(fidmask);
 
 	fabric->mf_nsocs = nsocs;
 	for (uint8_t socno = 0; socno < nsocs; socno++) {
 		uint32_t busno, nodeid;
+		const df_reg_def_t rd = DF_SYSCFG_V3;
 		milan_soc_t *soc = &fabric->mf_socs[socno];
 		milan_iodie_t *iodie = &soc->ms_iodies[0];
 
@@ -2862,9 +2870,9 @@ milan_fabric_topo_init(void)
 		soc->ms_fabric = fabric;
 		iodie->mi_dfno = AMDZEN_DF_FIRST_DEVICE + socno;
 
-		nodeid = pci_getl_func(AMDZEN_DF_BUSNO, iodie->mi_dfno, 1,
-		    AMDZEN_DF_F1_SYSCFG);
-		iodie->mi_node_id = AMDZEN_DF_F1_SYSCFG_NODEID(nodeid);
+		nodeid = pci_getl_func(AMDZEN_DF_BUSNO, iodie->mi_dfno,
+		    rd.drd_func, rd.drd_reg);
+		iodie->mi_node_id = DF_SYSCFG_V3_GET_NODE_ID(nodeid);
 		iodie->mi_soc = soc;
 
 		/*
@@ -2881,9 +2889,8 @@ milan_fabric_topo_init(void)
 		mutex_init(&iodie->mi_pcie_strap_lock, NULL, MUTEX_SPIN,
 		    (ddi_iblock_cookie_t)ipltospl(15));
 
-		busno = milan_df_bcast_read32(iodie, 0,
-		    AMDZEN_DF_F0_CFG_ADDR_CTL);
-		iodie->mi_smn_busno = AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(busno);
+		busno = milan_df_bcast_read32(iodie, DF_CFG_ADDR_CTL_V2);
+		iodie->mi_smn_busno = DF_CFG_ADDR_CTL_GET_BUS_NUM(busno);
 
 		iodie->mi_nioms = MILAN_IOMS_PER_IODIE;
 		fabric->mf_total_ioms += iodie->mi_nioms;
@@ -2897,11 +2904,9 @@ milan_fabric_topo_init(void)
 			ioms->mio_fabric_id = ioms->mio_comp_id |
 			    (iodie->mi_node_id << fabric->mf_node_shift);
 
-			val = milan_df_read32(iodie, ioms->mio_comp_id, 0,
-			    AMDZEN_DF_F0_CFG_ADDR_CTL);
-			ioms->mio_pci_busno =
-			    AMDZEN_DF_F0_CFG_ADDR_CTL_BUS_NUM(val);
-
+			val = milan_df_read32(iodie, ioms->mio_comp_id,
+			    DF_CFG_ADDR_CTL_V2);
+			ioms->mio_pci_busno = DF_CFG_ADDR_CTL_GET_BUS_NUM(val);
 
 			/*
 			 * Only IOMS 0 has a WAFL port.
@@ -4997,13 +5002,12 @@ milan_route_pci_bus(milan_fabric_t *fabric)
 	milan_iodie_t *iodie = &fabric->mf_socs[0].ms_iodies[0];
 	uint_t inst = iodie->mi_ioms[0].mio_comp_id;
 
-	for (uint_t i = 0; i < AMDZEN_DF_F0_MAX_CFGMAP; i++) {
+	for (uint_t i = 0; i < DF_MAX_CFGMAP; i++) {
 		int ret;
 		milan_ioms_t *ioms;
 		ioms_memlists_t *imp;
 		uint32_t base, limit, dest;
-		uint32_t val = milan_df_read32(iodie, inst, 0,
-		    AMDZEN_DF_F0_CFGMAP(i));
+		uint32_t val = milan_df_read32(iodie, inst, DF_CFGMAP_V2(i));
 
 		/*
 		 * If a configuration map entry doesn't have both read and write
@@ -5011,14 +5015,14 @@ milan_route_pci_bus(milan_fabric_t *fabric)
 		 * There is no validity bit here, so this is the closest that we
 		 * can come to.
 		 */
-		if (AMDZEN_DF_F0_GET_CFGMAP_RE(val) == 0 ||
-		    AMDZEN_DF_F0_GET_CFGMAP_WE(val) == 0) {
+		if (DF_CFGMAP_V2_GET_RE(val) == 0 ||
+		    DF_CFGMAP_V2_GET_WE(val) == 0) {
 			continue;
 		}
 
-		base = AMDZEN_DF_F0_GET_CFGMAP_BUS_BASE(val);
-		limit = AMDZEN_DF_F0_GET_CFGMAP_BUS_LIMIT(val);
-		dest = AMDZEN_DF_F0_GET_CFGMAP_DEST_ID(val);
+		base = DF_CFGMAP_V2_GET_BUS_BASE(val);
+		limit = DF_CFGMAP_V2_GET_BUS_LIMIT(val);
+		dest = DF_CFGMAP_V3_GET_DEST_ID(val);
 
 		ioms = milan_fabric_find_ioms(fabric, dest);
 		if (ioms == NULL) {
@@ -5056,9 +5060,9 @@ typedef struct milan_route_io {
 	uint32_t	mri_next_base;
 	uint32_t	mri_cur;
 	uint32_t	mri_last_ioms;
-	uint32_t	mri_bases[AMDZEN_DF_F0_MAX_IO_RULES];
-	uint32_t	mri_limits[AMDZEN_DF_F0_MAX_IO_RULES];
-	uint32_t	mri_dests[AMDZEN_DF_F0_MAX_IO_RULES];
+	uint32_t	mri_bases[DF_MAX_IO_RULES];
+	uint32_t	mri_limits[DF_MAX_IO_RULES];
+	uint32_t	mri_dests[DF_MAX_IO_RULES];
 } milan_route_io_t;
 
 static int
@@ -5117,19 +5121,17 @@ milan_io_ports_assign(milan_fabric_t *fabric, milan_soc_t *soc,
 	for (uint32_t i = 0; i < mri->mri_cur; i++) {
 		uint32_t base = 0, limit = 0;
 
-		base = AMDZEN_DF_F0_SET_IO_BASE_RE(base, 1);
-		base = AMDZEN_DF_F0_SET_IO_BASE_WE(base, 1);
-		base = AMDZEN_DF_F0_SET_IO_BASE_BASE(base,
-		    mri->mri_bases[i] >> AMDZEN_DF_F0_IO_BASE_SHIFT);
+		base = DF_IO_BASE_V2_SET_RE(base, 1);
+		base = DF_IO_BASE_V2_SET_WE(base, 1);
+		base = DF_IO_BASE_V2_SET_BASE(base,
+		    mri->mri_bases[i] >> DF_IO_BASE_SHIFT);
 
-		limit = AMDZEN_DF_F0_SET_IO_LIMIT_DEST_ID(limit,
-		    mri->mri_dests[i]);
-		limit = AMDZEN_DF_F0_SET_IO_LIMIT_LIMIT(limit,
-		    mri->mri_limits[i] >> AMDZEN_DF_F0_IO_LIMIT_SHIFT);
+		limit = DF_IO_LIMIT_V3_SET_DEST_ID(limit, mri->mri_dests[i]);
+		limit = DF_IO_LIMIT_V2_SET_LIMIT(limit,
+		    mri->mri_limits[i] >> DF_IO_LIMIT_SHIFT);
 
-		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_IO_LIMIT(i),
-		    limit);
-		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_IO_BASE(i), base);
+		milan_df_bcast_write32(iodie, DF_IO_LIMIT_V2(i), limit);
+		milan_df_bcast_write32(iodie, DF_IO_BASE_V2(i), base);
 	}
 
 	return (0);
@@ -5167,7 +5169,7 @@ milan_route_io_ports(milan_fabric_t *fabric)
 
 	bzero(&mri, sizeof (mri));
 	mri.mri_per_ioms = total_size / fabric->mf_total_ioms;
-	VERIFY3U(mri.mri_per_ioms, >=, 1 << AMDZEN_DF_F0_IO_BASE_SHIFT);
+	VERIFY3U(mri.mri_per_ioms, >=, 1 << DF_IO_BASE_SHIFT);
 	mri.mri_next_base = mri.mri_per_ioms;
 
 	/*
@@ -5176,7 +5178,7 @@ milan_route_io_ports(milan_fabric_t *fabric)
 	 * larger limit.
 	 */
 	(void) milan_fabric_walk_ioms(fabric, milan_io_ports_allocate, &mri);
-	mri.mri_limits[mri.mri_last_ioms] = AMDZEN_MAX_IO_LIMIT;
+	mri.mri_limits[mri.mri_last_ioms] = DF_MAX_IO_LIMIT;
 	(void) milan_fabric_walk_iodie(fabric, milan_io_ports_assign, &mri);
 }
 
@@ -5188,9 +5190,9 @@ typedef struct milan_route_mmio {
 	uint32_t	mrm_fch_chunks;
 	uint64_t	mrm_mmio64_base;
 	uint64_t	mrm_mmio64_chunks;
-	uint64_t	mrm_bases[AMDZEN_DF_F0_MAX_MMIO_RULES];
-	uint64_t	mrm_limits[AMDZEN_DF_F0_MAX_MMIO_RULES];
-	uint32_t	mrm_dests[AMDZEN_DF_F0_MAX_MMIO_RULES];
+	uint64_t	mrm_bases[DF_MAX_MMIO_RULES];
+	uint64_t	mrm_limits[DF_MAX_MMIO_RULES];
+	uint32_t	mrm_dests[DF_MAX_MMIO_RULES];
 } milan_route_mmio_t;
 
 /*
@@ -5203,7 +5205,7 @@ milan_mmio_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
 {
 	int ret;
 	milan_route_mmio_t *mrm = arg;
-	const uint32_t mmio_gran = 1 << AMDZEN_DF_F0_MMIO_SHIFT;
+	const uint32_t mmio_gran = 1 << DF_MMIO_SHIFT;
 	ioms_memlists_t *imp = &ioms->mio_memlists;
 
 	/*
@@ -5268,19 +5270,15 @@ milan_mmio_assign(milan_fabric_t *fabric, milan_soc_t *soc,
 		uint32_t base, limit;
 		uint32_t ctrl = 0;
 
-		base = mrm->mrm_bases[i] >> AMDZEN_DF_F0_MMIO_SHIFT;
-		limit = mrm->mrm_limits[i] >> AMDZEN_DF_F0_MMIO_SHIFT;
-		ctrl = AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_RE(ctrl, 1);
-		ctrl = AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_WE(ctrl, 1);
-		ctrl = AMDZEN_Z2_3_DF_F0_SET_MMIO_CTRL_DEST_ID(ctrl,
-		    mrm->mrm_dests[i]);
+		base = mrm->mrm_bases[i] >> DF_MMIO_SHIFT;
+		limit = mrm->mrm_limits[i] >> DF_MMIO_SHIFT;
+		ctrl = DF_MMIO_CTL_SET_RE(ctrl, 1);
+		ctrl = DF_MMIO_CTL_SET_WE(ctrl, 1);
+		ctrl = DF_MMIO_CTL_V3_SET_DEST_ID(ctrl, mrm->mrm_dests[i]);
 
-		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_MMIO_BASE(i),
-		    base);
-		milan_df_bcast_write32(iodie, 0, AMDZEN_DF_F0_MMIO_LIMIT(i),
-		    limit);
-		milan_df_bcast_write32(iodie, 0, AMDZEN_Z2_3_DF_F0_MMIO_CTRL(i),
-		    ctrl);
+		milan_df_bcast_write32(iodie, DF_MMIO_BASE_V2(i), base);
+		milan_df_bcast_write32(iodie, DF_MMIO_LIMIT_V2(i), limit);
+		milan_df_bcast_write32(iodie, DF_MMIO_CTL_V2(i), ctrl);
 	}
 
 	return (0);
@@ -5323,7 +5321,7 @@ milan_route_mmio(milan_fabric_t *fabric)
 	uint64_t mmio64_size;
 	uint_t nioms32;
 	milan_route_mmio_t mrm;
-	const uint32_t mmio_gran = 1 << AMDZEN_DF_F0_MMIO_SHIFT;
+	const uint32_t mmio_gran = 1 << DF_MMIO_SHIFT;
 
 	VERIFY(IS_P2ALIGNED(fabric->mf_tom, mmio_gran));
 	VERIFY3U(MILAN_PHYSADDR_PCIECFG, >, fabric->mf_tom);

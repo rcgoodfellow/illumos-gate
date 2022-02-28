@@ -60,6 +60,16 @@ SYMBOL_SCOPE {
 		isspace;
 		strlcpy;
 
+		bitdel64;
+		bitset8;
+		bitset16;
+		bitset32;
+		bitset64;
+		bitx8;
+		bitx16;
+		bitx32;
+		bitx64;
+
 		mdb_tgt_aread;
 		mdb_dis_create;
 		mdb_dis_destroy;
