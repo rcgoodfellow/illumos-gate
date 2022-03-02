@@ -29,7 +29,7 @@ manifest="${base}/ramdisk.manifest"
 
 "${base}/tools/build_ramdisk" -m "${manifest}" -o "${tmpdir}" \
 	-s "${SIZE}" -u "${USR_SIZE}" "${base}/extras" "${ROOT}" \
-	"${ADJUNCT_PROTO:-/}" >&2
+	"${ADJUNCT_PROTO:-/}" / >&2
 
 if [ $? != 0 ]; then
 	printf 'build_ramdisk failed; run it manually to debug\n' >&2

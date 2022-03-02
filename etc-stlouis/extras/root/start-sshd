@@ -1,0 +1,4 @@
+#! /sbin/sh
+
+ssh-keygen -A
+exec /usr/lib/ssh/sshd

@@ -41,7 +41,13 @@ That will save about 2 MiB in the image, but for now you need it twice, and
 the file in the ramdisk MUST MATCH the kernel you boot; otherwise krtld will
 complain and you will not get very far.
 
-5. Now issue the following sequence of loader commands:
+5. If you are using a rev A Gimlet and want a NIC and/or SSD(s), you must now
+power on any sharkfin power controllers you need, then release PERST# for each
+PCIe end device you wish to use.  Releasing PERST# requires hardware
+modification; ask if you don't know what to do.  These steps may be done in
+parallel with ramdisk loading (next step).
+
+6. Now issue the following sequence of loader commands:
 
 	> 101000000::recv -m
 
@@ -67,43 +73,40 @@ will need to issue three separate commands instead of a single pipeline.
 6. If you wish to proceed to userland, utter ':c' when kmdb loads, ignoring
 any errors about failure to load kmods.  Otherwise, begin your debug session.
 
-7. Upon reaching userland, the SMF daemons will blow assertions in libc and
-fail to start because of an as-yet-unknown bug.  You will be presented with a
-prompt to log in for maintenance; log in as root with no password.  To set up
-the basic debugging environment, utter './startup', then log out and back in.
-The collection of available system software is very limited and heavily skewed
-toward debugging tools.  If you wish to re-enter kmdb, send a BREAK using your
-terminal emulator (picocom default: C-a C-|).
+7. Upon reaching userland, if you have a NIC you can plumb up your network
+links and routes, then utter '/root/start-sshd' to gain remote access.  The
+collection of available phase-1 system software is very limited and heavily
+skewed toward debugging tools.  If you want a more functional (RFD 241
+"phase-2") system, build yourself a tarball from your proto area by doing
+something like:
 
-8. There is currently no way to reboot.  On Gimlet, use humility to cycle
-through A2.  On Eth-X, ipmitool or the web UI may be used.
+	$ cd $ROOT; tar cf phase2.tar kernel/drv kernel/fs kernel/misc \
+	  usr/lib/devfsadm usr/bin usr/lib/lib* usr/lib/amd64/lib* usr/sbin \
+	  kernel/strmod sbin/zpool sbin/zfs usr/xpg6/bin \
+	  lib/lib* lib/amd64/lib* lib/64 usr/lib/64 /usr/lib/security
+	$ scp phase2.tar root@gimlet:/tmp
+	gimlet:~# cd /tmp && tar xpf phase2.tar
+	gimlet:~# /root/post-phase2
 
-Notes:
+The root user's environment is set up so that the stuff in /tmp/bin and so
+forth will be on the PATH and libraries can generally be found.  You can of
+course add or change the contents to suit your needs; the above will be enough
+to give you working zpool and zfs commands so if you have storage you can now
+create or import a pool, making it convenient to persist data across reboots
+for debugging or V&V, store larger toolsets, etc.  All of this is definitely
+not complete or perfect and some things probably still won't work; you are at
+the end of the graded road so grab your illumos man pages and work it out for
+yourself.
 
-1. The fact that I've deleted a lot of garbage (and actually a fair bit of
-perfectly good code we simply don't need, usually because it's either for
-32-bit processors or for Xen) from many of the arch-specific kernel files
-doesn't mean they're right.  There's a lot more than can be deleted, and many
-places where we probably need to rewrite chunks of this stuff entirely.  This
-is the hazard of the subtractive approach, which is expedient but not easily
-managed.
-
-2. Rebooting doesn't work once we're past the very earliest stages, because
-the rebooting path expects ACPI/UEFI.  This is going to be replaced with code
-to make an RPC call to a fake SP, which will do the right thing.  For now we
-halt instead, since that's a thing we can do.
-
-3. Userland pro-tips: /usr/bin/rz (or rx) can receive files via Zmodem or
-Xmodem into /tmp, which is set up as tmpfs after you run /root/startup.  In
-the absence of a working netstack, this is much faster than taking a lap.  If
-you are replacing an existing file, you can lofs-mount it on top.  Files can
-be copied into / or symlinked if they're too large to copy (/ is small).  I
-know of no direct means of adding files to /usr, sorry.  Kludges are possible.
+8. If you wish to re-enter kmdb, send a BREAK using your terminal emulator
+(picocom default: C-a C-|).  There is currently no way to reboot.  On Gimlet,
+use humility to cycle through A2.  On Eth-X, ipmitool or the web UI may be
+used.
 
 Next steps:
 
 There are many, many things to do next, and the good news is that there is
-enough parallelism here for 3-4 engineers.  A few examples:
+enough parallelism here for 8-10 engineers.  A few examples:
 
 - Unmap the loader's text, data, and miscellany.  At present, we know where
   the pagetables and earlyboot stack are, and the loader has set bit 11 in all

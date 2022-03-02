@@ -90,6 +90,12 @@ if ! /sbin/mount -F ufs -o ro "$lofi_devices_path" /usr; then
 fi
 
 #
+# We don't need this any more and it takes up space.
+#
+/usr/bin/rm -f /platform/kernel/oxide/amd64/unix
+/usr/bin/rm -f /kernel/amd64/genunix
+
+#
 # Update kernel driver.conf cache with any additional driver.conf
 # files found on /usr, and device permissions from /etc/minor_perm.
 #
