@@ -18,7 +18,7 @@ set -eu
 set -o pipefail
 
 SIZE=65536
-USR_SIZE=32768
+USR_SIZE=36864
 
 rev="$(git rev-parse --short=12 HEAD)"
 base="$(cd "$(dirname "$0")" && pwd)"
