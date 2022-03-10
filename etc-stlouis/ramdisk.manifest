@@ -527,6 +527,7 @@ f lib/amd64/libumem.so.1 0755 root bin
 f lib/amd64/libuutil.so.1 0755 root bin
 f lib/amd64/libvmmapi.so.1 0755 root bin
 f lib/amd64/libxml2.so.2 0755 root bin
+s lib/amd64/libz.so=libz.so.1
 f lib/amd64/libz.so.1 0755 root bin
 s lib/amd64/libzfs_core.so.1=../../usr/lib/amd64/libzfs_core.so.1
 f lib/amd64/nss_dns.so.1 0755 root bin
@@ -596,6 +597,7 @@ f lib/libuuid.so.1 0755 root bin
 f lib/libuutil.so.1 0755 root bin
 f lib/libxml2.so.2 0755 root bin
 f lib/libxnet.so.1 0755 root bin
+s lib/libz.so=libz.so.1
 f lib/libz.so.1 0755 root bin
 s lib/libzfs_core.so.1=../usr/lib/libzfs_core.so.1
 f lib/libzutil.so.1 0755 root bin
@@ -706,7 +708,6 @@ f platform/oxide/kernel/dacf/amd64/consconfig_dacf 0755 root sys
 d platform/oxide/kernel/drv 0755 root sys
 d platform/oxide/kernel/drv/amd64 0755 root sys
 f platform/oxide/kernel/drv/amd64/cpc 0755 root sys
-f platform/oxide/kernel/drv/amd64/cpudrv 0755 root sys
 f platform/oxide/kernel/drv/amd64/isa 0755 root sys
 f platform/oxide/kernel/drv/amd64/npe 0755 root sys
 f platform/oxide/kernel/drv/amd64/rootnex 0755 root sys
@@ -1137,6 +1138,7 @@ h usr/sbin/devlinks=usr/sbin/devfsadm
 f usr/sbin/df 0555 root bin
 s usr/sbin/dladm=../../sbin/dladm
 s usr/sbin/dlstat=../../sbin/dlstat
+h usr/sbin/drvconfig=usr/sbin/devfsadm
 h usr/sbin/dtrace=usr/lib/isaexec
 s usr/sbin/ipadm=../../sbin/ipadm
 f usr/sbin/lofiadm 0555 root bin

@@ -66,27 +66,34 @@ if smf_is_nonglobalzone; then
 fi
 
 /sbin/mount -F ufs -o remount,rw,nologging /devices/ramdisk:a /
-/usr/sbin/lofiadm -a /usr.lzma &
-sleep 0.1
+if ! /usr/sbin/lofiadm /usr.lzma >/dev/null 2>/dev/null; then
+	/usr/sbin/lofiadm -a /usr.lzma &
+	sleep 1
+fi
 
 #
 # Prior to mounting /usr, devfsadm is not yet available.  As such, we must
 # locate the lofi block device node in /devices rather than in /dev.  This
 # path has changed over time so we try both the old (pre-partition support)
-# and new paths.
+# and new paths.  We use the presence of /usr/bin/grep here to indicate
+# whether /usr is already mounted.  Normally we'd prefer to do something
+# like mount | grep ^/usr, but we obviously can't if it's not mounted.
 #
-lofi_devices_path='/devices/pseudo/lofi@1:disk'
-if [ ! -b "$lofi_devices_path" ]; then
-	lofi_devices_path='/devices/pseudo/lofi@0:1'
+
+if ! [ -e /usr/bin/grep ]; then
+	lofi_devices_path='/devices/pseudo/lofi@1:disk'
 	if [ ! -b "$lofi_devices_path" ]; then
-		echo 'could not locate lofi block device in /devices' >&2
+		lofi_devices_path='/devices/pseudo/lofi@0:1'
+		if [ ! -b "$lofi_devices_path" ]; then
+			echo 'could not locate lofi block device in /devices' >&2
+			exit $SMF_EXIT_ERR_FATAL
+		fi
+	fi
+
+	if ! /sbin/mount -F ufs -o ro "$lofi_devices_path" /usr; then
+		echo "could not mount /usr from $lofi_devices_path" >&2
 		exit $SMF_EXIT_ERR_FATAL
 	fi
-fi
-
-if ! /sbin/mount -F ufs -o ro "$lofi_devices_path" /usr; then
-	echo "could not mount /usr from $lofi_devices_path" >&2
-	exit $SMF_EXIT_ERR_FATAL
 fi
 
 #
