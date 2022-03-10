@@ -2774,6 +2774,21 @@ add_reg_props(dev_info_t *dip, uchar_t bus, uchar_t dev, uchar_t func,
 						    fbase, len);
 				} else {
 					reprogram = 1;
+
+					/*
+					 * If we need to reprogram this because
+					 * we don't have a BAR assigned, we need
+					 * to actually increase the amount of
+					 * memory that we request to take into
+					 * account alignment. This is a bit
+					 * gross, but by doubling the request
+					 * size we are more likely to get the
+					 * size that we need. A more involved
+					 * fix would require a smarter and more
+					 * involved allocator (something we will
+					 * need eventually).
+					 */
+					len *= 2;
 				}
 				pci_bus_res[bus].mem_size += len;
 			} else if (pci_bus_res[bus].mem_reprogram ||
