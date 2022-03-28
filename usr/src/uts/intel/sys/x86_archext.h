@@ -32,7 +32,7 @@
  * Copyright 2012 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
  * Copyright 2014 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright 2018 Nexenta Systems, Inc.
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _SYS_X86_ARCHEXT_H
@@ -197,6 +197,11 @@ extern "C" {
 #define	CPUID_AMD_ECX_MONITORX	0x20000000	/* AMD: clzero */
 				/* 0x40000000 - reserved */
 				/* 0x80000000 - reserved */
+
+/*
+ * Brand string (extended function 0x8000000[234567]).
+ */
+#define	CPUID_BRANDSTR_STRLEN	48
 
 /*
  * AMD uses %ebx for some of their features (extended function 0x80000008).
@@ -640,6 +645,9 @@ extern "C" {
 
 #define	MCI_CTL_VALUE		0xffffffff
 
+#define	MSR_MTRR_DEF_TYPE			0x2ff
+#define	MTRR_DEF_TYPE_EN			0x800
+
 #define	MTRR_TYPE_UC		0
 #define	MTRR_TYPE_WC		1
 #define	MTRR_TYPE_WT		4
@@ -648,7 +656,7 @@ extern "C" {
 #define	MTRR_TYPE_UC_		7
 
 /*
- * For Solaris we set up the page attritubute table in the following way:
+ * We set up the page attritubute table in the following way:
  * PAT0	Write-Back
  * PAT1	Write-Through
  * PAT2	Unchacheable-
@@ -668,6 +676,16 @@ extern "C" {
 	((uint64_t)MTRR_TYPE_WT << 40) |	\
 	((uint64_t)MTRR_TYPE_WC << 48) |	\
 	((uint64_t)MTRR_TYPE_UC << 56))
+
+/*
+ * AMD MSRs for the brand string that will be reported by cpuid.
+ */
+#define	MSR_AMD_PROC_NAME_STRING0	0xc0010030
+#define	MSR_AMD_PROC_NAME_STRING1	0xc0010031
+#define	MSR_AMD_PROC_NAME_STRING2	0xc0010032
+#define	MSR_AMD_PROC_NAME_STRING3	0xc0010033
+#define	MSR_AMD_PROC_NAME_STRING4	0xc0010034
+#define	MSR_AMD_PROC_NAME_STRING5	0xc0010035
 
 #define	X86FSET_LARGEPAGE	0
 #define	X86FSET_TSC		1
@@ -1021,6 +1039,8 @@ extern "C" {
 	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0003)
 #define	X86_CHIPREV_AMD_19_VMR_B1 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0004)
+#define	X86_CHIPREV_AMD_19_GN_B2 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x19, 0x0005)
 
 /*
  * Various socket/package types, extended as the need to distinguish

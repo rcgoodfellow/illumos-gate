@@ -26,6 +26,7 @@
  * Copyright 2014 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright (c) 2014 by Delphix. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/cpuvar.h>
@@ -177,7 +178,7 @@ apic_enable_x2apic(void)
  * Change apic_reg_ops depending upon the apic_mode.
  */
 void
-apic_change_ops()
+apic_change_ops(void)
 {
 	if (apic_mode == LOCAL_APIC)
 		apic_reg_ops = &local_apic_regs_ops;
@@ -247,8 +248,9 @@ x2apic_send_pir_ipi(processorid_t cpun)
 	const int vector = apic_pir_vect;
 	ulong_t flag;
 
-	ASSERT(apic_mode == LOCAL_X2APIC);
-	ASSERT((vector >= APIC_BASE_VECT) && (vector <= APIC_SPUR_INTR));
+	ASSERT3S(apic_mode, ==, LOCAL_X2APIC);
+	ASSERT3S(vector, >=, APIC_BASE_VECT);
+	ASSERT3S(vector, <=, APIC_SPUR_INTR);
 
 	/* Serialize as described in x2apic_send_ipi() above. */
 	atomic_or_ulong(&flag, 1);
@@ -290,10 +292,16 @@ apic_common_send_ipi(int cpun, int ipl)
 		return;
 	}
 
-	ASSERT(mode == LOCAL_APIC);
+	/*
+	 * These assertions are not the best.  There are contexts in which
+	 * panicking here will fail and look like a hard hang; an NMI may or
+	 * may not yield a dump.  Do not upgrade these to VERIFYs, at least.
+	 */
+	ASSERT3S(mode, ==, LOCAL_APIC);
 
 	vector = apic_resv_vector[ipl];
-	ASSERT((vector >= APIC_BASE_VECT) && (vector <= APIC_SPUR_INTR));
+	ASSERT3S(vector, >=, APIC_BASE_VECT);
+	ASSERT3S(vector, <=, APIC_SPUR_INTR);
 	flag = intr_clear();
 	while (local_apic_regs_ops.apic_read(APIC_INT_CMD1) & AV_PENDING)
 		apic_ret();

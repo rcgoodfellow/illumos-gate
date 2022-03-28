@@ -818,6 +818,80 @@ cpu_wakeup_mwait(cpu_t *cp, int bound)
 
 void (*cpu_pause_handler)(volatile char *) = NULL;
 
+/*
+ * "Enter monitor."  Called via cross-call from stop_other_cpus().
+ */
+int
+mach_cpu_halt(xc_arg_t arg1, xc_arg_t arg2 __unused, xc_arg_t arg3 __unused)
+{
+	char *msg = (char *)arg1;
+
+	if (msg)
+		prom_printf("%s\n", msg);
+
+	/*
+	 * XXX Assess callers to see whether we can halt here instead; this
+	 * spinloop wastes a considerable amount of energy if allowed to run
+	 * for any length of time.
+	 */
+
+	/*CONSTANTCONDITION*/
+	while (1)
+		;
+	return (0);
+}
+
+void
+mach_cpu_idle(void)
+{
+	x86_md_clear();
+	i86_halt();
+}
+
+void
+mach_cpu_pause(volatile char *safe)
+{
+	/*
+	 * This cpu is now safe.
+	 */
+	*safe = PAUSE_WAIT;
+	membar_enter(); /* make sure stores are flushed */
+
+	/*
+	 * Now we wait.  When we are allowed to continue, safe
+	 * will be set to PAUSE_IDLE.
+	 */
+	while (*safe != PAUSE_IDLE)
+		SMT_PAUSE();
+}
+
+/*
+ * Hook to power on the target CPU.  Never supported on this machine; every
+ * CPU that exists is powered up and started at boot, and there is no way to
+ * power one off so we should never get here.
+ */
+int
+mp_cpu_poweron(cpu_t *cp __unused)
+{
+	return (ENOTSUP);
+}
+
+int
+mp_cpu_poweroff(cpu_t *cp __unused)
+{
+	return (ENOTSUP);
+}
+
+/*
+ * This architecture has never been virtualised, so we know all CPUs are real
+ * physical resources.
+ */
+/* ARGSUSED */
+int
+vcpu_on_pcpu(processorid_t cpu)
+{
+	return (VCPU_ON_PCPU);
+}
 static int
 mp_disable_intr(int cpun)
 {

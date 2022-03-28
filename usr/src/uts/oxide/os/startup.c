@@ -1969,7 +1969,8 @@ release_bootstrap(void)
 	uint_t i;
 	char propname[32];
 	rd_existing_t *modranges;
-	pfn_t	pfn;
+	pfn_t reset_pfn;
+	extern uint32_t reset_vector;
 
 	/*
 	 * Save the bootfs module ranges so that we can reserve them below
@@ -2045,24 +2046,22 @@ release_bootstrap(void)
 	kmem_free(modranges, sizeof (rd_existing_t) * 99);
 
 	/*
-	 * Find 1 page below 1 MB so that other processors can boot up or
-	 * so that any processor can resume.
-	 * Make sure it has a kernel VA as well as a 1:1 mapping, which
-	 * means it cannot be page 0.  * We should have just free'd one up.
-	 * There's no BIOS on this architecture so we don't need to worry
-	 * about leaving pages for one.
+	 * Grab and map the page containing the reset vector.  We will need it
+	 * to start the other CPUs because on this platform there is no way to
+	 * pass in a starting address when starting a CPU; they all always
+	 * start at the same place we did.  This page should be free because
+	 * we previously told the allocator not to hand it out to anyone.
 	 */
-	for (pfn = 1; pfn < btop(1*1024*1024); pfn++) {
-		if (page_numtopp_alloc(pfn) == NULL)
-			continue;
-		rm_platter_va = i86devmap(pfn, 1,
+	if (reset_vector != 0 && use_mp != 0) {
+		reset_pfn = btop(reset_vector);
+		if (page_numtopp_alloc(reset_pfn) == NULL) {
+			panic("Reset vector page %lx unavailable for starting "
+			    "other processors", reset_pfn);
+		}
+		rm_platter_va = i86devmap(reset_pfn, 1,
 		    PROT_READ | PROT_WRITE | PROT_EXEC);
-		rm_platter_pa = ptob(pfn);
-		break;
+		rm_platter_pa = ptob(reset_pfn);
 	}
-	if (pfn == btop(1*1024*1024) && use_mp)
-		panic("No page below 1M available for starting "
-		    "other processors");
 }
 
 /*

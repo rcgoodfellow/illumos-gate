@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Co.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/boot_debug.h>
@@ -362,7 +362,10 @@ eb_physmem_init(struct bsys_mem *bmp)
 	 *
 	 * All that's left is to reserve the pagetables and stack from the
 	 * earlyboot allocator; we cheated a bit by telling it that RAM starts
-	 * above the kernel so we needn't reserve that.
+	 * above the kernel so we needn't reserve that.  We must also reserve
+	 * the page containing the reset vector for MP startup; however, we
+	 * need to consult boot properties to locate it and setting them up is
+	 * the next thing our caller is going to do, so we leave it out here.
 	 */
 	eb_physmem_reserve_range(rsp, LOADER_PHYSLIMIT - rsp, EBPR_NO_ALLOC);
 }

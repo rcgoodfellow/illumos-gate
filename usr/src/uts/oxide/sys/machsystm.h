@@ -147,17 +147,10 @@ extern int use_mp;
 extern struct cpu	cpus[];		/* pointer to other cpus */
 extern struct cpu	*cpu[];		/* pointer to all cpus */
 
-/* Operation types for extended mach_cpucontext interfaces */
-#define	MACH_CPUCONTEXT_OP_START	0
-#define	MACH_CPUCONTEXT_OP_STOP		1
-
 extern int mach_cpucontext_init(void);
 extern void mach_cpucontext_fini(void);
 extern void *mach_cpucontext_alloc(struct cpu *);
 extern void mach_cpucontext_free(struct cpu *, void *, int);
-extern void *mach_cpucontext_xalloc(struct cpu *, int);
-extern void mach_cpucontext_xfree(struct cpu *, void *, int, int);
-extern void rmp_gdt_init(rm_platter_t *);
 
 extern uintptr_t hole_start, hole_end;
 

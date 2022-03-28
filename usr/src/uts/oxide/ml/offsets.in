@@ -2,6 +2,7 @@
 \ Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
 \ Copyright 2012 Garrett D'Amore <garrett@damore.org>.  All rights reserved.
 \ Copyright 2019 Joyent, Inc.
+\ Copyright 2022 Oxide Computer Co.
 \
 \ CDDL HEADER START
 \
@@ -317,13 +318,17 @@ syncq
 	sq_wait
 
 rm_platter
-	rm_idt_lim		IDTROFF
+	rm_basepa		RMPBASEPAOFF
 	rm_gdt_lim		GDTROFF
-	rm_pdbr			CR3OFF
 	rm_cpu			CPUNOFF
+	rm_idt_lim		IDTROFF
+	rm_pe32_addr		PE32OFF
+	rm_longmode64_addr	LM64OFF
+	rm_pdbr			CR3OFF
 	rm_cr4			CR4OFF
-	rm_cpu_halt_code	CPUHALTCODEOFF
-	rm_cpu_halted		CPUHALTEDOFF
+	rm_temp_gdt_lim		TEMPGDTOFF
+	rm_temp_idt_lim		TEMPIDTOFF
+	rm_rv_code		RVCODEOFF
 
 ddi_acc_impl
 	ahi_acc_attr	ACC_ATTR

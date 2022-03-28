@@ -38,8 +38,6 @@
 #include <sys/psm.h>
 #include <sys/smp_impldefs.h>
 #include <sys/cram.h>
-#include <sys/acpi/acpi.h>
-#include <sys/acpica.h>
 #include <sys/psm_common.h>
 #include <sys/pit.h>
 #include <sys/ddi.h>
@@ -1579,11 +1577,14 @@ apix_alloc_intx(dev_info_t *dip, int inum, int irqno)
 	if ((irqp = apic_irq_table[irqno]) == NULL) {
 		/* allocate irq */
 		irqp = kmem_zalloc(sizeof (apic_irq_t), KM_SLEEP);
-		irqp->airq_mps_intr_index = FREE_INDEX;
+		irqp->airq_kind = AIRQK_FREE;
 		apic_irq_table[irqno] = irqp;
 	}
-	if (irqp->airq_mps_intr_index == FREE_INDEX) {
-		irqp->airq_mps_intr_index = DEFAULT_INDEX;
+	/*
+	 * XXX This case used to set DEFAULT_INDEX; should we ever get here?
+	 */
+	if (irqp->airq_kind == AIRQK_FREE) {
+		irqp->airq_kind = AIRQK_FIXED;
 		irqp->airq_cpu = IRQ_UNINIT;
 		irqp->airq_origirq = (uchar_t)irqno;
 	}
@@ -1854,7 +1855,7 @@ ioapix_setup_intr(int irqno, iflag_t *flagp)
 	 * In that case, make sure it matches what we would initialize it to.
 	 */
 	if (irqp != NULL) {
-		ASSERT(irqp->airq_mps_intr_index == ACPI_INDEX);
+		ASSERT(irqp->airq_kind == AIRQK_FIXED);
 		ASSERT(irqp->airq_intin_no == ipin &&
 		    irqp->airq_ioapicindex == ioapicindex);
 		vecp = xv_vector(irqp->airq_cpu, irqp->airq_vector);
@@ -1865,7 +1866,7 @@ ioapix_setup_intr(int irqno, iflag_t *flagp)
 
 		irqp->airq_cpu = IRQ_UNINIT;
 		irqp->airq_origirq = (uchar_t)irqno;
-		irqp->airq_mps_intr_index = ACPI_INDEX;
+		irqp->airq_kind = AIRQK_FIXED;
 		irqp->airq_ioapicindex = ioapicindex;
 		irqp->airq_intin_no = ipin;
 		irqp->airq_iflag = *flagp;

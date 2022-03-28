@@ -46,9 +46,15 @@
 #include <sys/memlist_impl.h>
 #include <sys/machsystm.h>
 #include <sys/plat/pci_prd.h>
+#include <sys/apic.h>
+#include <sys/cpuvar.h>
+
+#include <asm/bitmap.h>
 
 #include <milan/milan_apob.h>
+#include <milan/milan_ccx.h>
 #include <milan/milan_dxio_data.h>
+#include <milan/milan_fabric.h>
 #include <milan/milan_physaddrs.h>
 
 /*
@@ -57,6 +63,12 @@
  * this consolidated, hence this wacky include path.
  */
 #include <io/amdzen/amdzen.h>
+
+/*
+ * XXX MOVE ME
+ */
+#define	AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE0	0x300
+#define	AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE1	0x304
 
 /*
  * This defines what the maximum number of SoCs that are supported in Milan (and
@@ -71,6 +83,8 @@
  * nexus driver).
  */
 #define	MILAN_FABRIC_MAX_DIES_PER_SOC	1
+
+#define	MILAN_DF_FIRST_CCM_ID	16
 
 /*
  * This is the number of IOMS instances that we know are supposed to exist per
@@ -109,40 +123,6 @@
  * FCH present.
  */
 #define	MILAN_IOMS_HAS_FCH	3
-
-/*
- * In general, each functional block attached to the SMN is allotted its own
- * 20-bit aperture, which effectively means the block has a 12-bit identifier
- * or base as well.  Some subsystems have smaller base addresses because they
- * consume some of the register space for things like device and function ids.
- */
-#define	MILAN_SMN_ADDR_BLOCK_BITS	12
-
-#define	MILAN_SMN_ADDR_BASE_PART(_addr, _basebits)	\
-	bitx32((_addr), 31, 32 - (_basebits))
-#define	MILAN_SMN_ADDR_REG_PART(_addr, _basebits)	\
-	bitx32((_addr), 31 - (_basebits), 0)
-
-#define	MILAN_SMN_ASSERT_BASE_ADDR(_smnbase, _basebits)	\
-	ASSERT0(MILAN_SMN_ADDR_REG_PART(_smnbase, _basebits))
-#define	MILAN_SMN_ASSERT_REG_ADDR(_smnreg, _basebits)	\
-	ASSERT0(MILAN_SMN_ADDR_BASE_PART(_smnreg, _basebits))
-
-#define	MILAN_SMN_VERIFY_BASE_ADDR(_smnbase, _basebits)	\
-	VERIFY0(MILAN_SMN_ADDR_REG_PART(_smnbase, _basebits))
-#define	MILAN_SMN_VERIFY_REG_ADDR(_smnreg, _basebits)	\
-	VERIFY0(MILAN_SMN_ADDR_BASE_PART(_smnreg, _basebits))
-
-#define	MILAN_SMN_MAKE_ADDR(_smnbase, _basebits, _smnreg)	\
-	(					\
-	{					\
-		uint32_t _b = (_smnbase);	\
-		uint32_t _r = (_smnreg);	\
-		uint_t _nbits = (_basebits);	\
-		MILAN_SMN_ASSERT_BASE_ADDR(_b, (_nbits));	\
-		MILAN_SMN_ASSERT_REG_ADDR(_r, (_nbits));	\
-		(_b + _r);			\
-	})
 
 /*
  * IOMS SMN bases and various shifts based on instance ID to indicate the right
@@ -938,6 +918,46 @@ typedef enum milan_iommul1_type {
 #define	MILAN_NBIF_R_SET_SYSHUB_BGEN_BYPASS_DMA_SW1(r, v)	\
     bitset32(r, 17, 17, v)
 
+#define	MILAN_SMN_SCFCTP_BASE	0x20000000
+#define	MILAN_SMN_SCFCTP_BASE_BITS	(MILAN_SMN_ADDR_BLOCK_BITS + 3)
+#define	MILAN_SMN_SCFCTP_MAKE_ADDR(_b, _r)	\
+	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_SCFCTP_BASE_BITS, _r)
+#define	MILAN_SMN_SCFCTP_CCD_SHIFT(_d)	((_d) << 23)
+#define	MILAN_SMN_SCFCTP_CORE_SHIFT(_c)	((_c) << 17)
+
+#define	MILAN_SCFCTP_R_SMN_PMREG_INITPKG0	0x2FD0
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_LOGICALDIEID(_r)	\
+	bitx32(_r, 22, 19)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_LOGICALCOMPLEXID(_r)	\
+	bitx32(_r, 18, 18)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_LOGICALCOREID(_r)	\
+	bitx32(_r, 17, 14)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_SOCKETID(_r)	bitx32(_r, 13, 12)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_PHYSICALDIEID(_r)	\
+	bitx32(_r, 11, 8)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_PHYSICALCOMPLEXID(_r)	\
+	bitx32(_r, 7, 7)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_PHYSICALCOREID(_r)	\
+	bitx32(_r, 6, 3)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG0_SMTEN(_r)	bitx32(_r, 2, 0)
+
+#define	MILAN_SCFCTP_R_SMN_PMREG_INITPKG7	0x2FEC
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_NUMOFSOCKETS(_r)	\
+	bitx32(_r, 26, 25)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_NUMOFLOGICALDIE(_r)	\
+	bitx32(_r, 24, 21)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_NUMOFLOGICALCOMPLEXES(_r)	\
+	bitx32(_r, 20, 20)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_NUMOFLOGICALCORES(_r)	\
+	bitx32(_r, 19, 16)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_CHIDXHASHEN(_r)	\
+	bitx32(_r, 10, 10)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_S3(_r)	bitx32(_r, 9, 9)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_S0I3(_r)	bitx32(_r, 8, 8)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_CORETYPEISARM(_r)	\
+	bitx32(_r, 7, 7)
+#define	MILAN_SCFCTP_R_GET_PMREG_INITPKG7_SOCID(_r)	bitx32(_r, 6, 3)
+
 /*
  * The following definitions are all in normal PCI configuration space. These
  * represent the fixed offsets into capabilities that normally would be
@@ -991,6 +1011,7 @@ typedef enum milan_iommul1_type {
 #define	MILAN_SMU_OP_DEBUG_ADDRESS	0x07
 #define	MILAN_SMU_OP_DXIO		0x08
 #define	MILAN_SMU_OP_DC_BOOT_CALIB	0x0c
+#define	MILAN_SMU_OP_GET_BRAND_STRING	0x0d
 #define	MILAN_SMU_OP_TX_PP_TABLE	0x10
 #define	MILAN_SMU_OP_TX_PCIE_HP_TABLE	0x12
 #define	MILAN_SMU_OP_START_HOTPLUG	0x18
@@ -1526,17 +1547,22 @@ typedef struct milan_iodie {
 	uint8_t			mi_dfno;
 	uint8_t			mi_smn_busno;
 	uint8_t			mi_nioms;
+	uint8_t			mi_nccds;
 	uint8_t			mi_smu_fw[3];
 	uint32_t		mi_dxio_fw[2];
 	milan_dxio_sm_state_t	mi_state;
 	milan_dxio_config_t	mi_dxio_conf;
 	milan_ioms_t		mi_ioms[MILAN_IOMS_PER_IODIE];
+	milan_ccd_t		mi_ccds[MILAN_MAX_CCDS_PER_IODIE];
+	struct milan_soc	*mi_soc;
 } milan_iodie_t;
 
 typedef struct milan_soc {
-	uint8_t		ms_socno;
-	uint8_t		ms_ndies;
-	milan_iodie_t	ms_iodies[MILAN_FABRIC_MAX_DIES_PER_SOC];
+	uint8_t			ms_socno;
+	uint8_t			ms_ndies;
+	char			ms_brandstr[CPUID_BRANDSTR_STRLEN + 1];
+	milan_iodie_t		ms_iodies[MILAN_FABRIC_MAX_DIES_PER_SOC];
+	struct milan_fabric	*ms_fabric;
 } milan_soc_t;
 
 typedef struct milan_hotplug {
@@ -1586,16 +1612,24 @@ typedef int (*milan_bridge_cb_f)(milan_fabric_t *, milan_soc_t *,
     milan_iodie_t *, milan_ioms_t *, milan_pcie_port_t *port,
     milan_pcie_bridge_t *, void *);
 
+typedef int (*milan_ccd_cb_f)(milan_ccd_t *, void *);
+typedef int (*milan_ccx_cb_f)(milan_ccx_t *, void *);
+typedef int (*milan_core_cb_f)(milan_core_t *, void *);
+
 /*
  * XXX Belongs in a header.
  */
 extern void *contig_alloc(size_t, ddi_dma_attr_t *, uintptr_t, int);
 extern void contig_free(void *, size_t);
 
+static boolean_t milan_smu_rpc_read_brand_string(milan_iodie_t *,
+    char *, size_t);
+
 /*
- * Our primary global data. This is the reason that exist.
+ * Our primary global data. This is the reason that we exist.
  */
 static milan_fabric_t milan_fabric;
+static uint_t nthreads;
 
 /*
  * Variable to let us dump all SMN traffic while still developing.
@@ -1768,6 +1802,132 @@ milan_fabric_walk_bridge(milan_fabric_t *fabric, milan_bridge_cb_f func,
 	    &cb));
 }
 
+typedef struct milan_fabric_ccd_cb {
+	milan_ccd_cb_f	mfcc_func;
+	void		*mfcc_arg;
+} milan_fabric_ccd_cb_t;
+
+static int
+milan_fabric_walk_ccd_iodie_cb(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, void *arg)
+{
+	milan_fabric_ccd_cb_t *cb = arg;
+
+	for (uint8_t ccdno = 0; ccdno < iodie->mi_nccds; ccdno++) {
+		int ret;
+		milan_ccd_t *ccd = &iodie->mi_ccds[ccdno];
+
+		if ((ret = cb->mfcc_func(ccd, cb->mfcc_arg)) != 0)
+			return (ret);
+	}
+
+	return (0);
+}
+
+static int
+milan_fabric_walk_ccd(milan_ccd_cb_f func, void *arg)
+{
+	milan_fabric_ccd_cb_t cb;
+
+	cb.mfcc_func = func;
+	cb.mfcc_arg = arg;
+	return (milan_fabric_walk_iodie(&milan_fabric,
+	    milan_fabric_walk_ccd_iodie_cb, &cb));
+}
+
+typedef struct milan_fabric_ccx_cb {
+	milan_ccx_cb_f	mfcc_func;
+	void		*mfcc_arg;
+} milan_fabric_ccx_cb_t;
+
+static int
+milan_fabric_walk_ccx_ccd_cb(milan_ccd_t *ccd, void *arg)
+{
+	milan_fabric_ccx_cb_t *cb = arg;
+
+	for (uint8_t ccxno = 0; ccxno < ccd->mcd_nccxs; ccxno++) {
+		int ret;
+		milan_ccx_t *ccx = &ccd->mcd_ccxs[ccxno];
+
+		if ((ret = cb->mfcc_func(ccx, cb->mfcc_arg)) != 0)
+			return (ret);
+	}
+
+	return (0);
+}
+
+static int
+milan_fabric_walk_ccx(milan_ccx_cb_f func, void *arg)
+{
+	milan_fabric_ccx_cb_t cb;
+
+	cb.mfcc_func = func;
+	cb.mfcc_arg = arg;
+	return (milan_fabric_walk_ccd(milan_fabric_walk_ccx_ccd_cb, &cb));
+}
+
+typedef struct milan_fabric_core_cb {
+	milan_core_cb_f	mfcc_func;
+	void		*mfcc_arg;
+} milan_fabric_core_cb_t;
+
+static int
+milan_fabric_walk_core_ccx_cb(milan_ccx_t *ccx, void *arg)
+{
+	milan_fabric_core_cb_t *cb = arg;
+
+	for (uint8_t coreno = 0; coreno < ccx->mcx_ncores; coreno++) {
+		int ret;
+		milan_core_t *core = &ccx->mcx_cores[coreno];
+
+		if ((ret = cb->mfcc_func(core, cb->mfcc_arg)) != 0)
+			return (ret);
+	}
+
+	return (0);
+}
+
+static int
+milan_fabric_walk_core(milan_core_cb_f func, void *arg)
+{
+	milan_fabric_core_cb_t cb;
+
+	cb.mfcc_func = func;
+	cb.mfcc_arg = arg;
+	return (milan_fabric_walk_ccx(milan_fabric_walk_core_ccx_cb, &cb));
+}
+
+typedef struct milan_fabric_thread_cb {
+	milan_thread_cb_f	mftc_func;
+	void			*mftc_arg;
+} milan_fabric_thread_cb_t;
+
+static int
+milan_fabric_walk_thread_core_cb(milan_core_t *core, void *arg)
+{
+	milan_fabric_thread_cb_t *cb = arg;
+
+	for (uint8_t threadno = 0; threadno < core->mc_nthreads; threadno++) {
+		int ret;
+		milan_thread_t *thread = &core->mc_threads[threadno];
+
+		if ((ret = cb->mftc_func(thread, cb->mftc_arg)) != 0)
+			return (ret);
+	}
+
+	return (0);
+}
+
+int
+milan_fabric_walk_thread(milan_thread_cb_f func, void *arg)
+{
+	milan_fabric_thread_cb_t cb;
+
+	cb.mftc_func = func;
+	cb.mftc_arg = arg;
+	return (milan_fabric_walk_core(milan_fabric_walk_thread_core_cb, &cb));
+}
+
 typedef struct {
 	uint32_t	mffi_dest;
 	milan_ioms_t	*mffi_ioms;
@@ -1871,6 +2031,56 @@ milan_fabric_find_port_by_lanes(milan_fabric_t *fabric, milan_iodie_t *iodie,
 	    milan_fabric_find_port_by_lanes_cb, &mffp);
 
 	return (mffp.mffp_port);
+}
+
+/*
+ * XXX optimise me so this isn't N^2 for the caller, ugh.  Requires documenting
+ * and maintaining an invariant ordering in these traversals.  As it is, this
+ * is just about the worst implementation imaginable.  Consider instead putting
+ * a pointer to the fabric thread into struct machcpu or perhaps hashing this
+ * somewhere; it's static on our architecture.
+ */
+typedef struct milan_fabric_find_thread {
+	uint32_t	mfft_search;
+	uint32_t	mfft_count;
+	milan_thread_t	*mfft_found;
+} milan_fabric_find_thread_t;
+
+static int
+milan_fabric_find_thread_by_cpuid_cb(milan_thread_t *thread, void *arg)
+{
+	milan_fabric_find_thread_t *mfft = arg;
+	if (mfft->mfft_count == mfft->mfft_search) {
+		mfft->mfft_found = thread;
+		return (1);
+	}
+	++mfft->mfft_count;
+	return (0);
+}
+
+milan_thread_t *
+milan_fabric_find_thread_by_cpuid(uint32_t cpuid)
+{
+	milan_fabric_find_thread_t mfft;
+
+	mfft.mfft_search = cpuid;
+	mfft.mfft_count = 0;
+	mfft.mfft_found = NULL;
+	(void) milan_fabric_walk_thread(milan_fabric_find_thread_by_cpuid_cb,
+	    &mfft);
+
+	return (mfft.mfft_found);
+}
+
+/*
+ * buf, len, and return value semantics match those of snprintf(9f).
+ */
+size_t
+milan_fabric_thread_get_brandstr(const milan_thread_t *thread,
+    char *buf, size_t len)
+{
+	milan_soc_t *soc = thread->mt_core->mc_ccx->mcx_ccd->mcd_iodie->mi_soc;
+	return (snprintf(buf, len, "%s", soc->ms_brandstr));
 }
 
 static uint32_t
@@ -2139,8 +2349,41 @@ static void
 milan_pcie_core_write32(milan_iodie_t *iodie, milan_pcie_port_t *port,
     uint32_t reg, uint32_t val)
 {
-	return (milan_smn_write32(iodie,
-	    MILAN_SMN_PCIE_CORE_MAKE_ADDR(port->mpp_core_smn_addr, reg), val));
+	milan_smn_write32(iodie,
+	    MILAN_SMN_PCIE_CORE_MAKE_ADDR(port->mpp_core_smn_addr, reg), val);
+}
+
+uint32_t
+milan_smupwr_read32(milan_ccd_t *ccd, uint32_t reg)
+{
+	milan_iodie_t *iodie = ccd->mcd_iodie;
+
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_SMUPWR_MAKE_ADDR(ccd->mcd_smupwr_smn_base, reg)));
+}
+
+void
+milan_smupwr_write32(milan_ccd_t *ccd, uint32_t reg, uint32_t val)
+{
+	milan_iodie_t *iodie = ccd->mcd_iodie;
+
+	milan_smn_write32(iodie,
+	    MILAN_SMN_SMUPWR_MAKE_ADDR(ccd->mcd_smupwr_smn_base, reg), val);
+}
+
+static uint32_t
+milan_scfctp_read32(milan_iodie_t *iodie, milan_core_t *core, uint32_t reg)
+{
+	return (milan_smn_read32(iodie,
+	    MILAN_SMN_SCFCTP_MAKE_ADDR(core->mc_scfctp_smn_base, reg)));
+}
+
+static void
+milan_scfctp_write32(milan_iodie_t *iodie, milan_core_t *core,
+    uint32_t reg, uint32_t val)
+{
+	milan_smn_write32(iodie,
+	    MILAN_SMN_SCFCTP_MAKE_ADDR(core->mc_scfctp_smn_base, reg), val);
 }
 
 static void
@@ -2293,6 +2536,244 @@ milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 	}
 }
 
+static void
+milan_ccx_init_core(milan_ccx_t *ccx, uint8_t lidx, uint8_t pidx)
+{
+	uint32_t val;
+	milan_core_t *core = &ccx->mcx_cores[lidx];
+	milan_ccd_t *ccd = ccx->mcx_ccd;
+	milan_iodie_t *iodie = ccd->mcd_iodie;
+
+	core->mc_ccx = ccx;
+	core->mc_scfctp_smn_base = ccx->mcx_scfctp_smn_base +
+	    MILAN_SMN_SCFCTP_CORE_SHIFT(pidx);
+
+	MILAN_SMN_VERIFY_BASE_ADDR(core->mc_scfctp_smn_base,
+	    MILAN_SMN_SCFCTP_BASE_BITS);
+
+	core->mc_physical_coreno = pidx;
+
+	val = milan_scfctp_read32(iodie, core,
+	    MILAN_SCFCTP_R_SMN_PMREG_INITPKG0);
+	VERIFY3U(val, !=, 0xffffffffU);
+
+	core->mc_logical_coreno =
+	    MILAN_SCFCTP_R_GET_PMREG_INITPKG0_LOGICALCOREID(val);
+
+	VERIFY3U(MILAN_SCFCTP_R_GET_PMREG_INITPKG0_PHYSICALCOREID(val), ==,
+	    pidx);
+	VERIFY3U(MILAN_SCFCTP_R_GET_PMREG_INITPKG0_PHYSICALCOMPLEXID(val), ==,
+	    ccx->mcx_physical_cxno);
+	VERIFY3U(MILAN_SCFCTP_R_GET_PMREG_INITPKG0_PHYSICALDIEID(val), ==,
+	    ccx->mcx_ccd->mcd_physical_dieno);
+
+	core->mc_nthreads = MILAN_SCFCTP_R_GET_PMREG_INITPKG0_SMTEN(val) + 1;
+	VERIFY3U(core->mc_nthreads, <=, MILAN_MAX_THREADS_PER_CORE);
+
+	for (uint8_t thr = 0; thr < core->mc_nthreads; thr++) {
+		uint32_t apicid = 0;
+		milan_thread_t *thread = &core->mc_threads[thr];
+
+		thread->mt_threadno = thr;
+		thread->mt_core = core;
+		nthreads++;
+
+		/*
+		 * You may be wondering why we don't use the contents of
+		 * DF::CcdUnitIdMask here to determine the number of bits at
+		 * each level.  There are two reasons, one simple and one not:
+		 *
+		 * - First, it's not correct.  The UnitId masks describe (*)
+		 *   the physical ID spaces, which are distinct from how APIC
+		 *   IDs are computed.  APIC IDs depend on the number of each
+		 *   component that are *actually present*, rounded up to the
+		 *   next power of 2 at each component.  For example, if there
+		 *   are 4 CCDs, there will be 2 bits in the APIC ID for the
+		 *   logical CCD number, even though representing the UnitId
+		 *   on Milan requires 3 bits for the CCD.  No, we don't know
+		 *   why this is so; it would certainly have been simpler to
+		 *   always use the physical ID to compute the initial APIC ID.
+		 * - Second, not only are APIC IDs not UnitIds, there is nothing
+		 *   documented that does consume UnitIds.  We are given a nice
+		 *   discussion of what they are and this lovingly detailed way
+		 *   to discover how to compute them, but so far as I have been
+		 *   able to tell, neither UnitIds nor the closely related
+		 *   CpuIds are ever used.  If we later find that we do need
+		 *   these identifiers, additional code to construct them based
+		 *   on this discovery mechanism should be added.
+		 */
+		apicid = iodie->mi_soc->ms_socno;
+		apicid <<= highbit(iodie->mi_soc->ms_ndies - 1);
+		apicid |= 0;	/* XXX multi-die SOCs not supported here */
+		apicid <<= highbit(iodie->mi_nccds - 1);
+		apicid |= ccd->mcd_logical_dieno;
+		apicid <<= highbit(ccd->mcd_nccxs - 1);
+		apicid |= ccx->mcx_logical_cxno;
+		apicid <<= highbit(ccx->mcx_ncores - 1);
+		apicid |= core->mc_logical_coreno;
+		apicid <<= highbit(core->mc_nthreads - 1);
+		apicid |= thr;
+
+		thread->mt_apicid = (apicid_t)apicid;
+	}
+}
+
+static void
+milan_ccx_init_soc(milan_soc_t *soc)
+{
+	const milan_fabric_t *fabric = soc->ms_fabric;
+	milan_iodie_t *iodie = &soc->ms_iodies[0];
+
+	/*
+	 * We iterate over the physical CCD space; population of that
+	 * space may be sparse.  Keep track of the logical CCD index in
+	 * lccd; ccdpno is the physical CCD index we're considering.
+	 */
+	for (uint8_t ccdpno = 0, lccd = 0;
+	    ccdpno < MILAN_MAX_CCDS_PER_IODIE; ccdpno++) {
+		uint8_t core_shift, pcore, lcore;
+		uint32_t val;
+		uint32_t cores_enabled;
+		milan_ccd_t *ccd = &iodie->mi_ccds[lccd];
+		milan_ccx_t *ccx = &ccd->mcd_ccxs[0];
+
+		/*
+		 * The CCM is part of the IO die, not the CCD itself.
+		 * If it is disabled, we skip this CCD index as even if
+		 * it exists nothing can reach it.
+		 */
+		val = milan_df_read32(iodie,
+		    MILAN_DF_FIRST_CCM_ID + ccdpno, 0, AMDZEN_DF_F0_FBIINFO0);
+
+		VERIFY3U(AMDZEN_DF_F0_FBIINFO0_TYPE(val), ==,
+		    AMDZEN_DF_TYPE_CCM);
+		if (AMDZEN_DF_F0_FBIINFO0_ENABLED(val) == 0)
+			continue;
+
+		/*
+		 * At leaast some of the time, a CCM will be enabled
+		 * even if there is no corresponding CCD.  To avoid
+		 * a possibly invalid read (see milan_fabric_topo_init()
+		 * comments), we also check whether any core is enabled
+		 * on this CCD.
+		 *
+		 * XXX reduce magic
+		 */
+		val = milan_df_bcast_read32(iodie, 1,
+		    (ccdpno < 4) ? AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE0 :
+		    AMDZEN_DF_F1_PHYSICAL_CORE_ENABLE1);
+		core_shift = (ccdpno & 3) * MILAN_MAX_CORES_PER_CCX *
+		    MILAN_MAX_CCXS_PER_CCD;
+		cores_enabled = bitx32(val, core_shift + 7, core_shift);
+
+		if (cores_enabled == 0)
+			continue;
+
+		VERIFY3U(lccd, <, MILAN_MAX_CCDS_PER_IODIE);
+		ccd->mcd_iodie = iodie;
+		ccd->mcd_logical_dieno = lccd++;
+		ccd->mcd_physical_dieno = ccdpno;
+		ccd->mcd_ccm_comp_id = MILAN_DF_FIRST_CCM_ID + ccdpno;
+		/*
+		 * XXX Non-Milan may require nonzero component ID shift.
+		 */
+		ccd->mcd_ccm_fabric_id = ccd->mcd_ccm_comp_id |
+		    (iodie->mi_node_id << fabric->mf_node_shift);
+		ccd->mcd_smupwr_smn_base = MILAN_SMN_SMUPWR_BASE +
+		    MILAN_SMN_SMUPWR_CCD_SHIFT(ccdpno);
+
+		MILAN_SMN_VERIFY_BASE_ADDR(ccd->mcd_smupwr_smn_base,
+		    MILAN_SMN_SMUPWR_BASE_BITS);
+
+		/* XXX avoid panicking on bad data from firmware */
+		val = milan_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_CCD_DIE_ID);
+		VERIFY3U(val, ==, ccdpno);
+
+		val = milan_smupwr_read32(ccd,
+		    MILAN_SMUPWR_R_SMN_THREAD_CONFIGURATION);
+		ccd->mcd_nccxs =
+		    MILAN_SMUPWR_R_GET_THREAD_CONFIGURATION_COMPLEX_COUNT(val) +
+		    1;
+		VERIFY3U(ccd->mcd_nccxs, <=, MILAN_MAX_CCXS_PER_CCD);
+
+		if (ccd->mcd_nccxs == 0) {
+			cmn_err(CE_NOTE, "CCD 0x%x: no CCXs reported",
+			    ccd->mcd_physical_dieno);
+			continue;
+		}
+
+		/*
+		 * Make sure that the CCD's local understanding of
+		 * enabled cores matches what we found earlier through
+		 * the DF.  A mismatch here is a firmware bug; XXX and
+		 * if that happens?
+		 */
+		val = milan_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_CORE_ENABLE);
+		VERIFY3U(MILAN_SMUPWR_R_GET_CORE_ENABLE_COREEN(val), ==,
+		    cores_enabled);
+
+		/*
+		 * XXX While we know there is only ever 1 CCX per Milan CCD,
+		 * DF::CCXEnable allows for 2 because the DFv3 implementation
+		 * is shared with Rome, which has up to 2 CCXs per CCD.
+		 * Although we know we only ever have 1 CCX, we don't,
+		 * strictly, know that the CCX is always physical index 0.
+		 * Here we assume it, but we probably want to change the
+		 * MILAN_MAX_xxx_PER_yyy so that they reflect the size of the
+		 * physical ID spaces rather than the maximum logical entity
+		 * counts.  Doing so would accommodate a part that has a single
+		 * CCX per CCD, but at index 1.
+		 */
+		ccx->mcx_ccd = ccd;
+		ccx->mcx_logical_cxno = 0;
+		ccx->mcx_physical_cxno = 0;
+		ccx->mcx_scfctp_smn_base = MILAN_SMN_SCFCTP_BASE +
+		    MILAN_SMN_SCFCTP_CCD_SHIFT(ccdpno);
+
+		MILAN_SMN_VERIFY_BASE_ADDR(ccx->mcx_scfctp_smn_base,
+		    MILAN_SMN_SCFCTP_BASE_BITS);
+
+		/*
+		 * All the cores on the CCD will (should) return the
+		 * same values in PMREG_INITPKG0 and PMREG_INITPKG7.
+		 * The catch is that we have to read them from a core
+		 * that exists or we get all-1s.  Use the mask of
+		 * cores enabled on this die that we already computed
+		 * to find one to read from, then bootstrap into the
+		 * core enumeration.  XXX At some point we probably
+		 * should do away with all this cross-checking and
+		 * choose something to trust.
+		 */
+		for (pcore = 0;
+		    (cores_enabled & (1 << pcore)) == 0 &&
+		    pcore < MILAN_MAX_CORES_PER_CCX; pcore++)
+			;
+		VERIFY3U(pcore, <, MILAN_MAX_CORES_PER_CCX);
+		val = milan_smn_read32(iodie,
+		    MILAN_SMN_SCFCTP_MAKE_ADDR(ccx->mcx_scfctp_smn_base +
+		    MILAN_SMN_SCFCTP_CORE_SHIFT(pcore),
+		    MILAN_SCFCTP_R_SMN_PMREG_INITPKG7));
+
+		VERIFY3U(val, !=, 0xffffffffU);
+		ccx->mcx_ncores =
+		    MILAN_SCFCTP_R_GET_PMREG_INITPKG7_NUMOFLOGICALCORES(val) +
+		    1;
+
+		iodie->mi_nccds =
+		    MILAN_SCFCTP_R_GET_PMREG_INITPKG7_NUMOFLOGICALDIE(val) + 1;
+
+		for (pcore = 0, lcore = 0;
+		    pcore < MILAN_MAX_CORES_PER_CCX; pcore++) {
+			if ((cores_enabled & (1 << pcore)) == 0)
+				continue;
+			milan_ccx_init_core(ccx, lcore, pcore);
+			++lcore;
+		}
+
+		VERIFY3U(lcore, ==, ccx->mcx_ncores);
+	}
+}
+
 /*
  * Right now we're running on the boot CPU. We know that a single socket has to
  * be populated. Our job is to go through and determine what the rest of the
@@ -2332,7 +2813,7 @@ milan_fabric_topo_init(void)
 
 	/*
 	 * Set up the base of 64-bit MMIO. The actual starting point depends on
-	 * the combination of where DRAM ends and where the mysterious hold
+	 * the combination of where DRAM ends and where the mysterious hole
 	 * ends. As a result, we always start things at the higher of the two.
 	 */
 	fabric->mf_mmio64_base = MAX(fabric->mf_tom2,
@@ -2352,7 +2833,6 @@ milan_fabric_topo_init(void)
 	    AMDZEN_DF_F1_FIDMASK1);
 	fabric->mf_node_shift = AMDZEN_DF_F1_FIDMASK1_NODE_SHIFT(fidmask);
 
-
 	fabric->mf_nsocs = nsocs;
 	for (uint8_t socno = 0; socno < nsocs; socno++) {
 		uint32_t busno, nodeid;
@@ -2361,11 +2841,13 @@ milan_fabric_topo_init(void)
 
 		soc->ms_socno = socno;
 		soc->ms_ndies = MILAN_FABRIC_MAX_DIES_PER_SOC;
+		soc->ms_fabric = fabric;
 		iodie->mi_dfno = AMDZEN_DF_FIRST_DEVICE + socno;
 
 		nodeid = pci_getl_func(AMDZEN_DF_BUSNO, iodie->mi_dfno, 1,
 		    AMDZEN_DF_F1_SYSCFG);
 		iodie->mi_node_id = AMDZEN_DF_F1_SYSCFG_NODEID(nodeid);
+		iodie->mi_soc = soc;
 
 		/*
 		 * XXX Because we do not know the circumstances all these locks
@@ -2459,7 +2941,20 @@ milan_fabric_topo_init(void)
 			milan_fabric_ioms_pcie_init(ioms);
 			milan_fabric_ioms_nbif_init(ioms);
 		}
+
+		milan_ccx_init_soc(soc);
+		if (!milan_smu_rpc_read_brand_string(iodie, soc->ms_brandstr,
+		    sizeof (soc->ms_brandstr))) {
+			soc->ms_brandstr[0] = '\0';
+		}
 	}
+
+	if (nthreads > NCPU) {
+		cmn_err(CE_WARN, "%d CPUs found but only %d supported",
+		    nthreads, NCPU);
+		nthreads = NCPU;
+	}
+	boot_max_ncpus = max_ncpus = boot_ncpus = nthreads;
 }
 
 /*
@@ -2633,6 +3128,32 @@ milan_smu_rpc_start_hotplug(milan_iodie_t *iodie, boolean_t one_based,
 	}
 
 	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
+}
+
+/*
+ * buf and len semantics here match those of snprintf
+ */
+static boolean_t
+milan_smu_rpc_read_brand_string(milan_iodie_t *iodie, char *buf, size_t len)
+{
+	milan_smu_rpc_t rpc = { 0 };
+	uint_t off;
+
+	len = MIN(len, CPUID_BRANDSTR_STRLEN + 1);
+	buf[len - 1] = '\0';
+	rpc.msr_req = MILAN_SMU_OP_GET_BRAND_STRING;
+
+	for (off = 0; off * 4 < len - 1; off++) {
+		rpc.msr_arg0 = off;
+		milan_smu_rpc(iodie, &rpc);
+
+		if (rpc.msr_resp != MILAN_SMU_RPC_OK)
+			return (B_FALSE);
+
+		bcopy(&rpc.msr_arg0, buf + off * 4, len - off * 4);
+	}
+
+	return (B_TRUE);
 }
 
 static void

@@ -44,8 +44,6 @@
 #include <sys/psm.h>
 #include <sys/smp_impldefs.h>
 #include <sys/cram.h>
-#include <sys/acpi/acpi.h>
-#include <sys/acpica.h>
 #include <sys/psm_common.h>
 #include <sys/apic.h>
 #include <sys/pit.h>
@@ -78,6 +76,9 @@
 #include <sys/apic_common.h>
 #include <sys/apic_timer.h>
 #include <sys/tsc.h>
+
+#include <milan/milan_ccx.h>
+#include <milan/milan_fabric.h>
 
 static void	apic_record_ioapic_rdt(void *intrmap_private,
 		    ioapic_rdt_t *irdt);
@@ -188,50 +189,10 @@ int		apic_num_cksum_errors = 0;
 
 int	apic_error = 0;
 
-static	int	apic_cmos_ssb_set = 0;
-
 /* use to make sure only one cpu handles the nmi */
 lock_t	apic_nmi_lock;
 /* use to make sure only one cpu handles the error interrupt */
 lock_t	apic_error_lock;
-
-static	struct {
-	uchar_t	cntl;
-	uchar_t	data;
-} aspen_bmc[] = {
-	{ CC_SMS_WR_START,	0x18 },		/* NetFn/LUN */
-	{ CC_SMS_WR_NEXT,	0x24 },		/* Cmd SET_WATCHDOG_TIMER */
-	{ CC_SMS_WR_NEXT,	0x84 },		/* DataByte 1: SMS/OS no log */
-	{ CC_SMS_WR_NEXT,	0x2 },		/* DataByte 2: Power Down */
-	{ CC_SMS_WR_NEXT,	0x0 },		/* DataByte 3: no pre-timeout */
-	{ CC_SMS_WR_NEXT,	0x0 },		/* DataByte 4: timer expir. */
-	{ CC_SMS_WR_NEXT,	0xa },		/* DataByte 5: init countdown */
-	{ CC_SMS_WR_END,	0x0 },		/* DataByte 6: init countdown */
-
-	{ CC_SMS_WR_START,	0x18 },		/* NetFn/LUN */
-	{ CC_SMS_WR_END,	0x22 }		/* Cmd RESET_WATCHDOG_TIMER */
-};
-
-static	struct {
-	int	port;
-	uchar_t	data;
-} sitka_bmc[] = {
-	{ SMS_COMMAND_REGISTER,	SMS_WRITE_START },
-	{ SMS_DATA_REGISTER,	0x18 },		/* NetFn/LUN */
-	{ SMS_DATA_REGISTER,	0x24 },		/* Cmd SET_WATCHDOG_TIMER */
-	{ SMS_DATA_REGISTER,	0x84 },		/* DataByte 1: SMS/OS no log */
-	{ SMS_DATA_REGISTER,	0x2 },		/* DataByte 2: Power Down */
-	{ SMS_DATA_REGISTER,	0x0 },		/* DataByte 3: no pre-timeout */
-	{ SMS_DATA_REGISTER,	0x0 },		/* DataByte 4: timer expir. */
-	{ SMS_DATA_REGISTER,	0xa },		/* DataByte 5: init countdown */
-	{ SMS_COMMAND_REGISTER,	SMS_WRITE_END },
-	{ SMS_DATA_REGISTER,	0x0 },		/* DataByte 6: init countdown */
-
-	{ SMS_COMMAND_REGISTER,	SMS_WRITE_START },
-	{ SMS_DATA_REGISTER,	0x18 },		/* NetFn/LUN */
-	{ SMS_COMMAND_REGISTER,	SMS_WRITE_END },
-	{ SMS_DATA_REGISTER,	0x22 }		/* Cmd RESET_WATCHDOG_TIMER */
-};
 
 /* Patchable global variables. */
 int		apic_kmdb_on_nmi = 0;		/* 0 - no, 1 - yes enter kmdb */
@@ -435,94 +396,24 @@ apic_disable_local_apic(void)
 	apic_reg_ops->apic_write(APIC_SPUR_INT_REG, APIC_SPUR_INTR);
 }
 
-static void
-apic_cpu_send_SIPI(processorid_t cpun, boolean_t start)
-{
-	int		loop_count;
-	uint32_t	vector;
-	uint_t		apicid;
-	ulong_t		iflag;
-
-	apicid =  apic_cpus[cpun].aci_local_id;
-
-	/*
-	 * Interrupts on current CPU will be disabled during the
-	 * steps in order to avoid unwanted side effects from
-	 * executing interrupt handlers on a problematic BIOS.
-	 */
-	iflag = intr_clear();
-
-	if (start) {
-		outb(CMOS_ADDR, SSB);
-		outb(CMOS_DATA, BIOS_SHUTDOWN);
-	}
-
-	/*
-	 * According to X2APIC specification in section '2.3.5.1' of
-	 * Interrupt Command Register Semantics, the semantics of
-	 * programming the Interrupt Command Register to dispatch an interrupt
-	 * is simplified. A single MSR write to the 64-bit ICR is required
-	 * for dispatching an interrupt. Specifically, with the 64-bit MSR
-	 * interface to ICR, system software is not required to check the
-	 * status of the delivery status bit prior to writing to the ICR
-	 * to send an IPI. With the removal of the Delivery Status bit,
-	 * system software no longer has a reason to read the ICR. It remains
-	 * readable only to aid in debugging.
-	 */
-#ifdef	DEBUG
-	APIC_AV_PENDING_SET();
-#else
-	if (apic_mode == LOCAL_APIC) {
-		APIC_AV_PENDING_SET();
-	}
-#endif /* DEBUG */
-
-	/* for integrated - make sure there is one INIT IPI in buffer */
-	/* for external - it will wake up the cpu */
-	apic_reg_ops->apic_write_int_cmd(apicid, AV_ASSERT | AV_RESET);
-
-	/* If only 1 CPU is installed, PENDING bit will not go low */
-	for (loop_count = apic_sipi_max_loop_count; loop_count; loop_count--) {
-		if (apic_mode == LOCAL_APIC &&
-		    apic_reg_ops->apic_read(APIC_INT_CMD1) & AV_PENDING)
-			apic_ret();
-		else
-			break;
-	}
-
-	apic_reg_ops->apic_write_int_cmd(apicid, AV_DEASSERT | AV_RESET);
-	drv_usecwait(20000);		/* 20 milli sec */
-
-	if (apic_cpus[cpun].aci_local_ver >= APIC_INTEGRATED_VERS) {
-		/* integrated apic */
-
-		vector = (rm_platter_pa >> MMU_PAGESHIFT) &
-		    (APIC_VECTOR_MASK | APIC_IPL_MASK);
-
-		/* to offset the INIT IPI queue up in the buffer */
-		apic_reg_ops->apic_write_int_cmd(apicid, vector | AV_STARTUP);
-		drv_usecwait(200);		/* 20 micro sec */
-
-		/*
-		 * send the second SIPI (Startup IPI) as recommended by Intel
-		 * software development manual.
-		 */
-		apic_reg_ops->apic_write_int_cmd(apicid, vector | AV_STARTUP);
-		drv_usecwait(200);	/* 20 micro sec */
-	}
-
-	intr_restore(iflag);
-}
-
 /*ARGSUSED1*/
 int
 apic_cpu_start(processorid_t cpun, caddr_t arg __unused)
 {
+	milan_thread_t *mtp;
+
 	ASSERT(MUTEX_HELD(&cpu_lock));
 
 	if (!apic_cpu_in_range(cpun)) {
 		return (EINVAL);
 	}
+
+	/*
+	 * The BSP cannot be started in this manner, and since it can also never
+	 * be stopped, we should never get here.
+	 */
+	if (cpun == 0)
+		return (0);
 
 	/*
 	 * Switch to apic_common_send_ipi for safety during starting other CPUs.
@@ -531,54 +422,21 @@ apic_cpu_start(processorid_t cpun, caddr_t arg __unused)
 		apic_switch_ipi_callback(B_TRUE);
 	}
 
-	apic_cmos_ssb_set = 1;
-	apic_cpu_send_SIPI(cpun, B_TRUE);
+	/*
+	 * XXX This is the corresponding XXX to the one in mp_startup.c: this
+	 * has nothing at all to do with the APIC, and it isn't shareable as
+	 * much of the other apix code is.  Yet this is a function whose job is
+	 * to start an AP, and this is how this machine starts APs.  Clearly
+	 * PSM as conceived for i86pc is not factored correctly for this
+	 * machine.
+	 */
+	mtp = milan_fabric_find_thread_by_cpuid(cpun);
+	VERIFY(mtp != NULL);
 
-	return (0);
-}
-
-/*
- * Put CPU into halted state with interrupts disabled.
- */
-/*ARGSUSED1*/
-int
-apic_cpu_stop(processorid_t cpun, caddr_t arg __unused)
-{
-	int		rc;
-	cpu_t		*cp;
-	extern cpuset_t cpu_ready_set;
-	extern void cpu_idle_intercept_cpu(cpu_t *cp);
-
-	ASSERT(MUTEX_HELD(&cpu_lock));
-
-	if (!apic_cpu_in_range(cpun)) {
-		return (EINVAL);
+	if (!milan_ccx_start_thread(mtp)) {
+		cmn_err(CE_WARN, "attempt to start already-running CPU 0x%x",
+		    cpun);
 	}
-	if (apic_cpus[cpun].aci_local_ver < APIC_INTEGRATED_VERS) {
-		return (ENOTSUP);
-	}
-
-	cp = cpu_get(cpun);
-	ASSERT(cp != NULL);
-	ASSERT((cp->cpu_flags & CPU_OFFLINE) != 0);
-	ASSERT((cp->cpu_flags & CPU_QUIESCED) != 0);
-	ASSERT((cp->cpu_flags & CPU_ENABLE) == 0);
-
-	/* Clear CPU_READY flag to disable cross calls. */
-	cp->cpu_flags &= ~CPU_READY;
-	CPUSET_ATOMIC_DEL(cpu_ready_set, cpun);
-	rc = xc_flush_cpu(cp);
-	if (rc != 0) {
-		CPUSET_ATOMIC_ADD(cpu_ready_set, cpun);
-		cp->cpu_flags |= CPU_READY;
-		return (rc);
-	}
-
-	/* Intercept target CPU at a safe point before powering it off. */
-	cpu_idle_intercept_cpu(cp);
-
-	apic_cpu_send_SIPI(cpun, B_FALSE);
-	cp->cpu_flags &= ~CPU_RUNNING;
 
 	return (0);
 }
@@ -598,9 +456,6 @@ apic_cpu_ops(psm_cpu_request_t *reqp)
 		return (apic_cpu_remove(reqp));
 
 	case PSM_CPU_STOP:
-		return (apic_cpu_stop(reqp->req.cpu_stop.cpuid,
-		    reqp->req.cpu_stop.ctx));
-
 	default:
 		return (ENOTSUP);
 	}
@@ -675,7 +530,7 @@ apic_unset_idlecpu(processorid_t cpun __unused)
 
 
 void
-apic_ret()
+apic_ret(void)
 {
 }
 
@@ -1179,19 +1034,12 @@ apic_clkinit(int hertz)
 void
 apic_preshutdown(int cmd __unused, int fcn __unused)
 {
-	APIC_VERBOSE_POWEROFF(("apic_preshutdown(%d,%d); m=%d a=%d\n",
-	    cmd, fcn, apic_poweroff_method, apic_enable_acpi));
 }
 
 void
-apic_shutdown(int cmd, int fcn)
+apic_shutdown(int cmd __unused, int fcn __unused)
 {
-	int restarts, attempts;
-	int i;
-	uchar_t	byte;
 	ulong_t iflag;
-
-	hpet_acpi_fini();
 
 	/* Send NMI to all CPUs except self to do per processor shutdown */
 	iflag = intr_clear();
@@ -1205,163 +1053,14 @@ apic_shutdown(int cmd, int fcn)
 	apic_reg_ops->apic_write(APIC_INT_CMD1,
 	    AV_NMI | AV_LEVEL | AV_SH_ALL_EXCSELF);
 
-	/* restore cmos shutdown byte before reboot */
-	if (apic_cmos_ssb_set) {
-		outb(CMOS_ADDR, SSB);
-		outb(CMOS_DATA, 0);
-	}
-
 	ioapic_disable_redirection();
-
-	/*	disable apic mode if imcr present	*/
-	if (apic_imcrp) {
-		outb(APIC_IMCR_P1, (uchar_t)APIC_IMCR_SELECT);
-		outb(APIC_IMCR_P2, (uchar_t)APIC_IMCR_PIC);
-	}
-
 	apic_disable_local_apic();
-
 	intr_restore(iflag);
 
-	/* remainder of function is for shutdown cases only */
-	if (cmd != A_SHUTDOWN)
-		return;
-
-	/* remainder of function is for shutdown+poweroff case only */
-	if (fcn != AD_POWEROFF)
-		return;
-
-	switch (apic_poweroff_method) {
-		case APIC_POWEROFF_VIA_RTC:
-
-			/* select the extended NVRAM bank in the RTC */
-			outb(CMOS_ADDR, RTC_REGA);
-			byte = inb(CMOS_DATA);
-			outb(CMOS_DATA, (byte | EXT_BANK));
-
-			outb(CMOS_ADDR, PFR_REG);
-
-			/* for Predator must toggle the PAB bit */
-			byte = inb(CMOS_DATA);
-
-			/*
-			 * clear power active bar, wakeup alarm and
-			 * kickstart
-			 */
-			byte &= ~(PAB_CBIT | WF_FLAG | KS_FLAG);
-			outb(CMOS_DATA, byte);
-
-			/* delay before next write */
-			drv_usecwait(1000);
-
-			/* for S40 the following would suffice */
-			byte = inb(CMOS_DATA);
-
-			/* power active bar control bit */
-			byte |= PAB_CBIT;
-			outb(CMOS_DATA, byte);
-
-			break;
-
-		case APIC_POWEROFF_VIA_ASPEN_BMC:
-			restarts = 0;
-restart_aspen_bmc:
-			if (++restarts == 3)
-				break;
-			attempts = 0;
-			do {
-				byte = inb(MISMIC_FLAG_REGISTER);
-				byte &= MISMIC_BUSY_MASK;
-				if (byte != 0) {
-					drv_usecwait(1000);
-					if (attempts >= 3)
-						goto restart_aspen_bmc;
-					++attempts;
-				}
-			} while (byte != 0);
-			outb(MISMIC_CNTL_REGISTER, CC_SMS_GET_STATUS);
-			byte = inb(MISMIC_FLAG_REGISTER);
-			byte |= 0x1;
-			outb(MISMIC_FLAG_REGISTER, byte);
-			i = 0;
-			for (; i < (sizeof (aspen_bmc)/sizeof (aspen_bmc[0]));
-			    i++) {
-				attempts = 0;
-				do {
-					byte = inb(MISMIC_FLAG_REGISTER);
-					byte &= MISMIC_BUSY_MASK;
-					if (byte != 0) {
-						drv_usecwait(1000);
-						if (attempts >= 3)
-							goto restart_aspen_bmc;
-						++attempts;
-					}
-				} while (byte != 0);
-				outb(MISMIC_CNTL_REGISTER, aspen_bmc[i].cntl);
-				outb(MISMIC_DATA_REGISTER, aspen_bmc[i].data);
-				byte = inb(MISMIC_FLAG_REGISTER);
-				byte |= 0x1;
-				outb(MISMIC_FLAG_REGISTER, byte);
-			}
-			break;
-
-		case APIC_POWEROFF_VIA_SITKA_BMC:
-			restarts = 0;
-restart_sitka_bmc:
-			if (++restarts == 3)
-				break;
-			attempts = 0;
-			do {
-				byte = inb(SMS_STATUS_REGISTER);
-				byte &= SMS_STATE_MASK;
-				if ((byte == SMS_READ_STATE) ||
-				    (byte == SMS_WRITE_STATE)) {
-					drv_usecwait(1000);
-					if (attempts >= 3)
-						goto restart_sitka_bmc;
-					++attempts;
-				}
-			} while ((byte == SMS_READ_STATE) ||
-			    (byte == SMS_WRITE_STATE));
-			outb(SMS_COMMAND_REGISTER, SMS_GET_STATUS);
-			i = 0;
-			for (; i < (sizeof (sitka_bmc)/sizeof (sitka_bmc[0]));
-			    i++) {
-				attempts = 0;
-				do {
-					byte = inb(SMS_STATUS_REGISTER);
-					byte &= SMS_IBF_MASK;
-					if (byte != 0) {
-						drv_usecwait(1000);
-						if (attempts >= 3)
-							goto restart_sitka_bmc;
-						++attempts;
-					}
-				} while (byte != 0);
-				outb(sitka_bmc[i].port, sitka_bmc[i].data);
-			}
-			break;
-
-		case APIC_POWEROFF_NONE:
-
-			/* If no APIC direct method, we will try using ACPI */
-			if (apic_enable_acpi) {
-				if (acpi_poweroff() == 1)
-					return;
-			} else
-				return;
-
-			break;
-	}
 	/*
-	 * Wait a limited time here for power to go off.
-	 * If the power does not go off, then there was a
-	 * problem and we should continue to the halt which
-	 * prints a message for the user to press a key to
-	 * reboot.
+	 * XXX Either hook into the SP shutdown path here or delete this
+	 * entirely and override this PSM method.
 	 */
-	drv_usecwait(7000000); /* wait seven seconds */
-
 }
 
 cyclic_id_t apic_cyclic_id;
@@ -1570,7 +1269,7 @@ int	apic_multi_msi_enable = 1;
  * this version number.)
  */
 int
-apic_check_msi_support()
+apic_check_msi_support(void)
 {
 	dev_info_t *cdip;
 	char dev_type[16];

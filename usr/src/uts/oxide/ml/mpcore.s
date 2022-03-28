@@ -27,6 +27,7 @@
  *
  * Copyright 2019 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/asm_linkage.h>
@@ -34,32 +35,87 @@
 #include <sys/regset.h>
 #include <sys/privregs.h>
 #include <sys/x86_archext.h>
+#include <sys/rm_platter.h>
 
 #include <sys/segments.h>
 #include "assym.h"
 
 /*
- *	Our assumptions:
- *		- We are running in real mode.
- *		- Interrupts are disabled.
- *		- Selectors are equal (cs == ds == ss) for all real mode code
- *		- The GDT, IDT, ktss and page directory has been built for us
+ * APs start at the reset vector and immediately jump to this code copied onto
+ * the beginning of the page on which the reset vector is located; see mp_rmp.c.
  *
- *	Our actions:
- *	Start CPU:
- *		- We start using our GDT by loading correct values in the
- *		  selector registers (cs=KCS_SEL, ds=es=ss=KDS_SEL, fs=KFS_SEL,
- *		  gs=KGS_SEL).
- *		- We change over to using our IDT.
- *		- We load the default LDT into the hardware LDT register.
- *		- We load the default TSS into the hardware task register.
- *		- call mp_startup(void) indirectly through the T_PC
- *	Stop CPU:
- *		- Put CPU into halted state with interrupts disabled
+ * Our assumptions:
  *
+ * - We are running in real mode
+ * - The RMP has been populated for us
+ * - The GDT, IDT, ktss and page directory has been built for us
+ * - %csbase is magic; see discussion below
+ *
+ * Our actions to start up each AP:
+ *
+ * - First, get to 64-bit mode, with a stop at big-flat mode so that we can
+ *   reference memory using real descriptors TEMP_CS32_SEL and TEMP_DS32_SEL
+ *   in our temporary GDT.
+ * - We start using our real GDT by loading correct values in the selector
+ *   registers (cs=KCS_SEL, ds=es=ss=KDS_SEL, fs=KFS_SEL, gs=KGS_SEL).
+ * - We change over to using our IDT.
+ * - We load the default LDT into the hardware LDT register.
+ * - We load the default TSS into the hardware task register.
+ * - call mp_startup(void) indirectly through the T_PC
+ *
+ * We don't support stopping a CPU, because the hardware provides no way to do
+ * it.  CPUs can be taken offline through the ordinary code paths, but cannot
+ * be shut off.  Neither our kernel nor any current processor supports
+ * cpr/suspend/resume, either; everything here is reversible only by dropping
+ * our power state to A2 or lower (G3 as visible to this processor).
+ *
+ * The Magic %csbase
+ *
+ * When an AMD processor family 0x17 and later starts up (BSP or AP), it begins
+ * fetching instructions from memory, not from the boot flash's MMIO space.
+ * This memory can be, and generally is, above the 1 MiB boundary.  Yet for
+ * reasons known only to AMD, the processor is still in real mode.  How, then,
+ * do memory accesses (including instruction fetches!) work?  The answer is
+ * that while %cs is set to the same value it has been from time immemorial
+ * (0xf000), %csbase is magically set to refer to the 32-bit location set up
+ * in the APCB (or, possibly, set up by a subsequent RPC to the PSP, if that
+ * actually works).  This is why we saved the BSP's reset vector and the page
+ * it's on: the APs are going to start in the same place.  As long as %cs is
+ * left at its default value, one may access anything within or offsettable
+ * against the 64 kiB region ending 16 bytes past the reset vector at
+ * %cs:0xfff0.
+ *
+ * Unfortunately (as if this whole thing weren't unfortunate enough as it is),
+ * the magic is in %csbase, not %cs.  Copying %cs to %ds, %ss, or any other
+ * segment register is useless; the hidden portion of the segment registers
+ * will be set to their ordinary real-mode values and you will be able to
+ * access only the bottom MiB of memory (and/or MMIO, if you've set things up
+ * that way which we do not; there is nothing in the legacy range that we need
+ * or want).
+ *
+ * The rule, then, is simple:
+ *
+ * ** Until we have set up a GDT with valid 32-bit selectors and put those
+ *    selectors into the segment registers, all memory references MUST be
+ *    made against %cs, and referencing memory outside the boot segment's
+ *    offsettable range is impossible. **
+ *
+ * In our case, we reference only the last page in the segment, which has been
+ * reserved for us.  Writing outside this page will corrupt kernel memory and
+ * is therefore not recommended.  Our objective is simply to get out of this
+ * state as quickly as possible, starting by setting up a GDT with normal
+ * descriptors we can use to reference other memory.
+ *
+ * The interesting thing about all this is that this weird initial state is
+ * made possible by the PSP populating the CC6 save buffers and then treating
+ * startup as CC6 resume.  In principle, then, it should be possible to populate
+ * the CC6 save buffer with something much spicier than a single magic segment
+ * selector base address.  The contents of the CC6 save buffer are not
+ * documented anywhere, but they must surely include things like %cr0, %cr3,
+ * %cr4, EFER, and the xDTRs.  Someone should think about what it would take
+ * to start all the APs directly in long mode, so that this godawful relic of
+ * the 1970s can be laid to rest where it belonged 30 years ago.
  */
-
-	ENTRY_NP(real_mode_start_cpu)
 
 	/*
 	 * NOTE:  The GNU assembler automatically does the right thing to
@@ -70,48 +126,71 @@
 	 *	  automatically of the default operand size.
 	 */
 	.code16
+	ENTRY_NP(real_mode_start_cpu)
+
 	cli
-	movw		%cs, %ax
-	movw		%ax, %ds	/* load cs into ds */
-	movw		%ax, %ss	/* and into ss */
 
 	/*
-	 * Helps in debugging by giving us the fault address.
-	 *
-	 * Remember to patch a hlt (0xf4) at cmntrap to get a good stack.
+	 * Register usage note: we set up %bx/%ebx/%rbx at each step so that it
+	 * points to the rm_platter_t in whatever addressing mode we are using.
+	 * This makes use of the assym offsets convenient.
 	 */
-	movl		$0xffc, %esp
-	movl		%cr0, %eax
+	movw	$RMP_BASE_SEGOFF, %bx
+
+	lidtl	%cs:TEMPIDTOFF(%bx)
+	lgdtl	%cs:TEMPGDTOFF(%bx)
+
+	leaw	RVCODEOFF(%bx), %bp		/* Avoid %sp's implicit %ss */
+
+	movl	%cs:PE32OFF(%bx), %eax
+	subw	$2, %bp				/* Not pushw; must use %cs */
+	movw	$TEMP_CS32_SEL, %cs:(%bp)
+	subw	$4, %bp				/* Not pushl; must use %cs */
+	movl	%eax, %cs:(%bp)
 
 	/*
-	 * Enable protected-mode, write protect, and alignment mask
+	 * Now we're going to enter protected mode and jump into a 32-bit
+	 * code segment.  Set up %ebx for use there while it's convenient to
+	 * load our base address from the RMP.
 	 */
-	orl		$(CR0_PE|CR0_WP|CR0_AM), %eax
-	movl		%eax, %cr0
+	movl	%cs:RMPBASEPAOFF(%bx), %ebx
+
+	movl	%cr0, %eax
+	orl	$(CR0_PE | CR0_WP | CR0_AM), %eax
+	movl	%eax, %cr0
+
+	ljmpl	*%cs:(%bp)			/* Not lretl; must use %cs */
+
+	.globl	pe32start
+pe32start:
+	.code32
 
 	/*
-	 * Do a jmp immediately after writing to cr0 when enabling protected
-	 * mode to clear the real mode prefetch queue (per Intel's docs)
+	 * We are now in protected mode in a 32-bit code segment.  Now we can
+	 * access the contents of the RMP using their absolute physical
+	 * addresses, and get to long mode.
 	 */
-	jmp		pestart
+	movw	$TEMP_DS32_SEL, %ax
+	movw	%ax, %ds
+	movw	%ax, %ss
 
-pestart:
-	/*
-	 * 16-bit protected mode is now active, so prepare to turn on long
-	 * mode.
-	 */
-
-	/*
-	 * Add any initial cr4 bits
-	 */
-	movl		%cr4, %eax
-	addr32 orl	CR4OFF, %eax
+	leal	RVCODEOFF(%ebx), %esp
 
 	/*
-	 * Enable PAE mode (CR4.PAE)
+	 * Set our default MTRR to enable WB.  We don't otherwise use MTRRs.
 	 */
-	orl		$CR4_PAE, %eax
-	movl		%eax, %cr4
+	movl	$MSR_MTRR_DEF_TYPE, %ecx
+	movl	$(MTRR_DEF_TYPE_EN | MTRR_TYPE_WB), %eax
+	xorl	%edx, %edx
+	wrmsr
+
+	/*
+	 * Copy most of %cr4's contents from the BSP, then enable PAE.
+	 */
+	movl	%cr4, %eax
+	orl	CR4OFF(%ebx), %eax
+	orl	$CR4_PAE, %eax
+	movl	%eax, %cr4
 
 	/*
 	 * Point cr3 to the 64-bit long mode page tables.
@@ -120,8 +199,8 @@ pestart:
 	 * a way to load %cr3 with a 64-bit base address for the page tables
 	 * until the CPU is actually executing in 64-bit long mode.
 	 */
-	addr32 movl	CR3OFF, %eax
-	movl		%eax, %cr3
+	movl	CR3OFF(%ebx), %eax
+	movl	%eax, %cr3
 
 	/*
 	 * Set long mode enable in EFER (EFER.LME = 1)
@@ -131,41 +210,20 @@ pestart:
 	orl	$AMD_EFER_LME, %eax
 	wrmsr
 
+	movl	LM64OFF(%ebx), %eax
+	pushl	$TEMP_CS64_SEL
+	pushl	%eax
+
 	/*
-	 * Finally, turn on paging (CR0.PG = 1) to activate long mode.
+	 * Finally, turn on paging (CR0.PG = 1) to activate long mode.  The
+	 * instruction after setting CR0_PG must be a branch, per AMD64 14.6.1.
+	 * As when we left 16-bit mode, we have already set up our destination
+	 * at (%esp) so that the next instruction can be lretl.
 	 */
 	movl	%cr0, %eax
 	orl	$CR0_PG, %eax
 	movl	%eax, %cr0
 
-	/*
-	 * The instruction after enabling paging in CR0 MUST be a branch.
-	 */
-	jmp	long_mode_active
-
-long_mode_active:
-	/*
-	 * Long mode is now active but since we're still running with the
-	 * original 16-bit CS we're actually in 16-bit compatability mode.
-	 *
-	 * We have to load an intermediate GDT and IDT here that we know are
-	 * in 32-bit space before we can use the kernel's GDT and IDT, which
-	 * may be in the 64-bit address space, and since we're in compatability
-	 * mode, we only have access to 16 and 32-bit instructions at the
-	 * moment.
-	 */
-	addr32 lgdtl	TEMPGDTOFF	/* load temporary GDT */
-	addr32 lidtl	TEMPIDTOFF	/* load temporary IDT */
-
-	/*
-	 * Do a far transfer to 64-bit mode.  Set the CS selector to a 64-bit
-	 * long mode selector (CS.L=1) in the temporary 32-bit GDT and jump
-	 * to the real mode platter address of long_mode 64 as until the 64-bit
-	 * CS is in place we don't have access to 64-bit instructions and thus
-	 * can't reference a 64-bit %rip.
-	 */
-	pushl		$TEMP_CS64_SEL
-	addr32 pushl	LM64OFF
 	lretl
 
 	.globl	long_mode_64
@@ -177,21 +235,13 @@ long_mode_64:
 	 *
 	 * First, set the 64-bit GDT base.
 	 */
-	.globl	rm_platter_pa
-	movl	rm_platter_pa, %eax
-	lgdtq	GDTROFF(%rax)		/* load 64-bit GDT */
+	lgdtq	GDTROFF(%rbx)		/* load 64-bit GDT */
 
 	/*
 	 * Save the CPU number in %r11; get the value here since it's saved in
 	 * the real mode platter.
 	 */
-	movl	CPUNOFF(%rax), %r11d
-
-	/*
-	 * Add rm_platter_pa to %rsp to point it to the same location as seen
-	 * from 64-bit mode.
-	 */
-	addq	%rax, %rsp
+	movl	CPUNOFF(%rbx), %r11d
 
 	/*
 	 * Now do an lretq to load CS with the appropriate selector for the
@@ -213,8 +263,8 @@ kernel_cs_code:
 	 * 64-bit kernel code (namely init rsp, TSS, LGDT, FS and GS).
 	 */
 	.globl	rm_platter_va
-	movq	rm_platter_va, %rax
-	lidtq	IDTROFF(%rax)
+	movq	rm_platter_va, %rbx
+	lidtq	IDTROFF(%rbx)
 
 	movw	$KDS_SEL, %ax
 	movw	%ax, %ds
@@ -231,9 +281,8 @@ kernel_cs_code:
 	 * Set GS to the address of the per-cpu structure as contained in
 	 * cpu[cpu_number].
 	 *
-	 * Unfortunately there's no way to set the 64-bit gsbase with a mov,
-	 * so we have to stuff the low 32 bits in %eax and the high 32 bits in
-	 * %edx, then call wrmsr.
+	 * We've disabled wrgsbase, so we have to stuff the low 32 bits in
+	 * %eax and the high 32 bits in %edx, then call wrmsr.
 	 */
 	leaq	cpu(%rip), %rdi
 	movl	(%rdi, %r11, 8), %eax
@@ -294,74 +343,3 @@ kernel_cs_code:
 	int	$20			/* whoops, returned somehow! */
 
 	SET_SIZE(real_mode_start_cpu)
-
-	ENTRY_NP(real_mode_stop_cpu_stage1)
-
-#if !defined(__GNUC_AS__)
-
-	/*
-	 * For vulcan as we need to do a .code32 and mentally invert the
-	 * meaning of the addr16 and data16 prefixes to get 32-bit access when
-	 * generating code to be executed in 16-bit mode (sigh...)
-	 */
-	.code32
-	cli
-	movw		%cs, %ax
-	movw		%ax, %ds	/* load cs into ds */
-	movw		%ax, %ss	/* and into ss */
-
-	/*
-	 * Jump to the stage 2 code in the rm_platter_va->rm_cpu_halt_code
-	 */
-	movw		$CPUHALTCODEOFF, %ax
-	.byte		0xff, 0xe0	/* jmp *%ax */
-
-#else	/* __GNUC_AS__ */
-
-	/*
-	 * NOTE:  The GNU assembler automatically does the right thing to
-	 *	  generate data size operand prefixes based on the code size
-	 *	  generation mode (e.g. .code16, .code32, .code64) and as such
-	 *	  prefixes need not be used on instructions EXCEPT in the case
-	 *	  of address prefixes for code for which the reference is not
-	 *	  automatically of the default operand size.
-	 */
-	.code16
-	cli
-	movw		%cs, %ax
-	movw		%ax, %ds	/* load cs into ds */
-	movw		%ax, %ss	/* and into ss */
-
-	/*
-	 * Jump to the stage 2 code in the rm_platter_va->rm_cpu_halt_code
-	 */
-	movw		$CPUHALTCODEOFF, %ax
-	jmp		*%ax
-
-#endif	/* !__GNUC_AS__ */
-
-	.globl real_mode_stop_cpu_stage1_end
-real_mode_stop_cpu_stage1_end:
-	nop
-
-	SET_SIZE(real_mode_stop_cpu_stage1)
-
-	ENTRY_NP(real_mode_stop_cpu_stage2)
-
-	movw		$0xdead, %ax
-	movw		%ax, CPUHALTEDOFF
-
-real_mode_stop_cpu_loop:
-	/*
-	 * Put CPU into halted state.
-	 * Only INIT, SMI, NMI could break the loop.
-	 */
-	hlt
-	jmp		real_mode_stop_cpu_loop
-
-	.globl real_mode_stop_cpu_stage2_end
-real_mode_stop_cpu_stage2_end:
-	nop
-
-	SET_SIZE(real_mode_stop_cpu_stage2)
-

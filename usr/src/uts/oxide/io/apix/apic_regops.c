@@ -26,6 +26,7 @@
  * Copyright 2014 Josef 'Jeff' Sipek <jeffpc@josefsipek.net>
  * Copyright (c) 2014 by Delphix. All rights reserved.
  * Copyright 2017 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/cpuvar.h>
@@ -54,8 +55,8 @@ static void local_apic_write_int_cmd(uint32_t cpu_id, uint32_t cmd1);
  *   xAPIC global enable    X2APIC enable         Description
  *   (IA32_APIC_BASE[11])   (IA32_APIC_BASE[10])
  * -----------------------------------------------------------
- *	0 			0 	APIC is disabled
- * 	0			1	Invalid
+ *	0			0	APIC is disabled
+ *	0			1	Invalid
  *	1			0	APIC is enabled in xAPIC mode
  *	1			1	APIC is enabled in X2APIC mode
  * -----------------------------------------------------------
@@ -136,7 +137,6 @@ apic_send_directed_EOI(uint32_t irq)
 	uchar_t ioapicindex;
 	uchar_t vector;
 	apic_irq_t *apic_irq;
-	short intr_index;
 
 	/*
 	 * Following the EOI to the local APIC unit, perform a directed
@@ -149,8 +149,7 @@ apic_send_directed_EOI(uint32_t irq)
 
 	apic_irq = apic_irq_table[irq];
 	while (apic_irq) {
-		intr_index = apic_irq->airq_mps_intr_index;
-		if (intr_index == ACPI_INDEX || intr_index >= 0) {
+		if (apic_irq->airq_kind == AIRQK_FIXED) {
 			ioapicindex = apic_irq->airq_ioapicindex;
 			vector = apic_irq->airq_vector;
 			ioapic_write_eoi(ioapicindex, vector);
@@ -175,7 +174,7 @@ apic_local_mode(void)
 		return (APIC_IS_DISABLED);
 	case LAPIC_ENABLE_MASK:
 		return (LOCAL_APIC);
-	case X2APIC_ENABLE_MASK:
+	case (LAPIC_ENABLE_MASK | X2APIC_ENABLE_MASK):
 		return (LOCAL_X2APIC);
 	}
 
@@ -183,13 +182,13 @@ apic_local_mode(void)
 }
 
 void
-apic_set_directed_EOI_handler()
+apic_set_directed_EOI_handler(void)
 {
 	apic_reg_ops->apic_send_eoi = apic_send_directed_EOI;
 }
 
 int
-apic_directed_EOI_supported()
+apic_directed_EOI_supported(void)
 {
 	uint32_t ver;
 

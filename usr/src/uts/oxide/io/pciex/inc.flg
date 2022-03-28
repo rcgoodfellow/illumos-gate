@@ -26,7 +26,7 @@
 #
 
 # This file brings down all that is needed to build the
-# x86 PCI Express code. 
+# x86 PCI Express code.
 #
 
 # header files
@@ -53,8 +53,7 @@ find_files "s.*"	\
 
 # to compile the drivers/modules
 find_files "s.*"	\
-	usr/src/uts/i86pc/npe			\
-	usr/src/uts/i86xpv/npe			\
+	usr/src/uts/oxide/npe			\
 	usr/src/uts/intel/pci_autoconfig	\
 	usr/src/uts/intel/pcieb			\
 	usr/src/uts/intel/pcicfg
@@ -72,9 +71,7 @@ find_files "s.*"	\
 	usr/src/uts/intel/io/hotplug	\
 	usr/src/uts/intel/io/pci	\
 	usr/src/uts/intel/io/pciex	\
-	usr/src/uts/i86pc/io/pci	\
-	usr/src/uts/i86pc/io/pcplusmp	\
-	usr/src/uts/intel/io/acpica
+	usr/src/uts/oxide/io/pci
 
 # makefiles
 echo_file  usr/src/Makefile.master
@@ -90,16 +87,11 @@ echo_file  usr/src/uts/sun/Makefile.rules
 echo_file  usr/src/uts/common/Makefile.files
 echo_file  usr/src/uts/common/Makefile.rules
 echo_file  usr/src/uts/common/sys/Makefile
-echo_file  usr/src/uts/i86pc/Makefile
-echo_file  usr/src/uts/i86pc/Makefile.files
-echo_file  usr/src/uts/i86pc/Makefile.rules
-echo_file  usr/src/uts/i86pc/Makefile.i86pc
-echo_file  usr/src/uts/i86pc/Makefile.targ
-echo_file  usr/src/uts/i86xpv/Makefile
-echo_file  usr/src/uts/i86xpv/Makefile.files
-echo_file  usr/src/uts/i86xpv/Makefile.rules
-echo_file  usr/src/uts/i86xpv/Makefile.i86xpv
-echo_file  usr/src/uts/i86xpv/Makefile.targ
+echo_file  usr/src/uts/oxide/Makefile
+echo_file  usr/src/uts/oxide/Makefile.files
+echo_file  usr/src/uts/oxide/Makefile.rules
+echo_file  usr/src/uts/oxide/Makefile.oxide
+echo_file  usr/src/uts/oxide/Makefile.targ
 echo_file  usr/src/uts/intel/Makefile
 echo_file  usr/src/uts/intel/Makefile.files
 echo_file  usr/src/uts/intel/Makefile.rules

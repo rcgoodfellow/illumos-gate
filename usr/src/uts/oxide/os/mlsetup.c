@@ -257,11 +257,8 @@ mlsetup(struct regs *rp)
 	 * Milan topology so we can use the at later parts of the build.
 	 */
 	milan_fabric_topo_init();
+	milan_ccx_set_brandstr();
 
-	/*
-	 * Initialize the platform type from CPU 0 to ensure that
-	 * determine_platform() is only ever called once.
-	 */
 	determine_platform();
 
 	/*
@@ -357,13 +354,6 @@ mlsetup(struct regs *rp)
 	rp->r_fp = 0;	/* terminate kernel stack traces! */
 
 	prom_init("kernel", (void *)NULL);
-
-	/*
-	 * Set max_ncpus and boot_max_ncpus to boot_ncpus; we don't support
-	 * CPU DR, ever.
-	 */
-	boot_ncpus = NCPU;
-	max_ncpus = boot_max_ncpus = boot_ncpus;
 
 	/*
 	 * Initialize the lgrp framework

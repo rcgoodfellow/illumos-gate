@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <sys/sysmacros.h>
@@ -460,27 +461,16 @@ pcitool_intr_info(dev_info_t *dip, void *arg, int mode)
 
 	info_hdl.ih_private = &type_info;
 
-	/* For UPPC systems, psm_intr_ops has no entry for APIC_TYPE. */
-	if ((rval = (*psm_intr_ops)(NULL, &info_hdl,
-	    PSM_INTR_OP_APIC_TYPE, NULL)) != PSM_SUCCESS) {
-		intr_info.ctlr_type = PCITOOL_CTLR_TYPE_UPPC;
-		intr_info.ctlr_version = 0;
+	if ((*psm_intr_ops)(NULL, &info_hdl,
+	    PSM_INTR_OP_APIC_TYPE, NULL) != PSM_SUCCESS) {
+		intr_info.ctlr_type = PCITOOL_CTLR_TYPE_UNKNOWN;
 		intr_info.num_intr = APIC_MAX_VECTOR;
 	} else {
+		ASSERT(strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0);
 		intr_info.ctlr_version = (uint32_t)info_hdl.ih_ver;
 		intr_info.num_cpu = type_info.avgi_num_cpu;
-		if (strcmp(type_info.avgi_type,
-		    APIC_PCPLUSMP_NAME) == 0) {
-			intr_info.ctlr_type = PCITOOL_CTLR_TYPE_PCPLUSMP;
-			intr_info.num_intr = type_info.avgi_num_intr;
-		} else if (strcmp(type_info.avgi_type,
-		    APIC_APIX_NAME) == 0) {
-			intr_info.ctlr_type = PCITOOL_CTLR_TYPE_APIX;
-			intr_info.num_intr = type_info.avgi_num_intr;
-		} else {
-			intr_info.ctlr_type = PCITOOL_CTLR_TYPE_UNKNOWN;
-			intr_info.num_intr = APIC_MAX_VECTOR;
-		}
+		intr_info.ctlr_type = PCITOOL_CTLR_TYPE_APIX;
+		intr_info.num_intr = type_info.avgi_num_intr;
 	}
 
 	intr_info.drvr_version = PCITOOL_VERSION;

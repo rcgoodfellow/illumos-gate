@@ -60,7 +60,6 @@
 #include <vm/as.h>
 #include <sys/avintr.h>
 #include <sys/pic.h>
-#include <sys/rm_platter.h>
 #include <sys/stream.h>
 #include <sys/strsubr.h>
 #include <sys/sunddi.h>
@@ -161,11 +160,6 @@ pcb	PCBSIZE
 cpu
 	cpu_m.mcpu_rtmp_rsp	CPU_RTMP_RSP
 	cpu_m.mcpu_rtmp_r15	CPU_RTMP_R15
-
-rm_platter
-	rm_temp_gdt_lim		TEMPGDTOFF
-	rm_temp_idt_lim		TEMPIDTOFF
-	rm_longmode64_addr	LM64OFF
 
 #if defined(__xpv)
 

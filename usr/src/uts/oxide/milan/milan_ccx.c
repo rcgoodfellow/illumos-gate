@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -19,12 +19,13 @@
  */
 
 #include <milan/milan_physaddrs.h>
+#include <milan/milan_fabric.h>
 #include <milan/milan_ccx.h>
 #include <sys/boot_physmem.h>
 #include <sys/x86_archext.h>
 
 void
-milan_ccx_mmio_init(uint64_t pa)
+milan_ccx_mmio_init(uint64_t pa, boolean_t reserve)
 {
 	uint64_t val = AMD_MMIOCFG_BASEADDR_ENABLE;
 	val |= AMD_MMIOCFG_BASEADDR_BUSRANGE_256 <<
@@ -32,9 +33,11 @@ milan_ccx_mmio_init(uint64_t pa)
 	val |= (pa & AMD_MMIOCFG_BASEADDR_MASK);
 	wrmsr(MSR_AMD_MMIOCFG_BASEADDR, val);
 
-	eb_physmem_reserve_range(pa,
-	    (1UL << AMD_MMIOCFG_BASEADDR_BUSRANGE_256) <<
-	    AMD_MMIOCFG_BASEADDR_ADDR_SHIFT, EBPR_NOT_RAM);
+	if (reserve) {
+		eb_physmem_reserve_range(pa,
+		    (1UL << AMD_MMIOCFG_BASEADDR_BUSRANGE_256) <<
+		    AMD_MMIOCFG_BASEADDR_ADDR_SHIFT, EBPR_NOT_RAM);
+	}
 }
 
 void
@@ -49,4 +52,73 @@ milan_ccx_physmem_init(void)
 	eb_physmem_reserve_range(MILAN_PHYSADDR_MYSTERY_HOLE,
 	    MILAN_PHYSADDR_MYSTERY_HOLE_END - MILAN_PHYSADDR_MYSTERY_HOLE,
 	    EBPR_NOT_RAM);
+}
+
+/*
+ * In this context, "thread" == AP.  SMT may or may not be enabled (by HW, FW,
+ * or our own controls).  That may affect the number of threads per core, but
+ * doesn't otherwise change anything here.
+ *
+ * This function is one-way; once a thread has been enabled, we are told that
+ * we must never clear this bit.  What happens if we do, I do not know.  If the
+ * thread was already booted, this function does nothing and returns B_FALSE;
+ * otherwise it returns B_TRUE and the AP will be started.  There is no way to
+ * fail; we don't construct a milan_thread_t for hardware that doesn't exist, so
+ * it's always possible to perform this operation if what we are handed points
+ * to genuine data.
+ *
+ * See MP boot theory in os/mp_startup.c
+ */
+boolean_t
+milan_ccx_start_thread(const milan_thread_t *thread)
+{
+	milan_core_t *core = thread->mt_core;
+	milan_ccx_t *ccx = core->mc_ccx;
+	milan_ccd_t *ccd = ccx->mcx_ccd;
+	uint8_t thr_ccd_idx;
+	uint32_t en;
+
+	VERIFY3U(CPU->cpu_id, ==, 0);
+
+	thr_ccd_idx = ccx->mcx_logical_cxno;
+	thr_ccd_idx *= ccx->mcx_ncores;
+	thr_ccd_idx += core->mc_logical_coreno;
+	thr_ccd_idx *= core->mc_nthreads;
+	thr_ccd_idx += thread->mt_threadno;
+
+	VERIFY3U(thr_ccd_idx, <, MILAN_MAX_CCXS_PER_CCD *
+	    MILAN_MAX_CORES_PER_CCX * MILAN_MAX_THREADS_PER_CORE);
+
+	en = milan_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE);
+	if (MILAN_SMUPWR_R_GET_THREAD_ENABLE_T(en, thr_ccd_idx) != 0)
+		return (B_FALSE);
+
+	en = MILAN_SMUPWR_R_SET_THREAD_ENABLE_T(en, thr_ccd_idx);
+	milan_smupwr_write32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE, en);
+	return (B_TRUE);
+}
+
+milan_thread_t *
+milan_ccx_thread_self(void)
+{
+	return (milan_fabric_find_thread_by_cpuid(CPU->cpu_id));
+}
+
+void
+milan_ccx_set_brandstr(void)
+{
+	const milan_thread_t *thread = milan_ccx_thread_self();
+	char str[CPUID_BRANDSTR_STRLEN + 1];
+	uint_t n;
+
+	if (milan_fabric_thread_get_brandstr(thread, str, sizeof (str)) >
+	    CPUID_BRANDSTR_STRLEN || str[0] == '\0') {
+		return;
+	}
+
+	for (n = 0; n < sizeof (str) / sizeof (uint64_t); n++) {
+		uint64_t sv = *(uint64_t *)&str[n * sizeof (uint64_t)];
+
+		wrmsr(MSR_AMD_PROC_NAME_STRING0 + n, sv);
+	}
 }

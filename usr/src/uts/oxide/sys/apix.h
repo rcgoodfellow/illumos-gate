@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2017 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef __SYS_APIX_APIX_H
@@ -205,7 +206,7 @@ extern kmutex_t apix_mutex;
  */
 extern apic_irq_t *apic_irq_table[APIC_MAX_VECTOR+1];
 #define	IS_IRQ_FREE(p)		\
-	((p) == NULL || ((p)->airq_mps_intr_index == FREE_INDEX))
+	((p) == NULL || ((p)->airq_kind == AIRQK_FREE))
 
 #define	UNREFERENCED_1PARAMETER(_p)		_NOTE(ARGUNUSED(_p))
 #define	UNREFERENCED_3PARAMETER(_p, _q, _r)	_NOTE(ARGUNUSED(_p, _q, _r))
@@ -220,16 +221,7 @@ extern iflag_t apic_hpet_flags;
 extern int	apic_redist_cpu_skip;
 extern int	apic_num_imbalance;
 extern int	apic_num_rebind;
-extern struct apic_io_intr *apic_io_intrp;
-extern int	apic_use_acpi_madt_only;
-extern uint32_t	eisa_level_intr_mask;
-extern int	apic_pci_bus_total;
-extern uchar_t	apic_single_pci_busid;
 
-extern ACPI_MADT_INTERRUPT_OVERRIDE *acpi_isop;
-extern int acpi_iso_cnt;
-
-extern int	apic_defconf;
 extern int	apic_irq_translate;
 
 extern int apic_max_reps_clear_pending;
@@ -237,12 +229,7 @@ extern int apic_max_reps_clear_pending;
 extern int apic_probe_common(char *modname);
 extern uchar_t irq_to_ioapic_index(int irq);
 extern int apic_find_bus_id(int bustype);
-extern int apic_find_intin(uchar_t ioapic, uchar_t intin);
 extern struct apic_io_intr *apic_find_io_intr_w_busid(int irqno, int busid);
-extern int apic_acpi_translate_pci_irq(dev_info_t *dip, int busid, int devid,
-    int ipin, int *pci_irqp, iflag_t *intr_flagp);
-extern int apic_handle_pci_pci_bridge(dev_info_t *idip, int child_devno,
-    int child_ipin, struct apic_io_intr **intrp);
 extern void apic_record_rdt_entry(apic_irq_t *irqptr, int irq);
 
 /*

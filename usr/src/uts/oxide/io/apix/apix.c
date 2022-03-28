@@ -281,7 +281,7 @@ apix_probe()
 static void
 apix_softinit()
 {
-	int i, *iptr;
+	int i;
 	apix_impl_t *hdlp;
 	int nproc;
 
@@ -297,11 +297,8 @@ apix_softinit()
 	/* cpu 0 is always up (for now) */
 	apic_cpus[0].aci_status = APIC_CPU_ONLINE | APIC_CPU_INTR_ENABLE;
 
-	iptr = (int *)&apic_irq_table[0];
-	for (i = 0; i <= APIC_MAX_VECTOR; i++) {
-		apic_level_intr[i] = 0;
-		*iptr++ = 0;
-	}
+	bzero(apic_level_intr, sizeof (apic_level_intr));
+	bzero(apic_irq_table, sizeof (apic_irq_table));
 	mutex_init(&airq_mutex, NULL, MUTEX_DEFAULT, NULL);
 
 	apix_dev_vector = kmem_zalloc(sizeof (apix_dev_vector_t *) * devcnt,
@@ -588,12 +585,6 @@ apix_picinit(void)
 
 	apix_init_intr();
 
-	/* enable apic mode if imcr present */
-	if (apic_imcrp) {
-		outb(APIC_IMCR_P1, (uchar_t)APIC_IMCR_SELECT);
-		outb(APIC_IMCR_P2, (uchar_t)APIC_IMCR_APIC);
-	}
-
 	ioapix_init_intr(IOAPIC_MASK);
 
 	/* setup global IRM pool if applicable */
@@ -604,10 +595,8 @@ apix_picinit(void)
 static __inline__ void
 apix_send_eoi(void)
 {
-	if (apic_mode == LOCAL_APIC)
-		LOCAL_APIC_WRITE_REG(APIC_EOI_REG, 0);
-	else
-		X2APIC_WRITE(APIC_EOI_REG, 0);
+	VERIFY3S(apic_mode, ==, LOCAL_X2APIC);
+	X2APIC_WRITE(APIC_EOI_REG, 0);
 }
 
 /*
@@ -1078,7 +1067,7 @@ apix_post_cyclic_setup(void *arg)
  * Update some of the function pointers to use x2apic routines.
  */
 void
-x2apic_update_psm()
+x2apic_update_psm(void)
 {
 	struct psm_ops *pops = &apix_ops;
 
@@ -1838,7 +1827,7 @@ apix_intx_free(int irqno)
 		return;
 	}
 
-	irqp->airq_mps_intr_index = FREE_INDEX;
+	irqp->airq_kind = AIRQK_FREE;
 	irqp->airq_cpu = IRQ_UNINIT;
 	irqp->airq_vector = APIX_INVALID_VECT;
 	mutex_exit(&airq_mutex);
@@ -2056,7 +2045,7 @@ apix_intx_set_mask(int irqno)
 	mutex_enter(&airq_mutex);
 	irqp = apic_irq_table[irqno];
 
-	ASSERT(irqp->airq_mps_intr_index != FREE_INDEX);
+	ASSERT(irqp->airq_kind != AIRQK_FREE);
 
 	intin = irqp->airq_intin_no;
 	ioapixindex = irqp->airq_ioapicindex;
@@ -2088,7 +2077,7 @@ apix_intx_clear_mask(int irqno)
 	mutex_enter(&airq_mutex);
 	irqp = apic_irq_table[irqno];
 
-	ASSERT(irqp->airq_mps_intr_index != FREE_INDEX);
+	ASSERT(irqp->airq_kind != AIRQK_FREE);
 
 	intin = irqp->airq_intin_no;
 	ioapixindex = irqp->airq_ioapicindex;
@@ -2228,52 +2217,30 @@ apix_intx_set_shared(int irqno, int delta)
  */
 static int
 apix_intx_setup(dev_info_t *dip, int inum, int irqno,
-    struct apic_io_intr *intrp, struct intrspec *ispec, iflag_t *iflagp)
+    struct intrspec *ispec, iflag_t *iflagp)
 {
 	int origirq = ispec->intrspec_vec;
 	int newirq;
-	short intr_index;
-	uchar_t ipin, ioapic, ioapicindex;
+	apic_irq_kind_t kind = AIRQK_NONE;
+	uchar_t ipin, ioapicindex;
 	apic_irq_t *irqp;
 
 	UNREFERENCED_1PARAMETER(inum);
 
-	if (intrp != NULL) {
-		intr_index = (short)(intrp - apic_io_intrp);
-		ioapic = intrp->intr_destid;
-		ipin = intrp->intr_destintin;
+	if (iflagp == NULL)
+		return (-1);
 
-		/* Find ioapicindex. If destid was ALL, we will exit with 0. */
-		for (ioapicindex = apic_io_max - 1; ioapicindex; ioapicindex--)
-			if (apic_io_id[ioapicindex] == ioapic)
-				break;
-		ASSERT((ioapic == apic_io_id[ioapicindex]) ||
-		    (ioapic == INTR_ALL_APIC));
+	kind = AIRQK_FIXED;
+	ioapicindex = irq_to_ioapic_index(irqno);
+	ASSERT(ioapicindex != 0xFF);
+	ipin = irqno - apic_io_vectbase[ioapicindex];
 
-		/* check whether this intin# has been used by another irqno */
-		if ((newirq = apic_find_intin(ioapicindex, ipin)) != -1)
-			return (newirq);
-
-	} else if (iflagp != NULL) {
-		intr_index = ACPI_INDEX;
-		ioapicindex = irq_to_ioapic_index(irqno);
-		ASSERT(ioapicindex != 0xFF);
-		ioapic = apic_io_id[ioapicindex];
-		ipin = irqno - apic_io_vectbase[ioapicindex];
-
-		if (apic_irq_table[irqno] &&
-		    apic_irq_table[irqno]->airq_mps_intr_index == ACPI_INDEX) {
-			ASSERT(apic_irq_table[irqno]->airq_intin_no == ipin &&
-			    apic_irq_table[irqno]->airq_ioapicindex ==
-			    ioapicindex);
-			return (irqno);
-		}
-
-	} else {	/* default configuration */
-		intr_index = DEFAULT_INDEX;
-		ioapicindex = 0;
-		ioapic = apic_io_id[ioapicindex];
-		ipin = (uchar_t)irqno;
+	if (apic_irq_table[irqno] &&
+	    apic_irq_table[irqno]->airq_kind == AIRQK_FIXED) {
+		ASSERT(apic_irq_table[irqno]->airq_intin_no == ipin &&
+		    apic_irq_table[irqno]->airq_ioapicindex ==
+		    ioapicindex);
+		return (irqno);
 	}
 
 	/* allocate a new IRQ no */
@@ -2281,7 +2248,7 @@ apix_intx_setup(dev_info_t *dip, int inum, int irqno,
 		irqp = kmem_zalloc(sizeof (apic_irq_t), KM_SLEEP);
 		apic_irq_table[irqno] = irqp;
 	} else {
-		if (irqp->airq_mps_intr_index != FREE_INDEX) {
+		if (irqp->airq_kind != AIRQK_FREE) {
 			newirq = apic_allocate_irq(apic_first_avail_irq);
 			if (newirq == -1) {
 				return (-1);
@@ -2291,10 +2258,8 @@ apix_intx_setup(dev_info_t *dip, int inum, int irqno,
 			ASSERT(irqp != NULL);
 		}
 	}
-	apic_max_device_irq = max(irqno, apic_max_device_irq);
-	apic_min_device_irq = min(irqno, apic_min_device_irq);
 
-	irqp->airq_mps_intr_index = intr_index;
+	irqp->airq_kind = kind;
 	irqp->airq_ioapicindex = ioapicindex;
 	irqp->airq_intin_no = ipin;
 	irqp->airq_dip = dip;
@@ -2308,87 +2273,18 @@ apix_intx_setup(dev_info_t *dip, int inum, int irqno,
 }
 
 /*
- * Setup IRQ table for non-pci devices. Return IRQ no or -1 on error
- */
-static int
-apix_intx_setup_nonpci(dev_info_t *dip, int inum, int bustype,
-    struct intrspec *ispec)
-{
-	int irqno = ispec->intrspec_vec;
-	iflag_t intr_flag;
-
-	intr_flag.intr_po = INTR_PO_ACTIVE_HIGH;
-	intr_flag.intr_el = INTR_EL_EDGE;
-	intr_flag.bustype = BUS_ISA;
-	return (apix_intx_setup(dip, inum, irqno, NULL, ispec, &intr_flag));
-}
-
-
-/*
- * Setup IRQ table for pci devices. Return IRQ no or -1 on error
- */
-static int
-apix_intx_setup_pci(dev_info_t *dip, int inum, int bustype,
-    struct intrspec *ispec)
-{
-	int busid, devid, pci_irq;
-	ddi_acc_handle_t cfg_handle;
-	uchar_t ipin;
-	iflag_t intr_flag;
-	struct apic_io_intr *intrp;
-
-	if (get_bdf(dip, &busid, &devid, NULL) != 0)
-		return (-1);
-
-	if (busid == 0 && apic_pci_bus_total == 1)
-		busid = (int)apic_single_pci_busid;
-
-	if (pci_config_setup(dip, &cfg_handle) != DDI_SUCCESS)
-		return (-1);
-	ipin = pci_config_get8(cfg_handle, PCI_CONF_IPIN) - PCI_INTA;
-	pci_config_teardown(&cfg_handle);
-
-	if (apic_enable_acpi && !apic_use_acpi_madt_only) {	/* ACPI */
-		if (apic_acpi_translate_pci_irq(dip, busid, devid,
-		    ipin, &pci_irq, &intr_flag) != ACPI_PSM_SUCCESS)
-			return (-1);
-
-		intr_flag.bustype = (uchar_t)bustype;
-		return (apix_intx_setup(dip, inum, pci_irq, NULL, ispec,
-		    &intr_flag));
-	}
-
-	/* MP configuration table */
-	pci_irq = ((devid & 0x1f) << 2) | (ipin & 0x3);
-	if ((intrp = apic_find_io_intr_w_busid(pci_irq, busid)) == NULL) {
-		pci_irq = apic_handle_pci_pci_bridge(dip, devid, ipin, &intrp);
-		if (pci_irq == -1)
-			return (-1);
-	}
-
-	return (apix_intx_setup(dip, inum, pci_irq, intrp, ispec, NULL));
-}
-
-/*
  * Translate and return IRQ no
  */
 static int
 apix_intx_xlate_irq(dev_info_t *dip, int inum, struct intrspec *ispec)
 {
 	int newirq, irqno = ispec->intrspec_vec;
-	int parent_is_pci_or_pciex = 0, child_is_pciex = 0;
-	int bustype = 0, dev_len;
+	iflag_t intr_flag;
+	int dev_len;
 	char dev_type[16];
 
-	if (apic_defconf) {
-		mutex_enter(&airq_mutex);
-		goto defconf;
-	}
-
-	if ((dip == NULL) || (!apic_irq_translate && !apic_enable_acpi)) {
-		mutex_enter(&airq_mutex);
+	if (dip == NULL || !apic_irq_translate)
 		goto nonpci;
-	}
 
 	/*
 	 * use ddi_getlongprop_buf() instead of ddi_prop_lookup_string()
@@ -2399,37 +2295,32 @@ apix_intx_xlate_irq(dev_info_t *dip, int inum, struct intrspec *ispec)
 	    DDI_PROP_DONTPASS, "device_type", (caddr_t)dev_type,
 	    &dev_len) == DDI_PROP_SUCCESS) {
 		if ((strcmp(dev_type, "pci") == 0) ||
-		    (strcmp(dev_type, "pciex") == 0))
-			parent_is_pci_or_pciex = 1;
+		    (strcmp(dev_type, "pciex") == 0)) {
+			cmn_err(CE_WARN, "unsupported INTx request from broken "
+			    "PCI/-X/e driver %s", ddi_driver_name(dip));
+			return (-1);
+		}
+		/* XXX replace me for huashan */
+		if (strcmp(dev_type, "isa") != 0) {
+			cmn_err(CE_WARN, "interrupt translation request from "
+			    "unsupported device type %s: bug in %s(7d)",
+			    dev_type, ddi_driver_name(dip));
+			return (-1);
+		}
 	}
-
-	if (ddi_getlongprop_buf(DDI_DEV_T_ANY, dip,
-	    DDI_PROP_DONTPASS, "compatible", (caddr_t)dev_type,
-	    &dev_len) == DDI_PROP_SUCCESS) {
-		if (strstr(dev_type, "pciex"))
-			child_is_pciex = 1;
-	}
-
-	mutex_enter(&airq_mutex);
-
-	if (parent_is_pci_or_pciex) {
-		bustype = child_is_pciex ? BUS_PCIE : BUS_PCI;
-		newirq = apix_intx_setup_pci(dip, inum, bustype, ispec);
-		if (newirq != -1)
-			goto done;
-		bustype = 0;
-	} else if (strcmp(dev_type, "isa") == 0)
-		bustype = BUS_ISA;
-	else if (strcmp(dev_type, "eisa") == 0)
-		bustype = BUS_EISA;
 
 nonpci:
-	newirq = apix_intx_setup_nonpci(dip, inum, bustype, ispec);
+	mutex_enter(&airq_mutex);
+
+	/* XXX huashan, do we need the defconf path at all? */
+	intr_flag.intr_po = INTR_PO_ACTIVE_HIGH;
+	intr_flag.intr_el = INTR_EL_EDGE;
+	intr_flag.bustype = BUS_ISA;
+	newirq = apix_intx_setup(dip, inum, irqno, ispec, &intr_flag);
 	if (newirq != -1)
 		goto done;
 
-defconf:
-	newirq = apix_intx_setup(dip, inum, irqno, NULL, ispec, NULL);
+	newirq = apix_intx_setup(dip, inum, irqno, ispec, NULL);
 	if (newirq == -1) {
 		mutex_exit(&airq_mutex);
 		return (-1);

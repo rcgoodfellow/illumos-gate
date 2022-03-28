@@ -34,13 +34,45 @@ extern "C" {
 
 #ifdef	USE_DISCOVERY_STUB
 
+/*
+ * This is a stub that will be replaced by communication from the SP very
+ * early in boot.  The origins of these things vary:
+ *
+ * - The APOB address and reset vector are stored in, or computed trivially
+ *   from, data in the BHD.  See the discussion in AMD pub. 57299 sec. 4.1.5
+ *   table 17, and sec. 4.2 especially steps 2 and 4e.  The APOB address can be
+ *   set (by the SP and/or at image creation time) to almost anything in the
+ *   bottom 2 GiB that doesn't conflict with other uses of memory; see the
+ *   discussion in vm/kboot_mmu.c.
+ * - The board identifier comes from the FRUID ROM accessible only by the SP.
+ * - The phase1 ramdisk can come from either the BHD if we have the PSP load
+ *   it or directly from the SP if we have the loader decompress or otherwise
+ *   manipulate the image in memory.  In either case, the SP has the authority
+ *   to set this, either by setting the destination in the BHD or telling the
+ *   loader where to put it.
+ *
+ * Some of these properties (and more especially those in the fallback set
+ * below) could also potentially be defined as part of the machine architecture.
+ * More generally, there will be some minimal collection of non-discoverable
+ * machine state that we must either define or obtain from outside, which in
+ * the absence of a good way to do that is mocked up here.
+ */
 static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
+static const uint32_t ASSUMED_RESET_VECTOR = 0x7ffefff0U;
 static const char FAKE_BOARD_IDENT[] = "FAKE-IDENT";
 static const uint64_t RAMDISK_START_VAL = 0x101000000UL;
 static const uint64_t RAMDISK_END_VAL = 0x105000000UL;
 
-static const bt_prop_t ramdisk_end_prop = {
+static const bt_prop_t reset_vector_prop = {
 	.btp_next = NULL,
+	.btp_name = BTPROP_NAME_RESET_VECTOR,
+	.btp_vlen = sizeof (uint32_t),
+	.btp_value = &ASSUMED_RESET_VECTOR,
+	.btp_typeflags = DDI_PROP_TYPE_INT
+};
+
+static const bt_prop_t ramdisk_end_prop = {
+	.btp_next = &reset_vector_prop,
 	.btp_name = "ramdisk_end",
 	.btp_vlen = sizeof (uint64_t),
 	.btp_value = &RAMDISK_END_VAL,

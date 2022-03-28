@@ -1,6 +1,3 @@
-#ifndef	_SYS_BOOT_DATA_H
-#define	_SYS_BOOT_DATA_H
-
 /*
  * CDDL HEADER START
  *
@@ -23,9 +20,12 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Co
+ * Copyright 2022 Oxide Computer Co
  * All rights reserved.
  */
+
+#ifndef	_SYS_BOOT_DATA_H
+#define	_SYS_BOOT_DATA_H
 
 /*
  * Our entry point's argument is a pointer to a bt_discovery_t.  This is the
@@ -145,7 +145,7 @@ typedef struct bt_discovery {
 } bt_discovery_t;
 
 /*
- * These are all the required properties.  Some of them come from the SP/loader
+ * These are all the required properties.  Some of them come from the SP
  * while others are fixed.
  */
 #define	BTPROP_NAME_APOB_ADDRESS	"apob-address"
@@ -154,6 +154,7 @@ typedef struct bt_discovery {
 #define	BTPROP_NAME_MFG			"mfg-name"
 #define	BTPROP_NAME_IMPL_ARCH		"impl-arch-name"
 #define	BTPROP_NAME_FSTYPE		"fstype"
+#define	BTPROP_NAME_RESET_VECTOR	"reset-vector"
 
 #ifdef	USE_DISCOVERY_STUB
 extern const bt_discovery_t bt_discovery_stub;

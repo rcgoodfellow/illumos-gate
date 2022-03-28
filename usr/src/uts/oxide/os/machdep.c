@@ -367,39 +367,21 @@ debug_enter(char *msg)
 void
 reset(void)
 {
-	extern	void acpi_reset_system();
-	ushort_t *bios_memchk;
-
 	/*
-	 * Can't use psm_map_phys or acpi_reset_system before the hat is
-	 * initialized.
+	 * XXX Fix me:
+	 *
+	 * We need to ask the SP to reset us here.  There are two ways that
+	 * can be done, depending on how far up we are (plus a third where we
+	 * can do nothing at all).  If we're still in earlyboot such that the
+	 * STREAMS subsystem and our associated UART drivers aren't loaded, we
+	 * must invoke the earlyboot SP code.  Otherwise we use the normal
+	 * path.  The last possibility is that we're so early that we haven't
+	 * yet found the SP, or we couldn't; in that case there is nothing we
+	 * can do but stop and scream.
+	 *
+	 * For now this uses i86pc-specific code living in usr/src/uts/intel
+	 * that doesn't work at all on this machine.
 	 */
-	if (khat_running) {
-		bios_memchk = (ushort_t *)psm_map_phys(0x472,
-		    sizeof (ushort_t), PROT_READ | PROT_WRITE);
-		if (bios_memchk)
-			*bios_memchk = 0x1234;	/* bios memory check disable */
-
-		if (options_dip != NULL &&
-		    ddi_prop_exists(DDI_DEV_T_ANY, ddi_root_node(), 0,
-		    "efi-systab")) {
-			if (bootops == NULL)
-				acpi_reset_system();
-			efi_reset();
-		}
-
-		/*
-		 * The problem with using stubs is that we can call
-		 * acpi_reset_system only after the kernel is up and running.
-		 *
-		 * We should create a global state to keep track of how far
-		 * up the kernel is but for the time being we will depend on
-		 * bootops. bootops cleared in startup_end().
-		 */
-		if (bootops == NULL)
-			acpi_reset_system();
-	}
-
 	pc_reset();
 	/*NOTREACHED*/
 }

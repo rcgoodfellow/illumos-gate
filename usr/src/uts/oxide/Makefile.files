@@ -68,7 +68,6 @@ CORE_OBJS +=			\
 	hma_fpu.o		\
 	hment.o			\
 	hold_page.o		\
-	hpet_acpi.o		\
 	hrtimers.o		\
 	htable.o		\
 	i86_mmu.o		\
@@ -93,7 +92,7 @@ CORE_OBJS +=			\
 	mp_call.o		\
 	mp_implfuncs.o		\
 	mp_machdep.o		\
-	mp_pc.o			\
+	mp_rmp.o		\
 	mp_startup.o		\
 	memscrub.o		\
 	mpcore.o		\
@@ -118,6 +117,7 @@ CORE_OBJS +=			\
 
 MILAN_OBJS +=			\
 	milan_apob.o		\
+	milan_apob_ccx.o	\
 	milan_apob_memlist.o	\
 	milan_ccx.o		\
 	milan_dxio_data.o	\

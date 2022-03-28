@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -329,9 +329,9 @@ pcie_cfgspace_init(void)
 {
 	/*
 	 * This ensures that the boot CPU will be programmed with everything
-	 * needed to access PCIe configuration space. XXX Other CPUs.
+	 * needed to access PCIe configuration space.
 	 */
-	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG);
+	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG, B_TRUE);
 
 	/*
 	 * This is a temporary VA range that we'll use during bootstrapping.

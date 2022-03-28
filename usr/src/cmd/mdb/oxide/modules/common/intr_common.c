@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include "intr_common.h"
@@ -147,7 +148,7 @@ interrupt_print_isr(uintptr_t vector, uintptr_t arg1, uintptr_t dip)
 	 * figure out the real ISR function name from gld_intr()
 	 */
 	if (isr_addr == gld_intr_addr) {
-		gld_mac_info_t 	macinfo;
+		gld_mac_info_t	macinfo;
 
 		if (mdb_vread(&macinfo, sizeof (gld_mac_info_t), arg1) != -1) {
 			/* verify gld data structure and get the real ISR */
@@ -181,18 +182,20 @@ interrupt_print_isr(uintptr_t vector, uintptr_t arg1, uintptr_t dip)
  *	d1/d3 are cbe_fire interrupts
  */
 static char *
-get_interrupt_type(short index)
+get_interrupt_type(apic_irq_kind_t kind)
 {
-	if (index == RESERVE_INDEX)
+	switch (kind) {
+	case AIRQK_RESERVED:
 		return ("IPI");
-	else if (index == ACPI_INDEX)
+	case AIRQK_FIXED:
 		return ("Fixed");
-	else if (index == MSI_INDEX)
+	case AIRQK_MSI:
 		return ("MSI");
-	else if (index == MSIX_INDEX)
+	case AIRQK_MSIX:
 		return ("MSI-X");
-	else
-		return ("Fixed");
+	default:
+		return ("Invalid");
+	}
 }
 
 static char *
@@ -225,15 +228,15 @@ apic_interrupt_dump(apic_irq_t *irqp, struct av_head *avp,
 	struct autovec	avhp;
 
 	/* If invalid index; continue */
-	if (!irqp->airq_mps_intr_index ||
-	    irqp->airq_mps_intr_index == FREE_INDEX)
+	if (irqp->airq_kind == AIRQK_NONE ||
+	    irqp->airq_kind == AIRQK_FREE)
 		return;
 
 	/* Figure out interrupt type and trigger information */
-	intr_type = get_interrupt_type(irqp->airq_mps_intr_index);
+	intr_type = get_interrupt_type(irqp->airq_kind);
 
 	/* Figure out IOAPIC number and ILINE number */
-	if (APIC_IS_MSI_OR_MSIX_INDEX(irqp->airq_mps_intr_index))
+	if (APIC_IRQP_IS_MSI_OR_MSIX(irqp))
 		(void) mdb_snprintf(ioapic_iline, 10, "-    ");
 	else {
 		if (!irqp->airq_ioapicindex && !irqp->airq_intin_no) {
@@ -241,7 +244,7 @@ apic_interrupt_dump(apic_irq_t *irqp, struct av_head *avp,
 				(void) mdb_snprintf(ioapic_iline, 10,
 				    "0x%x/0x%x", irqp->airq_ioapicindex,
 				    irqp->airq_intin_no);
-			else if (irqp->airq_mps_intr_index == RESERVE_INDEX)
+			else if (irqp->airq_kind == AIRQK_RESERVED)
 				(void) mdb_snprintf(ioapic_iline, 10, "-    ");
 			else
 				(void) mdb_snprintf(ioapic_iline, 10, " ");
@@ -259,7 +262,7 @@ apic_interrupt_dump(apic_irq_t *irqp, struct av_head *avp,
 		assigned_cpu = irqp->airq_cpu;
 	bus_type = irqp->airq_iflag.bustype;
 
-	if (irqp->airq_mps_intr_index == RESERVE_INDEX) {
+	if (irqp->airq_kind == AIRQK_RESERVED) {
 		(void) mdb_snprintf(cpu_assigned, 4, "all");
 		(void) mdb_snprintf(ipl, 3, "%d", avp->avh_hi_pri);
 	} else {
@@ -289,7 +292,7 @@ apic_interrupt_dump(apic_irq_t *irqp, struct av_head *avp,
 			interrupt_print_isr((uintptr_t)avhp.av_vector,
 			    (uintptr_t)avhp.av_intarg1, (uintptr_t)avhp.av_dip);
 
-		for (j = 1; irqp->airq_mps_intr_index != FREE_INDEX &&
+		for (j = 1; irqp->airq_kind != AIRQK_FREE &&
 		    j < irqp->airq_share; j++) {
 			if (mdb_vread(&avhp, sizeof (struct autovec),
 			    (uintptr_t)avhp.av_link) != -1) {
@@ -303,8 +306,7 @@ apic_interrupt_dump(apic_irq_t *irqp, struct av_head *avp,
 		}
 
 	} else {
-		if (irqp->airq_mps_intr_index == RESERVE_INDEX &&
-		    !irqp->airq_share) {
+		if (irqp->airq_kind == AIRQK_RESERVED && !irqp->airq_share) {
 			if (irqp->airq_vector == apic_pir_vect) {
 				mdb_printf("pir_ipi");
 			} else {

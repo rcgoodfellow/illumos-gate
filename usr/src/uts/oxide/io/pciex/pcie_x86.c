@@ -25,33 +25,20 @@
 
 #include <sys/types.h>
 #include <sys/ddi.h>
-#include <sys/kmem.h>
-#include <sys/sysmacros.h>
 #include <sys/sunddi.h>
-#include <sys/sunpm.h>
-#include <sys/epm.h>
-#include <sys/sunndi.h>
-#include <sys/ddi_impldefs.h>
-#include <sys/ddi_implfuncs.h>
-#include <sys/pcie.h>
 #include <sys/pcie_impl.h>
 #include <sys/pcie_pwr.h>
-#include <sys/pcie_acpi.h>	/* pcie_x86_priv_t */
 
+/* ARGSUSED */
 void
 pcie_init_plat(dev_info_t *dip)
 {
-	pcie_bus_t	*bus_p = PCIE_DIP2BUS(dip);
-	bus_p->bus_plat_private =
-	    (pcie_x86_priv_t *)kmem_zalloc(sizeof (pcie_x86_priv_t), KM_SLEEP);
 }
 
+/* ARGSUSED */
 void
 pcie_fini_plat(dev_info_t *dip)
 {
-	pcie_bus_t	*bus_p = PCIE_DIP2BUS(dip);
-
-	kmem_free(bus_p->bus_plat_private, sizeof (pcie_x86_priv_t));
 }
 
 /* ARGSUSED */
@@ -61,9 +48,6 @@ pcie_plat_pwr_setup(dev_info_t *dip)
 	return (DDI_SUCCESS);
 }
 
-/*
- * Undo whatever is done in pcie_plat_pwr_common_setup
- */
 /* ARGSUSED */
 void
 pcie_plat_pwr_teardown(dev_info_t *dip)

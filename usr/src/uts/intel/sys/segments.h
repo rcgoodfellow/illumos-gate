@@ -3,6 +3,7 @@
  */
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef	_SYS_SEGMENTS_H
@@ -548,10 +549,12 @@ void init_boot_gdt(user_desc_t *);
 #define	NGDT		62	/* number of entries in GDT */
 
 /*
- * This selector is only used in the temporary GDT used to bring additional
+ * These selectors are only used in the temporary GDT used to bring additional
  * CPUs from 16-bit real mode into long mode in real_mode_start().
  */
 #define	TEMPGDT_KCODE64	1	/* 64-bit code selector */
+#define	TEMPGDT_KCODE32	2	/* 32-bit code selector */
+#define	TEMPGDT_KDATA32	3	/* 32-bit data selector */
 
 #elif defined(__i386)
 
@@ -604,6 +607,8 @@ void init_boot_gdt(user_desc_t *);
 #define	UCS_SEL		SEL_GDT(GDT_UCODE, SEL_UPL)
 #if defined(__amd64)
 #define	TEMP_CS64_SEL	SEL_GDT(TEMPGDT_KCODE64, SEL_KPL)
+#define	TEMP_CS32_SEL	SEL_GDT(TEMPGDT_KCODE32, SEL_KPL)
+#define	TEMP_DS32_SEL	SEL_GDT(TEMPGDT_KDATA32, SEL_KPL)
 #define	U32CS_SEL	SEL_GDT(GDT_U32CODE, SEL_UPL)
 #endif
 

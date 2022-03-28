@@ -33,6 +33,72 @@
  * Copyright 2022 Oxide Computer Co.
  */
 
+/*
+ * MP Boot
+ *
+ * This is the core of the code responsible for starting APs and getting them
+ * running kernel code.  If you are familiar with these code paths on i86pc,
+ * please be aware that there are significant differences:
+ *
+ * 1. We do not support CPU DR.
+ * 2. There is no way to power off a CPU.  The processors we support don't
+ * allow it on PCs, either; it simply can't be done.
+ * 3. APs start at the same address the BSP started at, with the same magic
+ * %csbase.  See the block comment at the top of ml/mpcore.s for details.
+ * 4. APs are started by poking a per-thread bit in a SMU register; they are
+ * not (and cannot be) started by INIT-SIPI-SIPI, but see discussion below.
+ * 5. Because we don't SIPI APs and they instead start at the BSP's reset
+ * vector, there is no separate startup vector.  There is also no BIOS on this
+ * architecture, so we do not write to magic locations in low memory nor do we
+ * attempt to make BIOS system calls.
+ *
+ * On PCs, code in apix (or pcplusmp, on very old machines) is responsible for
+ * starting APs by sending them a Startup IPI (SIPI).  The SIPI contains an
+ * 8-bit field that provides the startup vector; it is the pfn of the page at
+ * the base of which the AP is to begin executing real-mode code.  This allows
+ * startup at any of the 256 pages of legacy low memory.  The SIPI mechanism is
+ * architectural, and we could support it here as well.  However, a SIPI does
+ * nothing until the AP has been powered on, and when an AP is powered on, it
+ * always begins fetching and executing instructions at the same reset vector
+ * as the BSP started from.  Therefore, while nothing stops us from starting
+ * each AP at the original reset vector populated with a hlt instruction, then
+ * doing the traditional SIPI, there is no advantage.  Doing so would require
+ * two separate RMPs, one at the reset vector and one in the bottom 1 MiB, and
+ * would require two separate steps to do what can as easily be achieved in one.
+ * We have therefore elected to skip the SIPI and start APs in the obvious and
+ * most direct fashion.
+ *
+ * The reset vector and the page on which it resides are saved by
+ * fakebop.c:_start() and startup.c:release_bootstrap(), respectively, and
+ * mapped by mp_rmp.c:mach_cpucontext_init().  Because all APs start from the
+ * same reset vector, there is only a single page used for this purpose; it is
+ * shared by all APs but its contents are adjusted after each one has booted
+ * far enough to be running in the kernel with no possibility of using the RMP
+ * again.  The contents of the RMP may be found in sys/rm_platter.h and they
+ * are managed by mp_rmp.c which must together be kept in sync with ml/mpcore.s
+ * if changes are needed.  Because there is but a single RMP, we can boot only
+ * one AP at a time.  This is enforced by two basic mechanisms discussed next.
+ *
+ * Structure
+ *
+ * Our entry point, called late in boot by main(), is start_other_cpus().  There
+ * we set up the structures needed to boot other CPUs and then enter a
+ * sequential loop to do so, one at a time.  While the machine is multi-threaded
+ * at this point, we ensure that each processor has started (kind of!) before
+ * moving on to start the next.  While we're doing this, the cpu_lock protects
+ * our CPU-related data structures from the rest of the system.  This lock is
+ * held while we wait for each AP to start, and the initial code running on the
+ * AP relies on knowing both that t0 is holding cpu_lock and that t0 will not
+ * actually be changing any data it protects until the AP has notified it that
+ * it has started, allowing the AP's startup thread to act as though it holds
+ * cpu_lock; see additional discussion in inline comments.
+ *
+ * XXX There is a catch to all this: if an AP doesn't start up within a (very
+ * large) allotted time, we give up on it and try to start the next one.  This
+ * is behaviour we've brought across from i86pc, and it's certainly incorrect.
+ * See the block comment above mp_rmp.c:mach_cpucontext_free() for the details.
+ */
+
 #include <sys/types.h>
 #include <sys/thread.h>
 #include <sys/cpuvar.h>
@@ -80,6 +146,9 @@
 #include <sys/cpu_module.h>
 #include <sys/ontrap.h>
 
+#include <milan/milan_ccx.h>
+#include <milan/milan_physaddrs.h>
+
 struct cpu	cpus[1] __aligned(MMU_PAGESIZE);
 struct cpu	*cpu[NCPU] = {&cpus[0]};
 struct cpu	*cpu_free_list;
@@ -108,8 +177,7 @@ int flushes_require_xcalls;
 
 cpuset_t cpu_ready_set;		/* initialized in startup() */
 
-static void mp_startup_boot(void);
-static void mp_startup_hotplug(void);
+static void mp_startup(void);
 
 static void cpu_sep_enable(void);
 static void cpu_sep_disable(void);
@@ -152,8 +220,8 @@ init_cpu_info(struct cpu *cp)
 	 * If called for the BSP, cp is equal to current CPU.
 	 * For non-BSPs, cpuid info of cp is not ready yet, so use cpuid info
 	 * of current CPU as default values for cpu_idstr and cpu_brandstr.
-	 * They will be corrected in mp_startup_common() after cpuid_pass1()
-	 * has been invoked on target CPU.
+	 * They will be corrected in mp_startup() after cpuid_pass1() has been
+	 * invoked on target CPU.
 	 */
 	(void) cpuid_getidstr(CPU, cp->cpu_idstr, CPU_IDSTRLEN);
 	(void) cpuid_getbrandstr(CPU, cp->cpu_brandstr, CPU_IDSTRLEN);
@@ -268,11 +336,9 @@ init_cpu_id_gdt(struct cpu *cp)
  *
  * Allocate and initialize the cpu structure, TRAPTRACE buffer, and the
  * startup and idle threads for the specified CPU.
- * Parameter boot is true for boot time operations and is false for CPU
- * DR operations.
  */
 static struct cpu *
-mp_cpu_configure_common(int cpun, boolean_t boot)
+mp_cpu_configure_common(int cpun)
 {
 	struct cpu *cp;
 	kthread_id_t tp;
@@ -332,7 +398,7 @@ mp_cpu_configure_common(int cpun, boolean_t boot)
 	tp->t_disp_queue = cp->cpu_disp;
 
 	/*
-	 * Setup thread to start in mp_startup_common.
+	 * Setup thread to start in mp_startup().
 	 */
 	sp = tp->t_stk;
 	tp->t_sp = (uintptr_t)(sp - MINFRAME);
@@ -341,11 +407,7 @@ mp_cpu_configure_common(int cpun, boolean_t boot)
 	/*
 	 * Setup thread start entry point for boot or hotplug.
 	 */
-	if (boot) {
-		tp->t_pc = (uintptr_t)mp_startup_boot;
-	} else {
-		tp->t_pc = (uintptr_t)mp_startup_hotplug;
-	}
+	tp->t_pc = (uintptr_t)mp_startup;
 
 	cp->cpu_id = cpun;
 	cp->cpu_self = cp;
@@ -356,13 +418,12 @@ mp_cpu_configure_common(int cpun, boolean_t boot)
 
 	/*
 	 * cpu_base_spl must be set explicitly here to prevent any blocking
-	 * operations in mp_startup_common from causing the spl of the cpu
-	 * to drop to 0 (allowing device interrupts before we're ready) in
-	 * resume().
+	 * operations in mp_startup from causing the spl of the cpu to drop to
+	 * 0 (allowing device interrupts before we're ready) in resume().
 	 * cpu_base_spl MUST remain at LOCK_LEVEL until the cpu is CPU_READY.
 	 * As an extra bit of security on DEBUG kernels, this is enforced with
-	 * an assertion in mp_startup_common() -- before cpu_base_spl is set
-	 * to its proper value.
+	 * an assertion in mp_startup() -- before cpu_base_spl is set to its
+	 * proper value.
 	 */
 	cp->cpu_base_spl = ipltospl(LOCK_LEVEL);
 
@@ -464,7 +525,7 @@ mp_cpu_configure_common(int cpun, boolean_t boot)
 
 	/*
 	 * Add CPU to list of available CPUs.  It'll be on the active list
-	 * after mp_startup_common().
+	 * after mp_startup().
 	 */
 	cpu_add_unit(cp);
 
@@ -594,7 +655,7 @@ mp_cpu_unconfigure_common(struct cpu *cp, int error)
  * system.
  *
  * workaround_errata is invoked early in mlsetup() for CPU 0, and in
- * mp_startup_common() for all slave CPUs. Slaves process workaround_errata
+ * mp_startup() for all slave CPUs. Slaves process workaround_errata
  * prior to acknowledging their readiness to the master, so this routine will
  * never be executed by multiple CPUs in parallel, thus making updates to
  * global data safe.
@@ -1283,8 +1344,8 @@ mp_startup_signal(cpuset_t *sp, processorid_t cpuid)
 	}
 }
 
-int
-mp_start_cpu_common(cpu_t *cp, boolean_t boot)
+static int
+mp_start_cpu_common(cpu_t *cp)
 {
 	_NOTE(ARGUNUSED(boot));
 
@@ -1353,11 +1414,13 @@ mp_start_cpu_common(cpu_t *cp, boolean_t boot)
 	 * because that will break the CPU DR logic.
 	 * On the other hand, CPUPM and processor group initialization
 	 * routines need to access the cpu_lock. So we invoke those
-	 * routines here on behalf of mp_startup_common().
+	 * routines here on behalf of mp_startup().
 	 *
 	 * CPUPM and processor group initialization routines depend
-	 * on the cpuid probing results. Wait for mp_startup_common()
+	 * on the cpuid probing results. Wait for mp_startup()
 	 * to signal that cpuid probing is done.
+	 *
+	 * XXX Since we don't support DR, consider simplifying this.
 	 */
 	mp_startup_wait(&procset_slave, cpuid);
 	cpupm_init(cp);
@@ -1400,13 +1463,13 @@ start_cpu(processorid_t who)
 	/*
 	 * First configure cpu.
 	 */
-	cp = mp_cpu_configure_common(who, B_TRUE);
+	cp = mp_cpu_configure_common(who);
 	ASSERT(cp != NULL);
 
 	/*
 	 * Then start cpu.
 	 */
-	error = mp_start_cpu_common(cp, B_TRUE);
+	error = mp_start_cpu_common(cp);
 	if (error != 0) {
 		mp_cpu_unconfigure_common(cp, error);
 		return (error);
@@ -1554,12 +1617,12 @@ mp_cpu_unconfigure(int cpuid)
  * Startup function for 'other' CPUs (besides boot cpu).
  * Called from real_mode_start.
  *
- * WARNING: until CPU_READY is set, mp_startup_common and routines called by
- * mp_startup_common should not call routines (e.g. kmem_free) that could call
- * hat_unload which requires CPU_READY to be set.
+ * WARNING: until CPU_READY is set, mp_startup() and routines called by it
+ * should not call routines (e.g. kmem_free) that could call hat_unload which
+ * requires CPU_READY to be set.
  */
 static void
-mp_startup_common(boolean_t boot)
+mp_startup(void)
 {
 	cpu_t *cp = CPU;
 	uchar_t new_x86_featureset[BT_SIZEOFMAP(NUM_X86_FEATURES)];
@@ -1569,20 +1632,22 @@ mp_startup_common(boolean_t boot)
 	 * We need to get TSC on this proc synced (i.e., any delta
 	 * from cpu0 accounted for) as soon as we can, because many
 	 * many things use gethrtime/pc_gethrestime, including
-	 * interrupts, cmn_err, etc.  Before we can do that, we want to
-	 * clear TSC if we're on a buggy Sandy/Ivy Bridge CPU, so do that
-	 * right away.
+	 * interrupts, cmn_err, etc.
 	 */
 	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
+	milan_ccx_set_brandstr();
 	cpuid_pass1(cp, new_x86_featureset);
 
-	if (boot && get_hwenv() == HW_NATIVE &&
-	    cpuid_getvendor(CPU) == X86_VENDOR_Intel &&
-	    cpuid_getfamily(CPU) == 6 &&
-	    (cpuid_getmodel(CPU) == 0x2d || cpuid_getmodel(CPU) == 0x3e) &&
-	    is_x86_feature(new_x86_featureset, X86FSET_TSC)) {
-		(void) wrmsr(REG_TSC, 0UL);
-	}
+	/*
+	 * XXX Move this stuff somewhere suitable.  In principle, ap_mlsetup()
+	 * is the right place, but that's currently part of the PSM subsystem
+	 * we took from i86pc.  It's less and less clear that PSM makes sense
+	 * for us, as it's mostly about interrupts.  On i86pc, the local APIC
+	 * mechanism is central to AP startup so this tie-in makes some sense.
+	 * That's not the case here.  This needs to be figured out properly.
+	 */
+	wrmsr(0xc00110e2, 0x00022afa00080018UL);
+	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG, B_FALSE);
 
 	/* Let the control CPU continue into tsc_sync_master() */
 	mp_startup_signal(&procset_slave, cp->cpu_id);
@@ -1716,13 +1781,11 @@ mp_startup_common(boolean_t boot)
 	mp_startup_wait(&procset_master, cp->cpu_id);
 	pg_cmt_cpu_startup(cp);
 
-	if (boot) {
-		mutex_enter(&cpu_lock);
-		cp->cpu_flags &= ~CPU_OFFLINE;
-		cpu_enable_intr(cp);
-		cpu_add_active(cp);
-		mutex_exit(&cpu_lock);
-	}
+	mutex_enter(&cpu_lock);
+	cp->cpu_flags &= ~CPU_OFFLINE;
+	cpu_enable_intr(cp);
+	cpu_add_active(cp);
+	mutex_exit(&cpu_lock);
 
 	/* Enable interrupts */
 	(void) spl0();
@@ -1791,24 +1854,6 @@ mp_startup_common(boolean_t boot)
 	 */
 	thread_exit();
 	/*NOTREACHED*/
-}
-
-/*
- * Startup function for 'other' CPUs at boot time (besides boot cpu).
- */
-static void
-mp_startup_boot(void)
-{
-	mp_startup_common(B_TRUE);
-}
-
-/*
- * Startup function for hotplug CPUs at runtime.
- */
-void
-mp_startup_hotplug(void)
-{
-	mp_startup_common(B_FALSE);
 }
 
 /*

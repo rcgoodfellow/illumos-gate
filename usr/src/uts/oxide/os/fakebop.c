@@ -28,7 +28,7 @@
  *
  * Copyright (c) 2012 Gary Mills
  * Copyright 2020 Joyent, Inc.
- * Copyright 2021 Oxide Computer Co.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -90,6 +90,8 @@ boolean_t kbm_debug = B_FALSE;
 static bootops_t bootop;
 static struct bsys_mem bm;
 static const bt_prop_t *bt_props;
+
+uint32_t reset_vector;
 
 /*ARGSUSED*/
 static caddr_t
@@ -625,6 +627,7 @@ void
 _start(const bt_discovery_t *btdp)
 {
 	extern void _kobj_boot();
+	extern int use_mp;
 	struct boot_syscalls *bsp;
 
 	/*
@@ -669,6 +672,30 @@ _start(const bt_discovery_t *btdp)
 	bootop.bsys_nextprop = do_bsys_nextprop;
 	bootop.bsys_printf = bop_printf;
 	bootop.bsys_ealloc = do_bsys_ealloc;
+
+	/*
+	 * Get and save the reset vector for MP startup use later.
+	 */
+	if (do_bsys_getproplen(&bootop, BTPROP_NAME_RESET_VECTOR) !=
+	    sizeof (reset_vector) ||
+	    do_bsys_getprop(&bootop, BTPROP_NAME_RESET_VECTOR, &reset_vector) !=
+	    0 ||
+	    reset_vector == 0) {
+		eb_printf("missing boot-time property %s; MP disabled.\n",
+		    BTPROP_NAME_RESET_VECTOR);
+		use_mp = 0;
+	}
+	if ((reset_vector & 0xffff) != 0xfff0) {
+		eb_printf("reset vector %x has invalid offset; MP disabled.\n",
+		    reset_vector);
+		reset_vector = 0;
+		use_mp = 0;
+	}
+
+	if (reset_vector != 0) {
+		eb_physmem_reserve_range(reset_vector & PAGEMASK, PAGESIZE,
+		    EBPR_NO_ALLOC);
+	}
 
 	/*
 	 * Install an IDT to catch early pagefaults (shouldn't have any).

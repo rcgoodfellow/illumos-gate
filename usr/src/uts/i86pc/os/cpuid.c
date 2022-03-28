@@ -24,7 +24,7 @@
  * Copyright 2013 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2014 Josef "Jeff" Sipek <jeffpc@josefsipek.net>
  * Copyright 2020 Joyent, Inc.
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -1721,7 +1721,7 @@ struct cpuid_info {
 	 * extended function information
 	 */
 	uint_t cpi_xmaxeax;		/* fn 0x80000000: %eax */
-	char cpi_brandstr[49];		/* fn 0x8000000[234] */
+	char cpi_brandstr[CPUID_BRANDSTR_STRLEN + 1];	/* fn 0x8000000[2..] */
 	uint8_t cpi_pabits;		/* fn 0x80000006: %eax */
 	uint8_t	cpi_vabits;		/* fn 0x80000006: %eax */
 	uint8_t cpi_fp_amd_save;	/* AMD: FP error pointer save rqd. */

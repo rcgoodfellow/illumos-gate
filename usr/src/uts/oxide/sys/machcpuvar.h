@@ -37,7 +37,6 @@ extern "C" {
 #include <sys/x_call.h>
 #include <sys/tss.h>
 #include <sys/segments.h>
-#include <sys/rm_platter.h>
 #include <sys/avintr.h>
 #include <sys/pte.h>
 #include <sys/stddef.h>

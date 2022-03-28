@@ -170,7 +170,6 @@ extern int	apic_clkinit();
 extern hrtime_t apic_gettime();
 extern hrtime_t apic_gethrtime();
 extern int	apic_cpu_start(processorid_t cpuid, caddr_t ctx);
-extern int	apic_cpu_stop(processorid_t cpuid, caddr_t ctx);
 extern int	apic_cpu_add(psm_cpu_request_t *reqp);
 extern int	apic_cpu_remove(psm_cpu_request_t *reqp);
 extern int	apic_cpu_ops(psm_cpu_request_t *reqp);

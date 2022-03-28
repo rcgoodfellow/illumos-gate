@@ -49,9 +49,6 @@
 #include <sys/sunddi.h>
 #include <sys/ddi.h>
 
-#include <sys/acpi/acpi.h>
-#include <sys/acpica.h>
-
 static int todpc_rtcget(unsigned char *buf);
 static void todpc_rtcput(unsigned char *buf);
 
@@ -83,45 +80,6 @@ struct rtc_offset {
 };
 
 static struct rtc_offset pc_rtc_offset = {0, 0, 0, 0};
-
-
-/*
- * Entry point for ACPI to pass RTC or other clock values that
- * are useful to TOD.
- */
-void
-pc_tod_set_rtc_offsets(ACPI_TABLE_FADT *fadt)
-{
-	int		ok = 0;
-
-	/*
-	 * ASSERT is for debugging, but we don't want the machine
-	 * falling over because for some reason we didn't get a valid
-	 * pointer.
-	 */
-	ASSERT(fadt);
-	if (fadt == NULL) {
-		return;
-	}
-
-	if (fadt->DayAlarm) {
-		pc_rtc_offset.day_alrm = fadt->DayAlarm;
-		ok = 1;
-	}
-
-	if (fadt->MonthAlarm) {
-		pc_rtc_offset.mon_alrm = fadt->MonthAlarm;
-		ok = 1;
-	}
-
-	if (fadt->Century) {
-		pc_rtc_offset.century = fadt->Century;
-		ok = 1;
-	}
-
-	pc_rtc_offset.loaded = ok;
-}
-
 
 /*
  * Write the specified time into the clock chip.

@@ -48,6 +48,7 @@
 #include <sys/cram.h>
 #include <sys/psm_common.h>
 #include <sys/apic.h>
+#include <sys/apix.h>
 #include <sys/apic_timer.h>
 #include <sys/pit.h>
 #include <sys/ddi.h>
@@ -73,30 +74,24 @@
 #include <sys/prom_debug.h>
 #include <sys/hpet.h>
 #include <sys/clock.h>
-#include <milan/milan_physaddrs.h>
 #include <sys/io/huashan/pmio.h>
+
+#include <milan/milan_ccx.h>
+#include <milan/milan_fabric.h>
+#include <milan/milan_physaddrs.h>
 
 /*
  *	Local Function Prototypes
  */
-static int apic_find_bus(int busid);
-static struct apic_io_intr *apic_find_io_intr(int irqno);
 static int apic_find_free_irq(int start, int end);
-struct apic_io_intr *apic_find_io_intr_w_busid(int irqno, int busid);
 
-int apic_handle_pci_pci_bridge(dev_info_t *idip, int child_devno,
-    int child_ipin, struct apic_io_intr **intrp);
-int apic_find_bus_id(int bustype);
-int apic_find_intin(uchar_t ioapic, uchar_t intin);
 void apic_record_rdt_entry(apic_irq_t *irqptr, int irq);
 
-int apic_debug_mps_id = 0;	/* 1 - print MPS ID strings */
-
-/* ACPI SCI interrupt configuration; -1 if SCI not used */
+/* SCI interrupt configuration; -1 if SCI not used */
 int apic_sci_vect = -1;
 iflag_t apic_sci_flags;
 
-/* ACPI HPET interrupt configuration; -1 if HPET not used */
+/* HPET interrupt configuration; -1 if HPET not used */
 int apic_hpet_vect = -1;
 iflag_t apic_hpet_flags;
 
@@ -106,14 +101,6 @@ iflag_t apic_hpet_flags;
 char *psm_name;
 
 static int apic_probe_raw(const char *);
-
-static int apic_acpi_irq_configure(acpi_psm_lnk_t *acpipsmlnkp, dev_info_t *dip,
-    int *pci_irqp, iflag_t *intr_flagp);
-
-int apic_acpi_translate_pci_irq(dev_info_t *dip, int busid, int devid,
-    int ipin, int *pci_irqp, iflag_t *intr_flagp);
-uchar_t acpi_find_ioapic(int irq);
-static int acpi_intr_compatible(iflag_t iflag1, iflag_t iflag2);
 
 /* Max wait time (in repetitions) for flags to clear in an RDT entry. */
 int apic_max_reps_clear_pending = 1000;
@@ -174,38 +161,15 @@ int	apic_num_rebind = 0;
 int	apic_max_nproc = -1;
 int	apic_nproc = 0;
 size_t	apic_cpus_size = 0;
-int	apic_defconf = 0;
 int	apic_irq_translate = 0;
 int	apic_spec_rev = 0;
-int	apic_imcrp = 0;
-
-int	apic_use_acpi_madt_only = 0;	/* 1=ONLY use MADT from ACPI */
-
-/*
- * For interrupt link devices, if apic_unconditional_srs is set, an irq resource
- * will be assigned (via _SRS). If it is not set, use the current
- * irq setting (via _CRS), but only if that irq is in the set of possible
- * irqs (returned by _PRS) for the device.
- */
-int	apic_unconditional_srs = 1;
-
-/*
- * For interrupt link devices, if apic_prefer_crs is set when we are
- * assigning an IRQ resource to a device, prefer the current IRQ setting
- * over other possible irq settings under same conditions.
- */
-
-int	apic_prefer_crs = 1;
 
 uchar_t apic_io_id[MAX_IO_APIC];
 volatile uint32_t *apicioadr[MAX_IO_APIC];
 uchar_t	apic_io_ver[MAX_IO_APIC];
 uchar_t	apic_io_vectbase[MAX_IO_APIC];
 uchar_t	apic_io_vectend[MAX_IO_APIC];
-uchar_t apic_reserved_irqlist[MAX_ISA_IRQ + 1];
 uint32_t apic_physaddr[MAX_IO_APIC];
-
-boolean_t ioapic_mask_workaround[MAX_IO_APIC];
 
 /*
  * First available slot to be used as IRQ index into the apic_irq_table
@@ -221,70 +185,25 @@ lock_t	apic_ioapic_lock;
 
 int	apic_io_max = 0;	/* no. of i/o apics enabled */
 
-struct apic_io_intr *apic_io_intrp = NULL;
-
 uchar_t	apic_resv_vector[MAXIPL+1];
 
 char	apic_level_intr[APIC_MAX_VECTOR+1];
 
-uint32_t	eisa_level_intr_mask = 0;
-	/* At least MSB will be set if EISA bus */
-
-int	apic_pci_bus_total = 0;
-uchar_t	apic_single_pci_busid = 0;
-
 /*
  * airq_mutex protects additions to the apic_irq_table - the first
- * pointer and any airq_nexts off of that one. It also protects
- * apic_max_device_irq & apic_min_device_irq. It also guarantees
+ * pointer and any airq_nexts off of that one.  It also guarantees
  * that share_id is unique as new ids are generated only when new
  * irq_t structs are linked in. Once linked in the structs are never
- * deleted. temp_cpu & mps_intr_index field indicate if it is programmed
- * or allocated. Note that there is a slight gap between allocating in
+ * deleted.  Note that there is a slight gap between allocating in
  * apic_introp_xlate and programming in addspl.
  */
 kmutex_t	airq_mutex;
 apic_irq_t	*apic_irq_table[APIC_MAX_VECTOR+1];
-int		apic_max_device_irq = 0;
-int		apic_min_device_irq = APIC_MAX_VECTOR;
-
-typedef struct prs_irq_list_ent {
-	int			list_prio;
-	int32_t			irq;
-	iflag_t			intrflags;
-	acpi_prs_private_t	prsprv;
-	struct prs_irq_list_ent	*next;
-} prs_irq_list_t;
-
-
-/*
- * ACPI variables
- */
-/* 1 = acpi is enabled & working, 0 = acpi is not enabled or not there */
-int apic_enable_acpi = 0;
-
-/* ACPI Interrupt Source Override Structure ptr */
-ACPI_MADT_INTERRUPT_OVERRIDE *acpi_isop = NULL;
-int acpi_iso_cnt = 0;
-
-int	apic_poweroff_method = APIC_POWEROFF_NONE;
 
 /*
  * Auto-configuration routines
  */
 
-/*
- * Look at MPSpec 1.4 (Intel Order # 242016-005) for details of what we do here
- * May work with 1.1 - but not guaranteed.
- * According to the MP Spec, the MP floating pointer structure
- * will be searched in the order described below:
- * 1. In the first kilobyte of Extended BIOS Data Area (EBDA)
- * 2. Within the last kilobyte of system base memory
- * 3. In the BIOS ROM address space between 0F0000h and 0FFFFh
- * Once we find the right signature with proper checksum, we call
- * either handle_defconf or parse_mpct to get all info necessary for
- * subsequent operations.
- */
 int
 apic_probe_common(char *modname)
 {
@@ -330,15 +249,46 @@ apic_probe_common(char *modname)
 }
 
 static int
+apic_count_thread(milan_thread_t *mtp, void *arg)
+{
+	int *nthreadp = arg;
+
+	++*nthreadp;
+
+	return (0);
+}
+
+static int
+apic_enumerate_one(milan_thread_t *mtp, void *arg)
+{
+	uint32_t *idxp = arg;
+	apic_cpus_info_t *acip = &apic_cpus[*idxp];
+
+	acip->aci_local_id = mtp->mt_apicid;
+	acip->aci_processor_id = acip->aci_local_id;
+	acip->aci_local_ver = 0;
+	acip->aci_status = 0;
+	CPUSET_ADD(apic_cpumask, *idxp);
+	acip->aci_local_ver =
+	    (uchar_t)(apic_reg_ops->apic_read(APIC_VERS_REG) & 0xff);
+
+	VERIFY3S(*idxp, <, apic_nproc);
+	++*idxp;
+
+	return (0);
+}
+
+static int
 apic_probe_raw(const char *modname)
 {
 	int i;
 	uint32_t irqno;
 	caddr_t pmbase;
 	const size_t pmsize = FCH_R_BLOCK_GETSIZE(PM);
+	uint32_t apic_index = 0;
 	FCH_REG_TYPE(PM, DECODEEN) decodeen = 0;
 
-	apic_nproc = 1;
+	(void) milan_fabric_walk_thread(apic_count_thread, &apic_nproc);
 	apic_cpus_size = max(apic_nproc, max_ncpus) * sizeof (*apic_cpus);
 	if ((apic_cpus = kmem_zalloc(apic_cpus_size, KM_NOSLEEP)) == NULL) {
 		apic_max_nproc = -1;
@@ -348,19 +298,11 @@ apic_probe_raw(const char *modname)
 
 	apic_enable_x2apic();
 
-	apic_cpus[0].aci_local_id = 0;
-	apic_cpus[0].aci_local_ver = (uchar_t)
-	    (apic_reg_ops->apic_read(APIC_VERS_REG) & 0xff);
-	apic_cpus[0].aci_processor_id = 0;
-	apic_cpus[0].aci_status = 0;
+	CPUSET_ZERO(apic_cpumask);
+	(void) milan_fabric_walk_thread(apic_enumerate_one, &apic_index);
 
 	/*
-	 * What is it?  They have expressly refused to tell us (that is, not
-	 * merely begged insufficient resources to document, nor claimed that
-	 * no one is around who knows; they have instead told us that the
-	 * knowledge itself is forbidden to us).  What do the bits mean?
-	 * They have expressly refused to tell us that, too.  All we know is
-	 * that the APIC doesn't seem to work without it.  Way to go guys.
+	 * XXX replace magic constants
 	 */
 	wrmsr(0xc00110e2, 0x00022afa00080018UL);
 
@@ -445,7 +387,7 @@ apic_get_next_bind_cpu(void)
 }
 
 uint16_t
-apic_get_apic_version()
+apic_get_apic_version(void)
 {
 	int i;
 	uchar_t min_io_apic_ver = 0;
@@ -473,23 +415,6 @@ apic_get_apic_version()
 	return (version);
 }
 
-/*
- * On machines with PCI-PCI bridges, a device behind a PCI-PCI bridge
- * needs special handling.  We may need to chase up the device tree,
- * using the PCI-PCI Bridge specification's "rotating IPIN assumptions",
- * to find the IPIN at the root bus that relates to the IPIN on the
- * subsidiary bus (for ACPI or MP).  We may, however, have an entry
- * in the MP table or the ACPI namespace for this device itself.
- * We handle both cases in the search below.
- */
-/* this is the non-acpi version */
-int
-apic_handle_pci_pci_bridge(dev_info_t *idip, int child_devno, int child_ipin,
-    struct apic_io_intr **intrp)
-{
-	return (-1);
-}
-
 uchar_t
 irq_to_ioapic_index(int irq)
 {
@@ -500,134 +425,6 @@ irq_to_ioapic_index(int irq)
 			return ((uchar_t)i);
 	}
 	return (0xFF);	/* shouldn't happen */
-}
-
-/*
- * See if two irqs are compatible for sharing a vector.
- * Currently we only support sharing of PCI devices.
- */
-static int
-acpi_intr_compatible(iflag_t iflag1, iflag_t iflag2)
-{
-	uint_t	level1, po1;
-	uint_t	level2, po2;
-
-	/* Assume active high by default */
-	po1 = 0;
-	po2 = 0;
-
-	if (iflag1.bustype != iflag2.bustype || iflag1.bustype != BUS_PCI)
-		return (0);
-
-	if (iflag1.intr_el == INTR_EL_CONFORM)
-		level1 = AV_LEVEL;
-	else
-		level1 = (iflag1.intr_el == INTR_EL_LEVEL) ? AV_LEVEL : 0;
-
-	if (level1 && ((iflag1.intr_po == INTR_PO_ACTIVE_LOW) ||
-	    (iflag1.intr_po == INTR_PO_CONFORM)))
-		po1 = AV_ACTIVE_LOW;
-
-	if (iflag2.intr_el == INTR_EL_CONFORM)
-		level2 = AV_LEVEL;
-	else
-		level2 = (iflag2.intr_el == INTR_EL_LEVEL) ? AV_LEVEL : 0;
-
-	if (level2 && ((iflag2.intr_po == INTR_PO_ACTIVE_LOW) ||
-	    (iflag2.intr_po == INTR_PO_CONFORM)))
-		po2 = AV_ACTIVE_LOW;
-
-	if ((level1 == level2) && (po1 == po2))
-		return (1);
-
-	return (0);
-}
-
-struct apic_io_intr *
-apic_find_io_intr_w_busid(int irqno, int busid)
-{
-	struct	apic_io_intr	*intrp;
-
-	/*
-	 * It can have more than 1 entry with same source bus IRQ,
-	 * but unique with the source bus id
-	 */
-	intrp = apic_io_intrp;
-	if (intrp != NULL) {
-		while (intrp->intr_entry == APIC_IO_INTR_ENTRY) {
-			if (intrp->intr_irq == irqno &&
-			    intrp->intr_busid == busid &&
-			    intrp->intr_type == IO_INTR_INT)
-				return (intrp);
-			intrp++;
-		}
-	}
-	APIC_VERBOSE_IOAPIC((CE_NOTE, "Did not find io intr for irqno:"
-	    "busid %x:%x\n", irqno, busid));
-	return ((struct apic_io_intr *)NULL);
-}
-
-static int
-apic_find_bus(int busid)
-{
-	APIC_VERBOSE_IOAPIC((CE_WARN, "Did not find bus for bus id %x", busid));
-	return (0);
-}
-
-int
-apic_find_bus_id(int bustype)
-{
-	APIC_VERBOSE_IOAPIC((CE_WARN, "Did not find bus id for bustype %x",
-	    bustype));
-	return (-1);
-}
-
-/*
- * Check if a particular irq need to be reserved for any io_intr
- */
-static struct apic_io_intr *
-apic_find_io_intr(int irqno)
-{
-	struct	apic_io_intr	*intrp;
-
-	intrp = apic_io_intrp;
-	if (intrp != NULL) {
-		while (intrp->intr_entry == APIC_IO_INTR_ENTRY) {
-			if (intrp->intr_irq == irqno &&
-			    intrp->intr_type == IO_INTR_INT)
-				return (intrp);
-			intrp++;
-		}
-	}
-	return ((struct apic_io_intr *)NULL);
-}
-
-/*
- * Check if the given ioapicindex intin combination has already been assigned
- * an irq. If so return irqno. Else -1
- */
-int
-apic_find_intin(uchar_t ioapic, uchar_t intin)
-{
-	apic_irq_t *irqptr;
-	int	i;
-
-	/* find ioapic and intin in the apic_irq_table[] and return the index */
-	for (i = apic_min_device_irq; i <= apic_max_device_irq; i++) {
-		irqptr = apic_irq_table[i];
-		while (irqptr) {
-			if ((irqptr->airq_mps_intr_index >= 0) &&
-			    (irqptr->airq_intin_no == intin) &&
-			    (irqptr->airq_ioapicindex == ioapic)) {
-				APIC_VERBOSE_IOAPIC((CE_NOTE, "!Found irq "
-				    "entry for ioapic:intin %x:%x "
-				    "shared interrupts ?", ioapic, intin));
-				return (i);
-			}
-			irqptr = irqptr->airq_next;
-		}
-	}
-	return (-1);
 }
 
 int
@@ -644,9 +441,7 @@ apic_allocate_irq(int irq)
 			 * them, just use any free slot in apic_irq_table
 			 */
 			for (i = APIC_FIRST_FREE_IRQ; i < APIC_RESV_IRQ; i++) {
-				if ((apic_irq_table[i] == NULL) ||
-				    apic_irq_table[i]->airq_mps_intr_index ==
-				    FREE_INDEX) {
+				if (IS_IRQ_FREE(apic_irq_table[i])) {
 					freeirq = i;
 					break;
 				}
@@ -670,7 +465,7 @@ apic_allocate_irq(int irq)
 			return (-1);
 		}
 		apic_irq_table[freeirq]->airq_temp_cpu = IRQ_UNINIT;
-		apic_irq_table[freeirq]->airq_mps_intr_index = FREE_INDEX;
+		apic_irq_table[freeirq]->airq_kind = AIRQK_FREE;
 	}
 	return (freeirq);
 }
@@ -680,16 +475,11 @@ apic_find_free_irq(int start, int end)
 {
 	int	i;
 
-	for (i = start; i <= end; i++)
-		/* Check if any I/O entry needs this IRQ */
-		if (apic_find_io_intr(i) == NULL) {
-			/* Then see if it is free */
-			if ((apic_irq_table[i] == NULL) ||
-			    (apic_irq_table[i]->airq_mps_intr_index ==
-			    FREE_INDEX)) {
-				return (i);
-			}
-		}
+	for (i = start; i <= end; i++) {
+		/* Then see if it is free */
+		if (IS_IRQ_FREE(apic_irq_table[i]))
+			return (i);
+	}
 	return (-1);
 }
 
@@ -701,21 +491,11 @@ void
 apic_record_rdt_entry(apic_irq_t *irqptr, int irq)
 {
 	int	ioapicindex, bus_type, vector;
-	short	intr_index;
-	uint_t	level, po, io_po;
-	struct apic_io_intr *iointrp;
+	uint_t	level, po;
 
-	intr_index = irqptr->airq_mps_intr_index;
-	DDI_INTR_IMPLDBG((CE_CONT, "apic_record_rdt_entry: intr_index=%d "
-	    "irq = 0x%x dip = 0x%p vector = 0x%x\n", intr_index, irq,
+	DDI_INTR_IMPLDBG((CE_CONT, "apic_record_rdt_entry: kind = %d "
+	    "irq = 0x%x dip = 0x%p vector = 0x%x\n", irqptr->airq_kind, irq,
 	    (void *)irqptr->airq_dip, irqptr->airq_vector));
-
-	if (intr_index == RESERVE_INDEX) {
-		apic_error |= APIC_ERR_INVALID_INDEX;
-		return;
-	} else if (APIC_IS_MSI_OR_MSIX_INDEX(intr_index)) {
-		return;
-	}
 
 	vector = irqptr->airq_vector;
 	ioapicindex = irqptr->airq_ioapicindex;
@@ -724,13 +504,99 @@ apic_record_rdt_entry(apic_irq_t *irqptr, int irq)
 	/* Assume active high by default */
 	po = 0;
 
-	if (intr_index == DEFAULT_INDEX || intr_index == FREE_INDEX) {
-		ASSERT(irq < 16);
-		if (eisa_level_intr_mask & (1 << irq))
-			level = AV_LEVEL;
-		if (intr_index == FREE_INDEX && apic_defconf == 0)
-			apic_error |= APIC_ERR_INVALID_INDEX;
-	} else if (intr_index == ACPI_INDEX) {
+	switch (irqptr->airq_kind) {
+	case AIRQK_RESERVED:
+	case AIRQK_FREE:
+		/* XXX should we assert !FREE? */
+		apic_error |= APIC_ERR_INVALID_INDEX;
+		/*FALLTHROUGH*/
+	case AIRQK_MSI:
+	case AIRQK_MSIX:
+		return;
+	case AIRQK_FIXED:
+		/*
+		 * XXX This code is wrong and needs to be removed.  To
+		 * understand why, a history lesson is required.
+		 *
+		 * In the early days, before MSIs and before SoCs and processor
+		 * families with but a single supported PCH or FCH, every
+		 * board might have had many different fixed interrupt sources
+		 * and each would have had its own unique routing of those
+		 * sources as physical wires into an IOAPIC (or even before
+		 * that, a PIC).  To understand these sources and their routings
+		 * each OS would have needed some kind of lookup table.  That
+		 * might have been fine, except that the only people who knew
+		 * what those tables should have contained were the board
+		 * manufacturers; they could have added to such tables in open
+		 * source OSs, but support of Microsoft Windows and other
+		 * proprietary OSs necessitated putting this somewhere else,
+		 * somewhere that could be controlled by the board vendor's
+		 * code.  Out of this pair of needs eventually arose the MPS
+		 * tables and later ACPI.
+		 *
+		 * Part of the contents of those tables has (almost) always been
+		 * the polarity of each fixed interrupt and whether assertion of
+		 * it is level- or edge-triggered.  There was, realistically, no
+		 * reliable way to know this other than having designed the
+		 * board and read the datasheets of the components on it.  So
+		 * this information, too, was encoded in the vendor-supplied
+		 * tables.
+		 *
+		 * Today, there is basically no reason for any PCI/-X/e device
+		 * to need or use fixed interrupts; MSI has been mandatory
+		 * since PCI 2.2.  So the only fixed sources we have are those
+		 * from devices inside the SoC itself, which means that their
+		 * attributes are no longer board-specific but rather generic
+		 * across every board (regardless of machine architecture!) with
+		 * the same SoC on it.  These sources are mostly from FCH
+		 * peripherals, though some can originate from parts of the NBIO
+		 * logic.  The one exception is INTx-emulation, which NBIO
+		 * translates into virtual wire interrupts to the FCH IOAPIC
+		 * as specified by the mapping table accessed via legacy I/O
+		 * ports 0xC00 and 0xC01.  The oxide architecture does not
+		 * support INTx emulation and all such sources are mapped to
+		 * the IOAPIC's catch-all (spurious) virtual input pin.
+		 *
+		 * As such, the polarity and trigger type are known and fixed
+		 * for each interrupt source; in the fullness of time, when we
+		 * support multiple SoCs (and/or if we ever choose/need to
+		 * support an external FCH), we may need a lookup table here
+		 * for each processor family or external FCH.  Critically,
+		 * there are only a few ways to get here (all via
+		 * apix_intx_set_vector()):
+		 *
+		 * - ioapix_init_intr() via apix_alloc_intx(), only for SCI and
+		 *   HPET interrupts which we currently do not set up.
+		 * - the apix_rebind() path, which deals with interrupts that
+		 *   have already been set up and must already have a known
+		 *   polarity and trigger mode.
+		 * - the other apix_alloc_intx() path, which is the interesting
+		 *   one because it's how drivers request interrupts; this
+		 *   path always starts with apix_intx_xlate_irq(), which
+		 *   enforces the constraints described above and always sets
+		 *   the polarity and trigger mode to fixed values before we
+		 *   get here.
+		 *
+		 * We'd like to detect incorrect polarity and trigger mode, but
+		 * this is not the place to do it because there's no way to
+		 * know what's correct; only calling code can do that.  That is,
+		 * the SoC-specific lookup table, if one is needed, must be used
+		 * before we get here.  All we can do here, and what we should
+		 * do here, is ensure that these attributes have been
+		 * initialised... which is impossible given the possible range
+		 * of values we've temporarily inherited from i86pc (and
+		 * ultimately MPS): there is no sentinel value.
+		 *
+		 * It should now be clear that we should never be setting the
+		 * level or trigger mode here, and that we should adopt a
+		 * simpler way for callers to specify them here, one that does
+		 * not require any interpretation other than guaranteeing that
+		 * they have been initialised.  That is the code that belongs
+		 * here in place of this.  Fix this when apix_intx_xlate_irq()
+		 * is fixed, with the introduction of the huashan nexus driver
+		 * for FCH legacy peripherals.  That driver is where this
+		 * knowledge ought best to live, at least for now.
+		 */
 		bus_type = irqptr->airq_iflag.bustype;
 		if (irqptr->airq_iflag.intr_el == INTR_EL_CONFORM) {
 			if (bus_type == BUS_PCI)
@@ -738,459 +604,31 @@ apic_record_rdt_entry(apic_irq_t *irqptr, int irq)
 		} else
 			level = (irqptr->airq_iflag.intr_el == INTR_EL_LEVEL) ?
 			    AV_LEVEL : 0;
-		if (level &&
+		if (level != 0 &&
 		    ((irqptr->airq_iflag.intr_po == INTR_PO_ACTIVE_LOW) ||
 		    (irqptr->airq_iflag.intr_po == INTR_PO_CONFORM &&
 		    bus_type == BUS_PCI)))
 			po = AV_ACTIVE_LOW;
-	} else {
-		iointrp = apic_io_intrp + intr_index;
-		bus_type = apic_find_bus(iointrp->intr_busid);
-		if (iointrp->intr_el == INTR_EL_CONFORM) {
-			if ((irq < 16) && (eisa_level_intr_mask & (1 << irq)))
-				level = AV_LEVEL;
-			else if (bus_type == BUS_PCI)
-				level = AV_LEVEL;
-		} else
-			level = (iointrp->intr_el == INTR_EL_LEVEL) ?
-			    AV_LEVEL : 0;
-		if (level && ((iointrp->intr_po == INTR_PO_ACTIVE_LOW) ||
-		    (iointrp->intr_po == INTR_PO_CONFORM &&
-		    bus_type == BUS_PCI)))
-			po = AV_ACTIVE_LOW;
+		break;
+	default:
+		cmn_err(CE_PANIC, "invalid airq_kind 0x%x", irqptr->airq_kind);
 	}
 	if (level)
 		apic_level_intr[irq] = 1;
-	/*
-	 * The 82489DX External APIC cannot do active low polarity interrupts.
-	 */
-	if (po && (apic_io_ver[ioapicindex] != IOAPIC_VER_82489DX))
-		io_po = po;
-	else
-		io_po = 0;
+
+	/* Never on this architecture. */
+	VERIFY(apic_io_ver[ioapicindex] != IOAPIC_VER_82489DX);
 
 	if (apic_verbose & APIC_VERBOSE_IOAPIC_FLAG)
 		prom_printf("setio: ioapic=0x%x intin=0x%x level=0x%x po=0x%x "
 		    "vector=0x%x cpu=0x%x\n\n", ioapicindex,
-		    irqptr->airq_intin_no, level, io_po, vector,
-		    irqptr->airq_cpu);
+		    irqptr->airq_intin_no, level, po, vector, irqptr->airq_cpu);
 
-	irqptr->airq_rdt_entry = level|io_po|vector;
-}
-
-int
-apic_acpi_translate_pci_irq(dev_info_t *dip, int busid, int devid,
-    int ipin, int *pci_irqp, iflag_t *intr_flagp)
-{
-
-	int status;
-	acpi_psm_lnk_t acpipsmlnk;
-
-	if ((status = acpi_get_irq_cache_ent(busid, devid, ipin, pci_irqp,
-	    intr_flagp)) == ACPI_PSM_SUCCESS) {
-		APIC_VERBOSE_IRQ((CE_CONT, "!%s: Found irqno %d "
-		    "from cache for device %s, instance #%d\n", psm_name,
-		    *pci_irqp, ddi_get_name(dip), ddi_get_instance(dip)));
-		return (status);
-	}
-
-	bzero(&acpipsmlnk, sizeof (acpi_psm_lnk_t));
-
-	if ((status = acpi_translate_pci_irq(dip, ipin, pci_irqp, intr_flagp,
-	    &acpipsmlnk)) == ACPI_PSM_FAILURE) {
-		APIC_VERBOSE_IRQ((CE_WARN, "%s: "
-		    " acpi_translate_pci_irq failed for device %s, instance"
-		    " #%d", psm_name, ddi_get_name(dip),
-		    ddi_get_instance(dip)));
-		return (status);
-	}
-
-	if (status == ACPI_PSM_PARTIAL && acpipsmlnk.lnkobj != NULL) {
-		status = apic_acpi_irq_configure(&acpipsmlnk, dip, pci_irqp,
-		    intr_flagp);
-		if (status != ACPI_PSM_SUCCESS) {
-			status = acpi_get_current_irq_resource(&acpipsmlnk,
-			    pci_irqp, intr_flagp);
-		}
-	}
-
-	if (status == ACPI_PSM_SUCCESS) {
-		acpi_new_irq_cache_ent(busid, devid, ipin, *pci_irqp,
-		    intr_flagp, &acpipsmlnk);
-
-		APIC_VERBOSE_IRQ((CE_CONT, "%s: [ACPI] "
-		    "new irq %d for device %s, instance #%d\n", psm_name,
-		    *pci_irqp, ddi_get_name(dip), ddi_get_instance(dip)));
-	}
-
-	return (status);
-}
-
-/*
- * Adds an entry to the irq list passed in, and returns the new list.
- * Entries are added in priority order (lower numerical priorities are
- * placed closer to the head of the list)
- */
-static prs_irq_list_t *
-acpi_insert_prs_irq_ent(prs_irq_list_t *listp, int priority, int irq,
-    iflag_t *iflagp, acpi_prs_private_t *prsprvp)
-{
-	struct prs_irq_list_ent *newent, *prevp = NULL, *origlistp;
-
-	newent = kmem_zalloc(sizeof (struct prs_irq_list_ent), KM_SLEEP);
-
-	newent->list_prio = priority;
-	newent->irq = irq;
-	newent->intrflags = *iflagp;
-	newent->prsprv = *prsprvp;
-	/* ->next is NULL from kmem_zalloc */
-
-	/*
-	 * New list -- return the new entry as the list.
-	 */
-	if (listp == NULL)
-		return (newent);
-
-	/*
-	 * Save original list pointer for return (since we're not modifying
-	 * the head)
-	 */
-	origlistp = listp;
-
-	/*
-	 * Insertion sort, with entries with identical keys stored AFTER
-	 * existing entries (the less-than-or-equal test of priority does
-	 * this for us).
-	 */
-	while (listp != NULL && listp->list_prio <= priority) {
-		prevp = listp;
-		listp = listp->next;
-	}
-
-	newent->next = listp;
-
-	if (prevp == NULL) { /* Add at head of list (newent is the new head) */
-		return (newent);
-	} else {
-		prevp->next = newent;
-		return (origlistp);
-	}
-}
-
-/*
- * Frees the list passed in, deallocating all memory and leaving *listpp
- * set to NULL.
- */
-static void
-acpi_destroy_prs_irq_list(prs_irq_list_t **listpp)
-{
-	struct prs_irq_list_ent *nextp;
-
-	ASSERT(listpp != NULL);
-
-	while (*listpp != NULL) {
-		nextp = (*listpp)->next;
-		kmem_free(*listpp, sizeof (struct prs_irq_list_ent));
-		*listpp = nextp;
-	}
-}
-
-/*
- * apic_choose_irqs_from_prs returns a list of irqs selected from the list of
- * irqs returned by the link device's _PRS method.  The irqs are chosen
- * to minimize contention in situations where the interrupt link device
- * can be programmed to steer interrupts to different interrupt controller
- * inputs (some of which may already be in use).  The list is sorted in order
- * of irqs to use, with the highest priority given to interrupt controller
- * inputs that are not shared.   When an interrupt controller input
- * must be shared, apic_choose_irqs_from_prs adds the possible irqs to the
- * returned list in the order that minimizes sharing (thereby ensuring lowest
- * possible latency from interrupt trigger time to ISR execution time).
- */
-static prs_irq_list_t *
-apic_choose_irqs_from_prs(acpi_irqlist_t *irqlistent, dev_info_t *dip,
-    int crs_irq)
-{
-	int32_t irq;
-	int i;
-	prs_irq_list_t *prsirqlistp = NULL;
-	iflag_t iflags;
-
-	while (irqlistent != NULL) {
-		irqlistent->intr_flags.bustype = BUS_PCI;
-
-		for (i = 0; i < irqlistent->num_irqs; i++) {
-
-			irq = irqlistent->irqs[i];
-
-			if (irq <= 0) {
-				/* invalid irq number */
-				continue;
-			}
-
-			if ((irq < 16) && (apic_reserved_irqlist[irq]))
-				continue;
-
-			if ((apic_irq_table[irq] == NULL) ||
-			    (apic_irq_table[irq]->airq_dip == dip)) {
-
-				prsirqlistp = acpi_insert_prs_irq_ent(
-				    prsirqlistp, 0 /* Highest priority */, irq,
-				    &irqlistent->intr_flags,
-				    &irqlistent->acpi_prs_prv);
-
-				/*
-				 * If we do not prefer the current irq from _CRS
-				 * or if we do and this irq is the same as the
-				 * current irq from _CRS, this is the one
-				 * to pick.
-				 */
-				if (!(apic_prefer_crs) || (irq == crs_irq)) {
-					return (prsirqlistp);
-				}
-				continue;
-			}
-
-			/*
-			 * Edge-triggered interrupts cannot be shared
-			 */
-			if (irqlistent->intr_flags.intr_el == INTR_EL_EDGE)
-				continue;
-
-			/*
-			 * To work around BIOSes that contain incorrect
-			 * interrupt polarity information in interrupt
-			 * descriptors returned by _PRS, we assume that
-			 * the polarity of the other device sharing this
-			 * interrupt controller input is compatible.
-			 * If it's not, the caller will catch it when
-			 * the caller invokes the link device's _CRS method
-			 * (after invoking its _SRS method).
-			 */
-			iflags = irqlistent->intr_flags;
-			iflags.intr_po =
-			    apic_irq_table[irq]->airq_iflag.intr_po;
-
-			if (!acpi_intr_compatible(iflags,
-			    apic_irq_table[irq]->airq_iflag)) {
-				APIC_VERBOSE_IRQ((CE_CONT, "!%s: irq %d "
-				    "not compatible [%x:%x:%x !~ %x:%x:%x]",
-				    psm_name, irq,
-				    iflags.intr_po,
-				    iflags.intr_el,
-				    iflags.bustype,
-				    apic_irq_table[irq]->airq_iflag.intr_po,
-				    apic_irq_table[irq]->airq_iflag.intr_el,
-				    apic_irq_table[irq]->airq_iflag.bustype));
-				continue;
-			}
-
-			/*
-			 * If we prefer the irq from _CRS, no need
-			 * to search any further (and make sure
-			 * to add this irq with the highest priority
-			 * so it's tried first).
-			 */
-			if (crs_irq == irq && apic_prefer_crs) {
-
-				return (acpi_insert_prs_irq_ent(
-				    prsirqlistp,
-				    0 /* Highest priority */,
-				    irq, &iflags,
-				    &irqlistent->acpi_prs_prv));
-			}
-
-			/*
-			 * Priority is equal to the share count (lower
-			 * share count is higher priority). Note that
-			 * the intr flags passed in here are the ones we
-			 * changed above -- if incorrect, it will be
-			 * caught by the caller's _CRS flags comparison.
-			 */
-			prsirqlistp = acpi_insert_prs_irq_ent(
-			    prsirqlistp,
-			    apic_irq_table[irq]->airq_share, irq,
-			    &iflags, &irqlistent->acpi_prs_prv);
-		}
-
-		/* Go to the next irqlist entry */
-		irqlistent = irqlistent->next;
-	}
-
-	return (prsirqlistp);
-}
-
-/*
- * Configures the irq for the interrupt link device identified by
- * acpipsmlnkp.
- *
- * Gets the current and the list of possible irq settings for the
- * device. If apic_unconditional_srs is not set, and the current
- * resource setting is in the list of possible irq settings,
- * current irq resource setting is passed to the caller.
- *
- * Otherwise, picks an irq number from the list of possible irq
- * settings, and sets the irq of the device to this value.
- * If prefer_crs is set, among a set of irq numbers in the list that have
- * the least number of devices sharing the interrupt, we pick current irq
- * resource setting if it is a member of this set.
- *
- * Passes the irq number in the value pointed to by pci_irqp, and
- * polarity and sensitivity in the structure pointed to by dipintrflagp
- * to the caller.
- *
- * Note that if setting the irq resource failed, but successfuly obtained
- * the current irq resource settings, passes the current irq resources
- * and considers it a success.
- *
- * Returns:
- * ACPI_PSM_SUCCESS on success.
- *
- * ACPI_PSM_FAILURE if an error occured during the configuration or
- * if a suitable irq was not found for this device, or if setting the
- * irq resource and obtaining the current resource fails.
- *
- */
-static int
-apic_acpi_irq_configure(acpi_psm_lnk_t *acpipsmlnkp, dev_info_t *dip,
-    int *pci_irqp, iflag_t *dipintr_flagp)
-{
-	int32_t irq;
-	int cur_irq = -1;
-	acpi_irqlist_t *irqlistp;
-	prs_irq_list_t *prs_irq_listp, *prs_irq_entp;
-	boolean_t found_irq = B_FALSE;
-
-	dipintr_flagp->bustype = BUS_PCI;
-
-	if ((acpi_get_possible_irq_resources(acpipsmlnkp, &irqlistp))
-	    == ACPI_PSM_FAILURE) {
-		APIC_VERBOSE_IRQ((CE_WARN, "!%s: Unable to determine "
-		    "or assign IRQ for device %s, instance #%d: The system was "
-		    "unable to get the list of potential IRQs from ACPI.",
-		    psm_name, ddi_get_name(dip), ddi_get_instance(dip)));
-
-		return (ACPI_PSM_FAILURE);
-	}
-
-	if ((acpi_get_current_irq_resource(acpipsmlnkp, &cur_irq,
-	    dipintr_flagp) == ACPI_PSM_SUCCESS) && (!apic_unconditional_srs) &&
-	    (cur_irq > 0)) {
-		/*
-		 * If an IRQ is set in CRS and that IRQ exists in the set
-		 * returned from _PRS, return that IRQ, otherwise print
-		 * a warning
-		 */
-
-		if (acpi_irqlist_find_irq(irqlistp, cur_irq, NULL)
-		    == ACPI_PSM_SUCCESS) {
-
-			ASSERT(pci_irqp != NULL);
-			*pci_irqp = cur_irq;
-			acpi_free_irqlist(irqlistp);
-			return (ACPI_PSM_SUCCESS);
-		}
-
-		APIC_VERBOSE_IRQ((CE_WARN, "!%s: Could not find the "
-		    "current irq %d for device %s, instance #%d in ACPI's "
-		    "list of possible irqs for this device. Picking one from "
-		    " the latter list.", psm_name, cur_irq, ddi_get_name(dip),
-		    ddi_get_instance(dip)));
-	}
-
-	if ((prs_irq_listp = apic_choose_irqs_from_prs(irqlistp, dip,
-	    cur_irq)) == NULL) {
-
-		APIC_VERBOSE_IRQ((CE_WARN, "!%s: Could not find a "
-		    "suitable irq from the list of possible irqs for device "
-		    "%s, instance #%d in ACPI's list of possible irqs",
-		    psm_name, ddi_get_name(dip), ddi_get_instance(dip)));
-
-		acpi_free_irqlist(irqlistp);
-		return (ACPI_PSM_FAILURE);
-	}
-
-	acpi_free_irqlist(irqlistp);
-
-	for (prs_irq_entp = prs_irq_listp;
-	    prs_irq_entp != NULL && found_irq == B_FALSE;
-	    prs_irq_entp = prs_irq_entp->next) {
-
-		acpipsmlnkp->acpi_prs_prv = prs_irq_entp->prsprv;
-		irq = prs_irq_entp->irq;
-
-		APIC_VERBOSE_IRQ((CE_CONT, "!%s: Setting irq %d for "
-		    "device %s instance #%d\n", psm_name, irq,
-		    ddi_get_name(dip), ddi_get_instance(dip)));
-
-		if ((acpi_set_irq_resource(acpipsmlnkp, irq))
-		    == ACPI_PSM_SUCCESS) {
-			/*
-			 * setting irq was successful, check to make sure CRS
-			 * reflects that. If CRS does not agree with what we
-			 * set, return the irq that was set.
-			 */
-
-			if (acpi_get_current_irq_resource(acpipsmlnkp, &cur_irq,
-			    dipintr_flagp) == ACPI_PSM_SUCCESS) {
-
-				if (cur_irq != irq)
-					APIC_VERBOSE_IRQ((CE_WARN,
-					    "!%s: IRQ resource set "
-					    "(irqno %d) for device %s "
-					    "instance #%d, differs from "
-					    "current setting irqno %d",
-					    psm_name, irq, ddi_get_name(dip),
-					    ddi_get_instance(dip), cur_irq));
-			} else {
-				/*
-				 * On at least one system, there was a bug in
-				 * a DSDT method called by _STA, causing _STA to
-				 * indicate that the link device was disabled
-				 * (when, in fact, it was enabled).  Since _SRS
-				 * succeeded, assume that _CRS is lying and use
-				 * the iflags from this _PRS interrupt choice.
-				 * If we're wrong about the flags, the polarity
-				 * will be incorrect and we may get an interrupt
-				 * storm, but there's not much else we can do
-				 * at this point.
-				 */
-				*dipintr_flagp = prs_irq_entp->intrflags;
-			}
-
-			/*
-			 * Return the irq that was set, and not what _CRS
-			 * reports, since _CRS has been seen to return
-			 * different IRQs than what was passed to _SRS on some
-			 * systems (and just not return successfully on others).
-			 */
-			cur_irq = irq;
-			found_irq = B_TRUE;
-		} else {
-			APIC_VERBOSE_IRQ((CE_WARN, "!%s: set resource "
-			    "irq %d failed for device %s instance #%d",
-			    psm_name, irq, ddi_get_name(dip),
-			    ddi_get_instance(dip)));
-
-			if (cur_irq == -1) {
-				acpi_destroy_prs_irq_list(&prs_irq_listp);
-				return (ACPI_PSM_FAILURE);
-			}
-		}
-	}
-
-	acpi_destroy_prs_irq_list(&prs_irq_listp);
-
-	if (!found_irq)
-		return (ACPI_PSM_FAILURE);
-
-	ASSERT(pci_irqp != NULL);
-	*pci_irqp = cur_irq;
-	return (ACPI_PSM_SUCCESS);
+	irqptr->airq_rdt_entry = level | po | vector;
 }
 
 void
-ioapic_disable_redirection()
+ioapic_disable_redirection(void)
 {
 	int ioapic_ix;
 	int intin_max;
@@ -1315,11 +753,6 @@ apic_restore_state(struct apic_state *sp)
 
 		lock_clear(&apic_ioapic_lock);
 		intr_restore(iflag);
-
-		/*
-		 * restore acpi link device mappings
-		 */
-		acpi_restore_link_devices();
 	}
 }
 
