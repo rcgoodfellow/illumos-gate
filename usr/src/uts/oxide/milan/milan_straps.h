@@ -26,9 +26,54 @@
  * the PCIe vendor id strap is 16 units wide.
  */
 
+#include <milan/milan_fabric.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define	MILAN_SMN_PCIE_STRAP_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS + 8
+#define	MILAN_SMN_PCIE_STRAP_BASE	0x9000000
+#define	MILAN_SMN_PCIE_STRAP_R_ADDR	0x7ac
+#define	MILAN_SMN_PCIE_STRAP_R_DATA	0x7b0
+
+#define	MILAN_SMN_PCIE_STRAP_IOMS_SHIFT(x)	((x + 0x46) << 12)
+#define	MILAN_SMN_PCIE_STRAP_PORT_SHIFT(x)	(x << 14)
+
+/*
+ * The upper bits of the address register for any given strap
+ */
+#define	MILAN_STRAP_PCIE_ADDR_UPPER	0xfffe0000
+
+/*
+ * The transmitter preset encodings, which can be found in the PCIe base
+ * specification. Values for each preset can be found at
+ * Table 8-1 Tx Preset Ratios and Corresponding Coefficient Values
+ */
+#define	MILAN_STRAP_PCIE_TX_PRESET_0	0
+#define	MILAN_STRAP_PCIE_TX_PRESET_1	1
+#define	MILAN_STRAP_PCIE_TX_PRESET_2	2
+#define	MILAN_STRAP_PCIE_TX_PRESET_3	3
+#define	MILAN_STRAP_PCIE_TX_PRESET_4	4
+#define	MILAN_STRAP_PCIE_TX_PRESET_5	5
+#define	MILAN_STRAP_PCIE_TX_PRESET_6	6
+#define	MILAN_STRAP_PCIE_TX_PRESET_7	7
+#define	MILAN_STRAP_PCIE_TX_PRESET_8	8
+#define	MILAN_STRAP_PCIE_TX_PRESET_9	9
+#define	MILAN_STRAP_PCIE_TX_PRESET_10	10
+
+/*
+ * The reciever preset encodings. Note that these are optional and only valid
+ * for Gen 3.
+ */
+#define	MILAN_STRAP_PCIE_RX_PRESET_6DB	0
+#define	MILAN_STRAP_PCIE_RX_PRESET_7DB	1
+#define	MILAN_STRAP_PCIE_RX_PRESET_8DB	2
+#define	MILAN_STRAP_PCIE_RX_PRESET_9DB	3
+#define	MILAN_STRAP_PCIE_RX_PRESET_10DB	4
+#define	MILAN_STRAP_PCIE_RX_PRESET_11DB	5
+#define	MILAN_STRAP_PCIE_RX_PRESET_12DB	6
+#define	MILAN_STRAP_PCIE_RX_PRESET_RSVD	7
 
 /*
  * A control that disallows further writes to the various straps. The default is
@@ -82,13 +127,13 @@ extern "C" {
 
 /*
  * This appears to be a means to force some timeout. Its relationship to the
- * strap above is unclear.
+ * strap above is unclear. Defaults to 0.
  */
 #define	MILAN_STRAP_PCIE_FORCE_TO_EN		0x09
 
 /*
  * The PCIe hardware apparently has an i2c debug interface that this allows one
- * to manipulate. That's, well, spicy.
+ * to manipulate. That's, well, spicy. Defaults to 0.
  */
 #define	MILAN_STRAP_PCIE_I2C_DBG_EN		0x0a
 
@@ -123,7 +168,7 @@ extern "C" {
 
 /*
  * This controls whether or not the device advertises downstream port
- * containment features or not.
+ * containment features or not. Default 0x0.
  */
 #define	MILAN_STRAP_PCIE_DPC_EN			0x0f
 
@@ -846,7 +891,7 @@ extern "C" {
  */
 
 /*
- * Downstream and upstream lane equalization control preset hint. While tihs is
+ * Downstream and upstream lane equalization control preset hint. While this is
  * a lane setting, it is used for all lanes in the device. This seems to be for
  * Gen 3. Defaults to 0x3 for downstream, 0x0 for upstream, 3 bits wide.
  */
@@ -880,6 +925,9 @@ extern "C" {
 /*
  * This seems to control something called 'quicksim', mysterious. Default is
  * 0x0.
+ * This seems to be meant for validation.
+ * Some clues can be found here;
+ * https://www.amd.com/system/files/TechDocs/48692.pdf
  */
 #define	MILAN_STRAP_PCIE_QUICKSIM_START		0xa8
 
@@ -1037,9 +1085,8 @@ extern "C" {
 
 /*
  * These next two straps are related to the L0s and L1s inactivity value. It's
- * not clear what units these are in or where exactly they fit in. This may be
- * the amount of inactivity before we transition here. What we do know is that
- * these are 4-bit fields that default to 0x0.
+ * likely that these refer to PCIEPORT::PCIE_LC_CNTL. These are 4-bit fields
+ * that default to 0x0, with 0 meaning disabled.
  */
 #define	MILAN_STRAP_PCIE_P_L0s_INACTIVITY	0xe4
 #define	MILAN_STRAP_PCIE_P_L1_INACTIVITY	0xe5
@@ -1148,10 +1195,10 @@ extern "C" {
 #define	MILAN_STRAP_PCIE_P_AUTO_DIS_SPEED_SUP_EN	0xf6
 
 /*
- * These next three straps are all related to 'SPC' and seem to target
- * individual generation speeds. They are all 2 bits wide. 2.5GT and 5.0GT
- * default to 0, while 8 GT defaults to 1, and 16 GT to 2. It could be possible
- * these are related to SRIS.
+ * These next three straps are all related to 'SPC', which seems to stand for
+ * Symbol Per Clock and seem to target individual generation speeds. They are
+ * all 2 bits wide. 2.5GT and 5.0GT default to 0, while 8 GT defaults to 1, and
+ * 16 GT to 2. It could be possible these are related to SRIS.
  */
 #define	MILAN_STRAP_PCIE_P_SPC_MODE_2P5GT	0xf7
 #define	MILAN_STRAP_PCIE_P_SPC_MODE_5GT		0xf8
@@ -1187,10 +1234,18 @@ extern "C" {
 #define	MILAN_STRAP_PCIE_P_ACCEPT_PRESETS_TEST	0xff
 
 /*
- * This seems to relate to some equalization setting. This is a 2-bit field and
- * defaults to 0x0.
+ * This controls how long the PHY has for Figure of Merit (FOM). This is a 2-bit
+ * field and defaults to 0x0.
+ * 0: 300us
+ * 1: 200us
+ * 2: 100us
+ * 3: < 100us.
  */
 #define	MILAN_STRAP_PCIE_P_FOM_TIME		0x100
+#define	MILAN_STRAP_PCIE_P_FOM_300US		0
+#define	MILAN_STRAP_PCIE_P_FOM_200US		1
+#define	MILAN_STRAP_PCIE_P_FOM_100US		2
+#define	MILAN_STRAP_PCIE_P_FOM_SUB_100US	3
 
 /*
  * This is used to specify some kind of safe equalization search setting. It

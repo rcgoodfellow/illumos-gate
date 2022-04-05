@@ -56,6 +56,7 @@
 #include <milan/milan_dxio_data.h>
 #include <milan/milan_fabric.h>
 #include <milan/milan_physaddrs.h>
+#include <milan/milan_straps.h>
 
 /*
  * XXX This header contains a lot of the definitions that the broader system is
@@ -1487,6 +1488,7 @@ typedef struct milan_pcie_port {
 	uint16_t		mpp_phys_lane_start;
 	uint16_t		mpp_phys_lane_end;
 	uint32_t		mpp_core_smn_addr;
+	uint32_t		mpp_strap_smn_addr;
 	milan_pcie_bridge_t	mpp_bridges[MILAN_IOMS_MAX_PCIE_BRIDGES];
 } milan_pcie_port_t;
 
@@ -1543,6 +1545,7 @@ typedef struct milan_iodie {
 	kmutex_t		mi_df_ficaa_lock;
 	kmutex_t		mi_smn_lock;
 	kmutex_t		mi_smu_lock;
+	kmutex_t		mi_pcie_strap_lock;
 	uint8_t			mi_node_id;
 	uint8_t			mi_dfno;
 	uint8_t			mi_smn_busno;
@@ -2438,6 +2441,12 @@ milan_fabric_ioms_pcie_init(milan_ioms_t *ioms)
 		MILAN_SMN_VERIFY_BASE_ADDR(port->mpp_core_smn_addr,
 		    MILAN_SMN_PCIE_CORE_BASE_BITS);
 
+		port->mpp_strap_smn_addr = MILAN_SMN_PCIE_STRAP_BASE +
+		    MILAN_SMN_PCIE_STRAP_IOMS_SHIFT(ioms->mio_num) +
+		    MILAN_SMN_PCIE_STRAP_PORT_SHIFT(pcino);
+		MILAN_SMN_VERIFY_BASE_ADDR(port->mpp_strap_smn_addr,
+		    MILAN_SMN_PCIE_STRAP_BASE_BITS);
+
 		for (uint_t bridgeno = 0; bridgeno < port->mpp_nbridges;
 		    bridgeno++) {
 			milan_pcie_bridge_t *bridge =
@@ -2859,6 +2868,8 @@ milan_fabric_topo_init(void)
 		mutex_init(&iodie->mi_smn_lock, NULL, MUTEX_SPIN,
 		    (ddi_iblock_cookie_t)ipltospl(15));
 		mutex_init(&iodie->mi_smu_lock, NULL, MUTEX_SPIN,
+		    (ddi_iblock_cookie_t)ipltospl(15));
+		mutex_init(&iodie->mi_pcie_strap_lock, NULL, MUTEX_SPIN,
 		    (ddi_iblock_cookie_t)ipltospl(15));
 
 		busno = milan_df_bcast_read32(iodie, 0,
@@ -4545,6 +4556,226 @@ milan_dxio_map_engines(milan_fabric_t *fabric, milan_iodie_t *iodie)
 }
 
 /*
+ * These PCIe straps need to be set after mapping is done, but before link
+ * training has started. While we do not understand in detail what all of these
+ * registers do, we've split this broadly into 2 categories:
+ * 1) Straps where:
+ *     a) the defaults in hardware seem to be reasonable given our (sometimes
+ *     limited) understanding of their function
+ *     b) are not features/parameters that we currently care specifically about
+ *     one way or the other
+ *     c) and we are currently ok with the defaults changing out from underneath
+ *     us on different hardware revisions unless proven otherwise.
+ * or 2) where:
+ *     a) We care specifically about a feature enough to ensure that it is set
+ *     (e.g. AERs) or purposefully disabled (e.g. I2C_DBG_EN)
+ *     b) We are not ok with these changing based on potentially different
+ *     defaults set in different hardware revisions
+ * For 1), we've chosen to leave them based on whatever the hardware has chosen
+ * as the default, while all the straps detailed underneath fall into category
+ * 2. Note that this list is by no means definitive, and will almost certainly
+ * change as our understanding of what we require from the hardware evolves.
+ */
+typedef struct milan_pcie_strap_setting {
+	uint32_t		strap_reg;
+	uint32_t		strap_data;
+} milan_pcie_strap_setting_t;
+
+/*
+ * PCIe Straps that we unconditionally set to 1
+ */
+static const uint32_t milan_pcie_strap_enable[] = {
+	MILAN_STRAP_PCIE_MSI_EN,
+	MILAN_STRAP_PCIE_AER_EN,
+	MILAN_STRAP_PCIE_GEN2_COMP,
+	/* We want completion timeouts */
+	MILAN_STRAP_PCIE_CPL_TO_EN,
+	MILAN_STRAP_PCIE_TPH_EN,
+	MILAN_STRAP_PCIE_MULTI_FUNC_EN,
+	MILAN_STRAP_PCIE_DPC_EN,
+	MILAN_STRAP_PCIE_ARI_EN,
+	MILAN_STRAP_PCIE_PL_16G_EN,
+	MILAN_STRAP_PCIE_LANE_MARGIN_EN,
+	MILAN_STRAP_PCIE_LTR_SUP,
+	MILAN_STRAP_PCIE_LINK_BW_NOTIF_SUP,
+	MILAN_STRAP_PCIE_GEN3_1_FEAT_EN,
+	MILAN_STRAP_PCIE_GEN4_FEAT_EN,
+	MILAN_STRAP_PCIE_ECRC_GEN_EN,
+	MILAN_STRAP_PCIE_ECRC_CHECK_EN,
+	MILAN_STRAP_PCIE_CPL_ABORT_ERR_EN,
+	MILAN_STRAP_PCIE_INT_ERR_EN,
+	MILAN_STRAP_PCIE_RXP_ACC_FULL_DIS,
+
+	/* ACS straps */
+	MILAN_STRAP_PCIE_ACS_EN,
+	MILAN_STRAP_PCIE_ACS_SRC_VALID,
+	MILAN_STRAP_PCIE_ACS_TRANS_BLOCK,
+	MILAN_STRAP_PCIE_ACS_DIRECT_TRANS_P2P,
+	MILAN_STRAP_PCIE_ACS_P2P_CPL_REDIR,
+	MILAN_STRAP_PCIE_ACS_P2P_REQ_RDIR,
+	MILAN_STRAP_PCIE_ACS_UPSTREAM_FWD,
+};
+
+/*
+ * PCIe Straps that we unconditionally set to 0
+ * These are generally debug and test settings that are usually not a good idea
+ * in my experience to allow accidental enablement.
+ */
+static const uint32_t milan_pcie_strap_disable[] = {
+	MILAN_STRAP_PCIE_I2C_DBG_EN,
+	MILAN_STRAP_PCIE_DEBUG_RXP,
+	MILAN_STRAP_PCIE_NO_DEASSERT_RX_EN_TEST,
+	MILAN_STRAP_PCIE_ERR_REPORT_DIS,
+	MILAN_STRAP_PCIE_TX_TEST_ALL,
+	MILAN_STRAP_PCIE_MCAST_EN,
+};
+
+/*
+ * PCIe Straps that have other values.
+ */
+static const milan_pcie_strap_setting_t milan_pcie_strap_settings[] = {
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_EQ_DS_RX_PRESET_HINT,
+	    .strap_data = MILAN_STRAP_PCIE_RX_PRESET_9DB,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_EQ_US_RX_PRESET_HINT,
+	    .strap_data = MILAN_STRAP_PCIE_RX_PRESET_9DB,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_EQ_DS_TX_PRESET,
+	    .strap_data = MILAN_STRAP_PCIE_TX_PRESET_7,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_EQ_US_TX_PRESET,
+	    .strap_data = MILAN_STRAP_PCIE_TX_PRESET_7,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_16GT_EQ_DS_TX_PRESET,
+	    .strap_data = MILAN_STRAP_PCIE_TX_PRESET_7,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_16GT_EQ_US_TX_PRESET,
+	    .strap_data = MILAN_STRAP_PCIE_TX_PRESET_5,
+	},
+};
+
+/*
+ * PCIe Straps that exist on a per-bridge level.
+ */
+static const milan_pcie_strap_setting_t milan_pcie_bridge_settings[] = {
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_EXT_TAG_SUP,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_E2E_TLP_PREFIX_EN,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_10B_TAG_CMPL_SUP,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_10B_TAG_REQ_SUP,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_TCOMMONMODE_TIME,
+	    .strap_data = 0xa,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_TPON_SCALE,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_TPON_VALUE,
+	    .strap_data = 0xf,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_DLF_SUP,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_DLF_EXCHANGE_EN,
+	    .strap_data = 0x1,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_P_FOM_TIME,
+	    .strap_data = MILAN_STRAP_PCIE_P_FOM_300US,
+	},
+};
+
+static void
+milan_fabric_write_pcie_strap(milan_iodie_t *iodie, milan_ioms_t *ioms,
+    milan_pcie_port_t *port, uint32_t reg, uint32_t data)
+{
+	mutex_enter(&iodie->mi_pcie_strap_lock);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_MAKE_ADDR(port->mpp_strap_smn_addr,
+	    MILAN_SMN_PCIE_STRAP_BASE_BITS,
+	    MILAN_SMN_PCIE_STRAP_R_ADDR),
+	    MILAN_STRAP_PCIE_ADDR_UPPER + reg);
+	milan_smn_write32(iodie,
+	    MILAN_SMN_MAKE_ADDR(port->mpp_strap_smn_addr,
+	    MILAN_SMN_PCIE_STRAP_BASE_BITS,
+	    MILAN_SMN_PCIE_STRAP_R_DATA),
+	    data);
+	mutex_exit(&iodie->mi_pcie_strap_lock);
+}
+
+/*
+ * Here we set up all the straps for PCIe features that we care about and want
+ * advertised as capabilities. Note that we do not enforce any order between the
+ * straps. It is our understanding that the straps themselves do not kick off
+ * any change, but instead another stage (presumably before link training)
+ * initializes the read of all these straps in one go.
+ * Currently, we set these straps on all ports and all bridges regardless of
+ * whether they are used, though this may be changed if it proves problematic.
+ */
+static int
+milan_fabric_init_pcie_straps(milan_fabric_t *fabric, milan_soc_t *soc,
+    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
+    void *arg)
+{
+	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_strap_enable); i++) {
+		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		    milan_pcie_strap_enable[i], 0x1);
+	}
+	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_strap_disable); i++) {
+		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		    milan_pcie_strap_disable[i], 0x0);
+	}
+	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_strap_settings); i++) {
+		const milan_pcie_strap_setting_t *strap =
+		    &milan_pcie_strap_settings[i];
+
+		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		    strap->strap_reg, strap->strap_data);
+	}
+
+	/* Handle Special case for DLF which needs to be set on non WAFL */
+	if (port->mpp_portno != MILAN_IOMS_WAFL_PCIE_PORT) {
+		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		    MILAN_STRAP_PCIE_DLF_EN, 1);
+	}
+
+	/* Handle per bridge initialization */
+	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_bridge_settings); i++) {
+		const milan_pcie_strap_setting_t *strap =
+		    &milan_pcie_bridge_settings[i];
+		for (uint_t j = 0; j < port->mpp_nbridges; j++) {
+			milan_fabric_write_pcie_strap(iodie, ioms, port,
+			    strap->strap_reg +
+			    (j * MILAN_STRAP_PCIE_NUM_PER_BRIDGE),
+			    strap->strap_data);
+		}
+	}
+
+	return (0);
+}
+
+/*
  * Here we are, it's time to actually kick off the state machine that we've
  * wanted to do.
  */
@@ -4592,6 +4823,15 @@ milan_dxio_state_machine(milan_fabric_t *fabric, milan_soc_t *soc,
 				}
 				cmn_err(CE_WARN, "XXX skipping a ton of mapped "
 				    "stuff");
+				/*
+				 * Now that we have the mapping done, we set up
+				 * the straps for PCIe.
+				 */
+				(void) milan_fabric_walk_pcie_port(fabric,
+				    milan_fabric_init_pcie_straps, NULL);
+
+				cmn_err(CE_NOTE, "Finished writing PCIe "
+				    "straps.");
 				break;
 			case MILAN_DXIO_SM_CONFIGURED:
 				cmn_err(CE_WARN, "XXX skipping a ton of "
