@@ -2142,7 +2142,7 @@ milan_smn_read32(milan_iodie_t *iodie, uint32_t reg)
 static void
 milan_smn_write32(milan_iodie_t *iodie, uint32_t reg, uint32_t val)
 {
-	mutex_enter(&iodie->mi_df_ficaa_lock);
+	mutex_enter(&iodie->mi_smn_lock);
 	if (milan_smn_log != 0) {
 		cmn_err(CE_NOTE, "SMN W reg 0x%x: 0x%x", reg, val);
 	}
@@ -2150,7 +2150,7 @@ milan_smn_write32(milan_iodie_t *iodie, uint32_t reg, uint32_t val)
 	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, reg);
 	pci_putl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
 	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA, val);
-	mutex_exit(&iodie->mi_df_ficaa_lock);
+	mutex_exit(&iodie->mi_smn_lock);
 }
 
 static uint32_t
