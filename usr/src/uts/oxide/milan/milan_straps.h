@@ -867,6 +867,8 @@ extern "C" {
 #define	MILAN_STRAP_PCIE_SUBVID			0x99
 #define	MILAN_STRAP_PCIE_SUBDID			0x9a
 
+#define	PCI_VENDOR_ID_OXIDE			0x1de
+#define	MILAN_STRAP_PCIE_SUBDID_BRIDGE		0xfff9
 /*
  * This is a link config control with no information on it other than it is 6
  * bits wide and defaults to 0xd.

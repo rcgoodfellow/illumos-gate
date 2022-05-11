@@ -4312,6 +4312,24 @@ milan_dxio_init(milan_fabric_t *fabric, milan_soc_t *soc, milan_iodie_t *iodie,
 	return (0);
 }
 
+typedef enum {
+	GIMLET,
+	ETHANOL
+} milan_board_type_t;
+
+/*
+ * Here is a temporary rough heuristic for determining what board we're on.
+ */
+static milan_board_type_t
+milan_board_type(const milan_fabric_t *fabric)
+{
+	if (fabric->mf_nsocs == 2) {
+		return (ETHANOL);
+	} else {
+		return (GIMLET);
+	}
+}
+
 /*
  * Here we need to assemble data for the system we're actually on. XXX Right now
  * we're just assuming we're Ethanol-X and only leveraging ancillary data from
@@ -4335,7 +4353,7 @@ milan_dxio_plat_data(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * XXX Figure out how to best not hardcode Ethanol. Realistically
 	 * probably an SP boot property.
 	 */
-	if (fabric->mf_nsocs == 2) {
+	if (milan_board_type(fabric) == ETHANOL) {
 		if (soc->ms_socno == 0) {
 			source_data = &ethanolx_engine_s0;
 		} else {
@@ -4661,6 +4679,26 @@ static const milan_pcie_strap_setting_t milan_pcie_strap_settings[] = {
 };
 
 /*
+ * Strap settings that only apply to Ethanol
+ */
+static const milan_pcie_strap_setting_t milan_pcie_strap_ethanol_settings[] = {
+};
+
+/*
+ * Strap settings that only apply to Gimlet
+ */
+static const milan_pcie_strap_setting_t milan_pcie_strap_gimlet_settings[] = {
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_SUBVID,
+	    .strap_data = PCI_VENDOR_ID_OXIDE,
+	},
+	{
+	    .strap_reg = MILAN_STRAP_PCIE_SUBDID,
+	    .strap_data = MILAN_STRAP_PCIE_SUBDID_BRIDGE,
+	},
+};
+
+/*
  * PCIe Straps that exist on a per-bridge level.
  */
 static const milan_pcie_strap_setting_t milan_pcie_bridge_settings[] = {
@@ -4758,6 +4796,24 @@ milan_fabric_init_pcie_straps(milan_fabric_t *fabric, milan_soc_t *soc,
 	if (port->mpp_portno != MILAN_IOMS_WAFL_PCIE_PORT) {
 		milan_fabric_write_pcie_strap(iodie, ioms, port,
 		    MILAN_STRAP_PCIE_DLF_EN, 1);
+	}
+
+	/* Handle board specific straps */
+	const milan_pcie_strap_setting_t *board_list;
+	int array_size;
+	if (milan_board_type(fabric) == ETHANOL) {
+		board_list = milan_pcie_strap_ethanol_settings;
+		array_size = ARRAY_SIZE(milan_pcie_strap_ethanol_settings);
+	} else {
+		board_list = milan_pcie_strap_gimlet_settings;
+		array_size = ARRAY_SIZE(milan_pcie_strap_gimlet_settings);
+	}
+	for (uint_t i = 0; i < array_size; i++) {
+		const milan_pcie_strap_setting_t *strap =
+		    &board_list[i];
+
+		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		    strap->strap_reg, strap->strap_data);
 	}
 
 	/* Handle per bridge initialization */
@@ -5559,13 +5615,12 @@ milan_smu_hotplug_data_init(milan_fabric_t *fabric)
 	pfn = hat_getpfnum(kas.a_hat, (caddr_t)hp->mh_table);
 	hp->mh_pa = mmu_ptob((uint64_t)pfn);
 
-	/*
-	 * XXX Hardcoding of Ethanol
-	 */
-	entry = ethanolx_hotplug_ents;
-#if 0
-	entry = gimlet_hotplug_ents;
-#endif
+	if (milan_board_type(fabric) == ETHANOL) {
+		entry = ethanolx_hotplug_ents;
+	} else {
+		entry = gimlet_hotplug_ents;
+	}
+
 	cont = entry[0].se_slotno != SMU_HOTPLUG_ENT_LAST;
 
 	/*
