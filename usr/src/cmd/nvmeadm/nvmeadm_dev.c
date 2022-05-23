@@ -222,8 +222,26 @@ nvme_firmware_commit(int fd, int slot, int action, uint16_t *sc)
 	return (rv);
 }
 
+boolean_t
+nvme_is_ignored_ns(int fd)
+{
+	boolean_t ret;
+	uint64_t res = 0;
+
+	/*
+	 * The ioctl shouldn't fail. If it does, we treat it the same as if the
+	 * namespace was ignored.
+	 */
+	ret = nvme_ioctl(fd, NVME_IOC_IS_IGNORED_NS, NULL, NULL, 0, &res);
+
+	if (ret)
+		ret = (res == 0) ? B_FALSE : B_TRUE;
+
+	return (ret);
+}
+
 int
-nvme_open(di_minor_t minor)
+nvme_open(di_minor_t minor, boolean_t excl)
 {
 	char *devpath, *path;
 	int fd;
@@ -238,7 +256,7 @@ nvme_open(di_minor_t minor)
 
 	di_devfs_path_free(devpath);
 
-	fd = open(path, O_RDWR);
+	fd = open(path, O_RDWR | (excl ? O_EXCL: 0));
 
 	if (fd < 0) {
 		if (debug)

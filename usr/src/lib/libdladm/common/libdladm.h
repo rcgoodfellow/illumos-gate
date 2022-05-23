@@ -24,7 +24,7 @@
 
 /*
  * Copyright 2015, Joyent, Inc.
- * Copyright 2020 OmniOS Community Edition (OmniOSce) Association
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association
  */
 
 #ifndef _LIBDLADM_H
@@ -181,7 +181,8 @@ typedef enum {
 	DLADM_STATUS_PORT_NOPROTO,
 	DLADM_STATUS_INVALID_MTU,
 	DLADM_STATUS_PERSIST_ON_TEMP,
-	DLADM_STATUS_BAD_ENCAP
+	DLADM_STATUS_BAD_ENCAP,
+	DLADM_STATUS_ADDRNOTAVAIL
 } dladm_status_t;
 
 typedef enum {
@@ -308,6 +309,7 @@ extern int		dladm_range2strs(const mac_propval_range_t *, char **);
 extern dladm_status_t	dladm_list2range(void *, uint_t, mac_propval_type_t,
 			    mac_propval_range_t **);
 
+extern uint_t		dladm_errlist_count(dladm_errlist_t *);
 extern void		dladm_errlist_init(dladm_errlist_t *);
 extern void		dladm_errlist_reset(dladm_errlist_t *);
 

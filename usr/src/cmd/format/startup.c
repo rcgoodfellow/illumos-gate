@@ -287,7 +287,7 @@ badopt:
 
 
 static void
-usage()
+usage(void)
 {
 	err_print("Usage:  format [-s][-d disk_name]");
 	err_print("[-t disk_type][-p partition_name]\n");
@@ -311,7 +311,7 @@ usage()
  * the problem is occurring.
  */
 void
-sup_init()
+sup_init(void)
 {
 	int		nopened_files = 0;
 	char		fname[MAXPATHLEN];
@@ -411,7 +411,7 @@ sup_init()
  * for the descriptor.  Return true if able to open the file.
  */
 static int
-sup_prxfile()
+sup_prxfile(void)
 {
 	int	status;
 	TOKEN	token;
@@ -486,7 +486,7 @@ sup_prxfile()
  * enable supporting multiple search path definitions.
  */
 static void
-sup_setpath()
+sup_setpath(void)
 {
 	TOKEN		token;
 	TOKEN		cleaned;
@@ -550,7 +550,7 @@ sup_setpath()
  * controller type.
  */
 static void
-sup_setdtype()
+sup_setdtype(void)
 {
 	TOKEN	token, cleaned, ident;
 	int	val, status, i;
@@ -952,7 +952,7 @@ sup_change_spec(struct disk_type *disk, char *id)
  * controller type.
  */
 static void
-sup_setpart()
+sup_setpart(void)
 {
 	TOKEN	token, cleaned, disk, ctlr, ident;
 	struct	disk_type *dtype = NULL;
@@ -1920,7 +1920,9 @@ add_device_to_disklist(char *devname, char *devpath)
 	 * Configuration.
 	 */
 	ctlr = search_ctlr->ctlr_ctype;
-	if ((status == -1) && (ctlr->ctype_ctype == DKC_SCSI_CCS)) {
+	if ((status == -1) &&
+	    (ctlr->ctype_ctype == DKC_SCSI_CCS ||
+	    ctlr->ctype_ctype == DKC_BLKDEV)) {
 		if (option_msg && diag_msg) {
 			err_print("%s: attempting auto configuration\n",
 			    search_disk->disk_name);
@@ -1937,8 +1939,10 @@ add_device_to_disklist(char *devname, char *devpath)
 				status = 0;
 				search_disk->disk_flags |=
 				    (DSK_LABEL_DIRTY | DSK_AUTO_CONFIG);
+				break;
 			}
-			break;
+			/* With SOLARIS label type failed, try EFI. */
+			/* FALLTHROUGH */
 		case (L_TYPE_EFI):
 			efi_disk = auto_efi_sense(search_file, &efi_info);
 			if (efi_disk != NULL) {
@@ -1946,6 +1950,7 @@ add_device_to_disklist(char *devname, char *devpath)
 				 * Auto config worked, so we now have
 				 * a valid label for the disk.
 				 */
+				search_disk->label_type = L_TYPE_EFI;
 				status = 0;
 				search_disk->disk_flags |=
 				    (DSK_LABEL_DIRTY | DSK_AUTO_CONFIG);
@@ -2406,7 +2411,7 @@ datafile_error(char *errmsg, char *token)
  * That may or may not be a problem...
  */
 static void
-search_duplicate_dtypes()
+search_duplicate_dtypes(void)
 {
 	struct disk_type	*dp1;
 	struct disk_type	*dp2;
@@ -2439,7 +2444,7 @@ search_duplicate_dtypes()
  * That may or may not be a problem...
  */
 static void
-search_duplicate_pinfo()
+search_duplicate_pinfo(void)
 {
 	struct disk_type	*dp;
 	struct partition_info	*pp1;
@@ -2853,7 +2858,7 @@ exit:
 
 
 static void
-sort_disk_list()
+sort_disk_list(void)
 {
 	int			n;
 	struct disk_info	**disks;

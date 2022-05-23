@@ -17,7 +17,9 @@ include $(SRC)/test/Makefile.com
 
 PROG =	mem_partial \
 	mem_seg_map \
-	fpu_getset
+	mem_devmem \
+	fpu_getset \
+	interface_version
 
 COMMON_OBJS =	common.o
 CLEAN_OBJS =	$(PROG:%=%.o)
@@ -32,8 +34,8 @@ CSTD=		$(CSTD_GNU99)
 CPPFLAGS =	-I$(COMPAT)/bhyve -I$(CONTRIB)/bhyve \
 		-I$(COMPAT)/bhyve/amd64 -I$(CONTRIB)/bhyve/amd64 \
 		$(CPPFLAGS.master) \
-		-I$(SRC)/uts/i86pc/io/vmm \
-		-I$(SRC)/uts/i86pc
+		-I$(SRC)/uts/intel/io/vmm \
+		-I$(SRC)/uts/intel
 $(PROG) :=	LDLIBS += -lvmmapi
 
 all: $(PROG)

@@ -22,11 +22,10 @@
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2012 Garrett D'Amore <garrett@damore.org>.  All rights reserved.
  * Copyright 2012 Alexey Zaytsev <alexey.zaytsev@gmail.com> All rights reserved.
- * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2017 The MathWorks, Inc.  All rights reserved.
- * Copyright 2019 Western Digital Corporation.
  * Copyright 2020 Joyent, Inc.
  * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Tintri by DDN, Inc. All rights reserved.
  */
 
 #include <sys/types.h>
@@ -208,7 +207,7 @@ struct bd_handle {
 	void		*h_private;
 	bd_t		*h_bd;
 	char		*h_name;
-	char		h_addr[30];	/* enough for w%0.16x,%X */
+	char		h_addr[50];	/* enough for w%0.32x,%X */
 };
 
 struct bd_xfer_impl {
@@ -652,6 +651,7 @@ bd_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	int		rv;
 	char		name[16];
 	char		kcache[32];
+	char		*node_type;
 
 	switch (cmd) {
 	case DDI_ATTACH:
@@ -719,7 +719,6 @@ bd_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 
 	bd->d_dip = dip;
 	bd->d_handle = hdl;
-	hdl->h_bd = bd;
 	ddi_set_driver_private(dip, bd);
 
 	mutex_init(&bd->d_ksmutex, NULL, MUTEX_DRIVER, NULL);
@@ -825,11 +824,17 @@ bd_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		    offsetof(struct bd_xfer_impl, i_linkage));
 	}
 
+	if (*(uint64_t *)drive.d_eui64 != 0 ||
+	    *(uint64_t *)drive.d_guid != 0 ||
+	    *((uint64_t *)drive.d_guid + 1) != 0)
+		node_type = DDI_NT_BLOCK_BLKDEV;
+	else if (drive.d_lun >= 0)
+		node_type = DDI_NT_BLOCK_CHAN;
+	else
+		node_type = DDI_NT_BLOCK;
+
 	rv = cmlb_attach(dip, &bd_tg_ops, DTYPE_DIRECT,
-	    bd->d_removable, bd->d_hotpluggable,
-	    /*LINTED: E_BAD_PTR_CAST_ALIGN*/
-	    *(uint64_t *)drive.d_eui64 != 0 ? DDI_NT_BLOCK_BLKDEV :
-	    drive.d_lun >= 0 ? DDI_NT_BLOCK_CHAN : DDI_NT_BLOCK,
+	    bd->d_removable, bd->d_hotpluggable, node_type,
 	    CMLB_FAKE_LABEL_ONE_PARTITION, bd->d_cmlbh, 0);
 	if (rv != 0) {
 		goto fail_cmlb_attach;
@@ -862,6 +867,7 @@ bd_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		    "hotpluggable", NULL, 0);
 	}
 
+	hdl->h_bd = bd;
 	ddi_report_dev(dip);
 
 	return (DDI_SUCCESS);
@@ -893,9 +899,11 @@ fail_drive_info:
 static int
 bd_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 {
-	bd_t	*bd;
+	bd_handle_t	hdl;
+	bd_t		*bd;
 
 	bd = ddi_get_driver_private(dip);
+	hdl = ddi_get_parent_data(dip);
 
 	switch (cmd) {
 	case DDI_DETACH:
@@ -906,6 +914,8 @@ bd_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 	default:
 		return (DDI_FAILURE);
 	}
+
+	hdl->h_bd = NULL;
 
 	if (bd->d_ksp != NULL) {
 		kstat_delete(bd->d_ksp);
@@ -1959,8 +1969,7 @@ bd_dle_sysevent_task(void *arg)
 		 * active zpools for child vdevs matching this physical path.
 		 * In order to catch both whole disk pools and those with an
 		 * EFI boot partition, generate separate sysevents for minor
-		 * node 'a' and 'b'. (By comparison, io/scsi/targets/sd.c sends
-		 * events for just 'a')
+		 * node 'a' and 'b'.
 		 */
 		for (char c = 'a'; c < 'c'; c++) {
 			path[n - 1] = c;
@@ -2323,8 +2332,9 @@ bd_free_handle(bd_handle_t hdl)
 int
 bd_attach_handle(dev_info_t *dip, bd_handle_t hdl)
 {
-	dev_info_t	*child;
 	bd_drive_t	drive = { 0 };
+	dev_info_t	*child;
+	size_t		len;
 
 	/*
 	 * It's not an error if bd_attach_handle() is called on a handle that
@@ -2343,31 +2353,37 @@ bd_attach_handle(dev_info_t *dip, bd_handle_t hdl)
 	hdl->h_parent = dip;
 	hdl->h_name = "blkdev";
 
-	/*LINTED: E_BAD_PTR_CAST_ALIGN*/
-	if (*(uint64_t *)drive.d_eui64 != 0) {
-		if (drive.d_lun >= 0) {
-			(void) snprintf(hdl->h_addr, sizeof (hdl->h_addr),
-			    "w%02X%02X%02X%02X%02X%02X%02X%02X,%X",
-			    drive.d_eui64[0], drive.d_eui64[1],
-			    drive.d_eui64[2], drive.d_eui64[3],
-			    drive.d_eui64[4], drive.d_eui64[5],
-			    drive.d_eui64[6], drive.d_eui64[7], drive.d_lun);
-		} else {
-			(void) snprintf(hdl->h_addr, sizeof (hdl->h_addr),
-			    "w%02X%02X%02X%02X%02X%02X%02X%02X",
-			    drive.d_eui64[0], drive.d_eui64[1],
-			    drive.d_eui64[2], drive.d_eui64[3],
-			    drive.d_eui64[4], drive.d_eui64[5],
-			    drive.d_eui64[6], drive.d_eui64[7]);
-		}
+	/*
+	 * Prefer the GUID over the EUI64.
+	 */
+	if (*(uint64_t *)drive.d_guid != 0 ||
+	    *((uint64_t *)drive.d_guid + 1) != 0) {
+		len = snprintf(hdl->h_addr, sizeof (hdl->h_addr),
+		    "w%02X%02X%02X%02X%02X%02X%02X%02X"
+		    "%02X%02X%02X%02X%02X%02X%02X%02X",
+		    drive.d_guid[0], drive.d_guid[1], drive.d_guid[2],
+		    drive.d_guid[3], drive.d_guid[4], drive.d_guid[5],
+		    drive.d_guid[6], drive.d_guid[7], drive.d_guid[8],
+		    drive.d_guid[9], drive.d_guid[10], drive.d_guid[11],
+		    drive.d_guid[12], drive.d_guid[13], drive.d_guid[14],
+		    drive.d_guid[15]);
+	} else if (*(uint64_t *)drive.d_eui64 != 0) {
+		len = snprintf(hdl->h_addr, sizeof (hdl->h_addr),
+		    "w%02X%02X%02X%02X%02X%02X%02X%02X",
+		    drive.d_eui64[0], drive.d_eui64[1],
+		    drive.d_eui64[2], drive.d_eui64[3],
+		    drive.d_eui64[4], drive.d_eui64[5],
+		    drive.d_eui64[6], drive.d_eui64[7]);
 	} else {
-		if (drive.d_lun >= 0) {
-			(void) snprintf(hdl->h_addr, sizeof (hdl->h_addr),
-			    "%X,%X", drive.d_target, drive.d_lun);
-		} else {
-			(void) snprintf(hdl->h_addr, sizeof (hdl->h_addr),
-			    "%X", drive.d_target);
-		}
+		len = snprintf(hdl->h_addr, sizeof (hdl->h_addr),
+		    "%X", drive.d_target);
+	}
+
+	VERIFY(len <= sizeof (hdl->h_addr));
+
+	if (drive.d_lun >= 0) {
+		(void) snprintf(hdl->h_addr + len, sizeof (hdl->h_addr) - len,
+		    ",%X", drive.d_lun);
 	}
 
 	if (ndi_devi_alloc(dip, hdl->h_name, (pnode_t)DEVI_SID_NODEID,

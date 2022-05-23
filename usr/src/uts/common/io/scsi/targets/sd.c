@@ -29,6 +29,7 @@
  * Copyright 2019 Joyent, Inc.
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright 2019 Racktop Systems
+ * Copyright 2022 OmniOS Community Edition (OmniOSce) Association.
  */
 /*
  * Copyright 2011 cyril.galibern@opensvc.com
@@ -14260,7 +14261,7 @@ sd_initpkt_for_uscsi(struct buf *bp, struct scsi_pkt **pktpp)
 	SD_FILL_SCSI1_LUN(un, pktp);
 
 	/*
-	 * Set up the optional USCSI flags. See the uscsi (7I) man page
+	 * Set up the optional USCSI flags. See the uscsi(4I) man page
 	 * for listing of the supported flags.
 	 */
 
@@ -19745,6 +19746,7 @@ sd_log_dev_status_event(struct sd_lun *un, char *esc, int km_flag)
 	int err;
 	char			*path;
 	nvlist_t		*attr_list;
+	size_t			n;
 
 	/* Allocate and build sysevent attribute list */
 	err = nvlist_alloc(&attr_list, NV_UNIQUE_NAME_TYPE, km_flag);
@@ -19761,30 +19763,36 @@ sd_log_dev_status_event(struct sd_lun *un, char *esc, int km_flag)
 		    "sd_log_dev_status_event: fail to allocate space\n");
 		return;
 	}
+
+	n = snprintf(path, MAXPATHLEN, "/devices");
+	(void) ddi_pathname(SD_DEVINFO(un), path + n);
+	n = strlen(path);
+	n += snprintf(path + n, MAXPATHLEN - n, ":x");
+
 	/*
-	 * Add path attribute to identify the lun.
-	 * We are using minor node 'a' as the sysevent attribute.
+	 * On receipt of this event, the ZFS sysevent module will scan
+	 * active zpools for child vdevs matching this physical path.
+	 * In order to catch both whole disk pools and those with an
+	 * EFI boot partition, generate separate sysevents for minor
+	 * node 'a' and 'b'.
 	 */
-	(void) snprintf(path, MAXPATHLEN, "/devices");
-	(void) ddi_pathname(SD_DEVINFO(un), path + strlen(path));
-	(void) snprintf(path + strlen(path), MAXPATHLEN - strlen(path),
-	    ":a");
+	for (char c = 'a'; c < 'c'; c++) {
+		path[n - 1] = c;
 
-	err = nvlist_add_string(attr_list, DEV_PHYS_PATH, path);
-	if (err != 0) {
-		nvlist_free(attr_list);
-		kmem_free(path, MAXPATHLEN);
-		SD_ERROR(SD_LOG_ERROR, un,
-		    "sd_log_dev_status_event: fail to add attribute\n");
-		return;
-	}
+		err = nvlist_add_string(attr_list, DEV_PHYS_PATH, path);
+		if (err != 0) {
+			SD_ERROR(SD_LOG_ERROR, un,
+			    "sd_log_dev_status_event: fail to add attribute\n");
+			break;
+		}
 
-	/* Log dynamic lun expansion sysevent */
-	err = ddi_log_sysevent(SD_DEVINFO(un), SUNW_VENDOR, EC_DEV_STATUS,
-	    esc, attr_list, NULL, km_flag);
-	if (err != DDI_SUCCESS) {
-		SD_ERROR(SD_LOG_ERROR, un,
-		    "sd_log_dev_status_event: fail to log sysevent\n");
+		err = ddi_log_sysevent(SD_DEVINFO(un), SUNW_VENDOR,
+		    EC_DEV_STATUS, esc, attr_list, NULL, km_flag);
+		if (err != DDI_SUCCESS) {
+			SD_ERROR(SD_LOG_ERROR, un,
+			    "sd_log_dev_status_event: fail to log sysevent\n");
+			break;
+		}
 	}
 
 	nvlist_free(attr_list);
@@ -30967,7 +30975,7 @@ sd_faultinjection(struct scsi_pkt *pktp)
  * 4. Building default VTOC label
  *
  *     As section 3 says, sd checks if some kinds of devices have VTOC label.
- *     If those devices have no valid VTOC label, sd(7d) will attempt to
+ *     If those devices have no valid VTOC label, sd(4D) will attempt to
  *     create default VTOC for them. Currently sd creates default VTOC label
  *     for all devices on x86 platform (VTOC_16), but only for removable
  *     media devices on SPARC (VTOC_8).
@@ -31000,7 +31008,7 @@ sd_faultinjection(struct scsi_pkt *pktp)
  *
  * 6. Automatic mount & unmount
  *
- *     Sd(7d) driver provides DKIOCREMOVABLE ioctl. This ioctl is used to query
+ *     sd(4D) driver provides DKIOCREMOVABLE ioctl. This ioctl is used to query
  *     if a device is removable media device. It return 1 for removable media
  *     devices, and 0 for others.
  *
@@ -31010,9 +31018,9 @@ sd_faultinjection(struct scsi_pkt *pktp)
  *
  * 7. fdisk partition management
  *
- *     Fdisk is traditional partition method on x86 platform. Sd(7d) driver
+ *     Fdisk is traditional partition method on x86 platform. sd(4D) driver
  *     just supports fdisk partitions on x86 platform. On sparc platform, sd
- *     doesn't support fdisk partitions at all. Note: pcfs(7fs) can recognize
+ *     doesn't support fdisk partitions at all. Note: pcfs(4FS) can recognize
  *     fdisk partitions on both x86 and SPARC platform.
  *
  *     -----------------------------------------------------------
@@ -31026,7 +31034,7 @@ sd_faultinjection(struct scsi_pkt *pktp)
  *
  * 8. MBOOT/MBR
  *
- *     Although sd(7d) doesn't support fdisk on SPARC platform, it does support
+ *     Although sd(4D) doesn't support fdisk on SPARC platform, it does support
  *     read/write mboot for removable media devices on sparc platform.
  *
  *     -----------------------------------------------------------

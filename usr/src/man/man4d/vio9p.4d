@@ -1,0 +1,43 @@
+.\"
+.\" This file and its contents are supplied under the terms of the
+.\" Common Development and Distribution License ("CDDL"), version 1.0.
+.\" You may only use this file in accordance with the terms of version
+.\" 1.0 of the CDDL.
+.\"
+.\" A full copy of the text of the CDDL should have accompanied this
+.\" source.  A copy of the CDDL is also available via the Internet at
+.\" http://www.illumos.org/license/CDDL.
+.\"
+.\"
+.\" Copyright 2021 Oxide Computer Company
+.\"
+.Dd November 9, 2021
+.Dt VIO9P 4D
+.Os
+.Sh NAME
+.Nm vio9p
+.Nd Virtio Filesystem Driver
+.Sh DESCRIPTION
+The
+.Nm
+driver is a filesystem driver that supports the virtio plan 9 virtual file
+system protocol.
+.Sh EXAMPLES
+\fBExample 1 \fRAttaching to a PCI device
+.Pp
+Assuming pci1af4,9 is a virtio filesystem device, the following creates a 
+chardev device at /devices/pci@0,0/pci1af4,9@9:9p that can be used to commuincate 
+with the 9p virtual file system server.
+.In +2
+.nf
+add_drv -i pfi1af4,9 -v vio9p
+.fi
+.In -2
+.Sh SEE ALSO
+.Xr add_drv 8 ,
+.Xr virtio 4D
+.Rs
+.%T Virtual I/O Device (VIRTIO) Version 1.1
+.%D April, 2019
+.%U https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html
+.Re
