@@ -33,8 +33,8 @@ dir  path=kernel/drv group=sys
 dir  path=kernel/drv/$(ARCH64) group=sys
 file path=kernel/drv/$(ARCH64)/vio9p group=sys
 dir  path=usr/share/man
-dir  path=usr/share/man/man7d
-file path=usr/share/man/man7d/vio9p.7d
+dir  path=usr/share/man/man4d
+file path=usr/share/man/man4d/vio9p.4d
 driver name=vio9p perms="* 0666 root sys"
 license cr_Sun license=cr_Sun
 license lic_CDDL license=lic_CDDL

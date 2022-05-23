@@ -34,8 +34,8 @@ add_drv -i pfi1af4,9 -v vio9p
 .fi
 .In -2
 .Sh SEE ALSO
-.Xr add_drv 8 ,
-.Xr virtio 4D
+.Xr virtio 4D ,
+.Xr add_drv 8
 .Rs
 .%T Virtual I/O Device (VIRTIO) Version 1.1
 .%D April, 2019
