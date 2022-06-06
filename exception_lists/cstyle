@@ -1356,7 +1356,7 @@ usr/src/cmd/bhyve/pci_hostbridge.c
 usr/src/cmd/bhyve/pci_irq.[ch]
 usr/src/cmd/bhyve/pci_lpc.[ch]
 usr/src/cmd/bhyve/pci_nvme.c
-usr/src/cmd/bhyve/pci_passthru.c
+usr/src/cmd/bhyve/pci_passthru.[ch]
 usr/src/cmd/bhyve/pci_uart.c
 usr/src/cmd/bhyve/pci_virtio_9p.c
 usr/src/cmd/bhyve/pci_virtio_block.c
@@ -1371,7 +1371,6 @@ usr/src/cmd/bhyve/pm.c
 usr/src/cmd/bhyve/post.c
 usr/src/cmd/bhyve/ps2kbd.[ch]
 usr/src/cmd/bhyve/ps2mouse.[ch]
-usr/src/cmd/bhyve/rfb.[ch]
 usr/src/cmd/bhyve/rtc.[ch]
 usr/src/cmd/bhyve/smbiostbl.[ch]
 usr/src/cmd/bhyve/sockstream.[ch]
@@ -1389,8 +1388,8 @@ usr/src/compat/bhyve/*
 usr/src/contrib/bhyve/*
 usr/src/lib/libvmmapi/common/vmmapi.[ch]
 usr/src/test/libc-tests/tests/qsort/*.c
-usr/src/uts/i86pc/io/vmm/amd/amdvi_*.[ch]
-usr/src/uts/i86pc/io/vmm/amd/ivrs_*.c
-usr/src/uts/i86pc/sys/vmm.h
-usr/src/uts/i86pc/sys/vmm_dev.h
+usr/src/uts/intel/io/vmm/amd/amdvi_*.[ch]
+usr/src/uts/intel/io/vmm/amd/ivrs_*.c
+usr/src/uts/intel/sys/vmm.h
+usr/src/uts/intel/sys/vmm_dev.h
 usr/src/lib/lib9p/common/*

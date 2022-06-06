@@ -658,7 +658,7 @@ boot_prop_display(char *buffer)
 
 /*
  * 2nd part of building the table of boot properties. This includes:
- * - values from /boot/solaris/bootenv.rc (ie. eeprom(1m) values)
+ * - values from /boot/solaris/bootenv.rc (ie. eeprom(8) values)
  *
  * lines look like one of:
  * ^$
@@ -1448,6 +1448,30 @@ process_boot_environment(struct boot_modules *benv)
 			continue;
 		}
 
+		/*
+		 * The loader allows multiple console devices to be specified
+		 * as a comma-separated list, but the kernel does not yet
+		 * support multiple console devices.  If a list is provided,
+		 * ignore all but the first entry:
+		 */
+		if (strcmp(name, "console") == 0) {
+			char propval[BP_MAX_STRLEN];
+
+			for (uint32_t i = 0; i < BP_MAX_STRLEN; i++) {
+				propval[i] = value[i];
+				if (value[i] == ' ' ||
+				    value[i] == ',' ||
+				    value[i] == '\0') {
+					propval[i] = '\0';
+					break;
+				}
+
+				if (i + 1 == BP_MAX_STRLEN)
+					propval[i] = '\0';
+			}
+			bsetprops(name, propval);
+			continue;
+		}
 		if (name_is_blacklisted(name) == B_TRUE)
 			continue;
 
@@ -1464,7 +1488,7 @@ process_boot_environment(struct boot_modules *benv)
  * 1st pass at building the table of boot properties. This includes:
  * - values set on the command line: -B a=x,b=y,c=z ....
  * - known values we just compute (ie. from xbp)
- * - values from /boot/solaris/bootenv.rc (ie. eeprom(1m) values)
+ * - values from /boot/solaris/bootenv.rc (ie. eeprom(8) values)
  *
  * the grub command line looked like:
  * kernel boot-file [-B prop=value[,prop=value]...] [boot-args]

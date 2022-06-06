@@ -41,8 +41,11 @@ SRCDIR =	$(SGSHOME)/ld
 MAPFILES =	$(SRCDIR)/common/mapfile-intf $(MAPFILE.NGB)
 MAPOPTS =	$(MAPFILES:%=-Wl,-M%)
 
-LDFLAGS +=	$(VERSREF) $(MAPOPTS) $(VAR_LD_LLDFLAGS)
-LDLIBS +=	$(LDLIBDIR) -lld $(ELFLIBDIR) -lelf \
+RPATH =		'-R$$ORIGIN/../../lib'
+RPATH64 =	'-R$$ORIGIN/../../../lib/$(MACH64)'
+
+LDFLAGS +=	$(VERSREF) $(MAPOPTS) $(RPATH)
+LDLIBS +=	-lumem $(LDLIBDIR) -lld $(ELFLIBDIR) -lelf \
 		    $(LDDBGLIBDIR) -llddbg $(CONVLIBDIR) -lconv
 
 CERRWARN +=	-_gcc=-Wno-switch

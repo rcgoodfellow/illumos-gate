@@ -414,6 +414,8 @@ retry:
 			 * to find the interface state.
 			 */
 			for (ifap = ifa; ifap != NULL; ifap = ifap->ifa_next) {
+				if (ifap->ifa_addr->sa_family == AF_LINK)
+					continue;
 				if (strcmp(ifap->ifa_name, aifp->ifi_name) == 0)
 					break;
 			}
@@ -1910,11 +1912,11 @@ ipadm_disable_if(ipadm_handle_t iph, const char *ifname, uint32_t flags)
 }
 
 /*
- * FIXME Remove this when ifconfig(1M) is updated to use IPMP support
+ * FIXME Remove this when ifconfig(8) is updated to use IPMP support
  * in libipadm.
  */
 /*
- * This workaround is required by ifconfig(1M) whenever an
+ * This workaround is required by ifconfig(8) whenever an
  * interface is moved into an IPMP group to update the daemon's
  * in-memory mapping of `aobjname' to 'lifnum'.
  *

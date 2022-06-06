@@ -415,6 +415,9 @@ retry:
 	for (ifap = ifa; ifap != NULL; ifap = ifap->ifa_next) {
 		struct sockaddr_storage data;
 
+		if (ifap->ifa_addr->sa_family == AF_LINK)
+			continue;
+
 		(void) strlcpy(cifname, ifap->ifa_name, sizeof (cifname));
 		lnum = 0;
 		if ((sep = strrchr(cifname, ':')) != NULL) {
@@ -1052,7 +1055,7 @@ i_ipadm_set_zone(ipadm_handle_t iph, const void *arg,
 
 	/*
 	 * To modify the zone assignment such that it persists across
-	 * reboots, zonecfg(1M) must be used.
+	 * reboots, zonecfg(8) must be used.
 	 */
 	if (flags & IPADM_OPT_PERSIST) {
 		return (IPADM_NOTSUP);

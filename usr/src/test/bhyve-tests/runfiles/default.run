@@ -20,7 +20,34 @@ post =
 outputdir = /var/tmp/test_results
 
 [/opt/bhyve-tests/tests/vmm]
-tests = ['mem_partial', 'mem_seg_map', 'fpu_getset']
+user = root
+tests = [
+	'fpu_getset',
+	'interface_version',
+	'mem_devmem',
+	'mem_partial',
+	'mem_seg_map'
+	]
+
+[/opt/bhyve-tests/tests/kdev]
+user = root
+tests = [
+	'vatpit_freq',
+	'vhpet_freq',
+	'vlapic_freq',
+	'vlapic_freq_periodic',
+	'vlapic_mmio_access',
+	'vlapic_msr_access',
+	'vpmtmr_freq'
+	]
+
+[/opt/bhyve-tests/tests/inst_emul]
+user = root
+tests = [
+	'rdmsr',
+	'wrmsr',
+	'triple_fault'
+	]
 
 # Tests of userspace mevent system, built from cmd/bhyve
 [/opt/bhyve-tests/tests/mevent]

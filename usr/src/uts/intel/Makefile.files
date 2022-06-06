@@ -101,6 +101,15 @@ CORE_OBJS +=		\
 	prmachdep.o
 
 #
+#	shared hypervisor functionality
+#
+CORE_OBJS +=		\
+	hma.o		\
+	hma_asm.o	\
+	hma_fpu.o	\
+	smt.o		\
+
+#
 #	ZFS file system module
 #
 ZFS_OBJS +=		\
@@ -218,7 +227,7 @@ ACPICA_OBJS	+= \
 		   utxferror.o utxfinit.o utxfmutex.o utresdecode.o \
 		   utstrsuppt.o utstrtoul64.o \
 		   \
-		   acpi_enum.o acpica_ec.o acpica.o ahids.o master_ops.o \
+		   acpi_enum.o acpica_ec.o acpica.o ahids.o isapnp_devs.o \
 		   osl_ml.o osl.o
 
 
@@ -360,3 +369,18 @@ ZEN_UMC_OBJS = zen_umc.o zen_umc_decode.o zen_fabric_utils.o zen_umc_dump.o
 #
 IMC_OBJS =	imc.o imc_decode.o imc_dump.o
 IMCSTUB_OBJS =	imcstub.o
+
+#
+# viona (VirtIO-Net Accelerated)
+#
+VIONA_OBJS = \
+	viona_main.o \
+	viona_ring.o \
+	viona_rx.o \
+	viona_tx.o \
+	viona_hook.o
+
+#
+# bhyve PCI-passthru
+#
+PPT_OBJS = ppt.o

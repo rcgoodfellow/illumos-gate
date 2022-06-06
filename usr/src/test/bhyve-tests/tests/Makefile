@@ -15,6 +15,6 @@
 
 .PARALLEL: $(SUBDIRS)
 
-SUBDIRS = vmm
+SUBDIRS = inst_emul kdev vmm
 
 include $(SRC)/test/Makefile.com

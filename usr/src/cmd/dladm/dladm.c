@@ -88,7 +88,7 @@
 #define	MAXLINELEN		1024
 #define	SMF_UPGRADE_FILE		"/var/svc/profile/upgrade"
 #define	SMF_UPGRADEDATALINK_FILE	"/var/svc/profile/upgrade_datalink"
-#define	SMF_DLADM_UPGRADE_MSG		" # added by dladm(1M)"
+#define	SMF_DLADM_UPGRADE_MSG		" # added by dladm(8)"
 #define	DLADM_DEFAULT_COL	80
 
 /*
@@ -191,6 +191,11 @@ typedef struct show_usage_state_s {
 	ofmt_handle_t	us_ofmt;
 } show_usage_state_t;
 
+typedef struct show_overlay_request_s {
+	boolean_t	sor_failed;
+	ofmt_handle_t	sor_ofmt;
+} show_overlay_request_t;
+
 /*
  * callback functions for printing output and error diagnostics.
  */
@@ -228,7 +233,7 @@ static cmdfunc_t do_add_bridge, do_remove_bridge, do_show_bridge;
 static cmdfunc_t do_create_iptun, do_modify_iptun, do_delete_iptun;
 static cmdfunc_t do_show_iptun, do_up_iptun, do_down_iptun;
 static cmdfunc_t do_create_overlay, do_delete_overlay, do_modify_overlay;
-static cmdfunc_t do_show_overlay;
+static cmdfunc_t do_show_overlay, do_up_overlay;
 
 static void	do_up_vnic_common(int, char **, const char *, boolean_t);
 
@@ -419,13 +424,14 @@ static cmd_t	cmds[] = {
 	    "    create-overlay   [-t] -e <encap> -s <search> -v <vnetid>\n"
 	    "\t\t     [ -p <prop>=<value>[,...]] <overlay>"	},
 	{ "delete-overlay",	do_delete_overlay,
-	    "    delete-overlay   <overlay>"			},
+	    "    delete-overlay   [-t] <overlay>"			},
 	{ "modify-overlay",	do_modify_overlay,
 	    "    modify-overlay   -d mac | -f | -s mac=ip:port "
 	    "<overlay>"						},
 	{ "show-overlay",	do_show_overlay,
 	    "    show-overlay     [-f | -t] [[-p] -o <field>,...] "
 	    "[<overlay>]\n"						},
+	{ "up-overlay",		do_up_overlay,		NULL		},
 	{ "show-usage",		do_show_usage,
 	    "    show-usage       [-a] [-d | -F <format>] "
 	    "[-s <DD/MM/YYYY,HH:MM:SS>]\n"
@@ -2084,7 +2090,7 @@ done:
 	if (status != DLADM_STATUS_OK) {
 		if (status == DLADM_STATUS_NONOTIF) {
 			die("not all links have link up/down detection; must "
-			    "use -f (see dladm(1M))");
+			    "use -f (see dladm(8))");
 		} else {
 			die_dlerr(status, "create operation failed");
 		}
@@ -2250,7 +2256,7 @@ done:
 			    "match");
 		} else if (status == DLADM_STATUS_NONOTIF) {
 			die("not all links have link up/down detection; must "
-			    "use -f (see dladm(1M))");
+			    "use -f (see dladm(8))");
 		} else {
 			die_dlerr(status, "add operation failed");
 		}
@@ -2552,12 +2558,12 @@ do_create_vlan(int argc, char *argv[], const char *use)
 
 	case DLADM_STATUS_NOTSUP:
 		die("VLAN over '%s' may require lowered MTU; must use -f (see "
-		    "dladm(1M))", link);
+		    "dladm(8))", link);
 		break;
 
 	case DLADM_STATUS_LINKBUSY:
 		die("VLAN over '%s' may not use default_tag ID "
-		    "(see dladm(1M))", link);
+		    "(see dladm(8))", link);
 		break;
 
 	default:
@@ -4912,7 +4918,7 @@ do_create_vnic(int argc, char *argv[], const char *use)
 
 	case DLADM_STATUS_LINKBUSY:
 		die("VLAN over '%s' may not use default_tag ID "
-		    "(see dladm(1M))", devname);
+		    "(see dladm(8))", devname);
 		break;
 
 	default:
@@ -9881,13 +9887,6 @@ do_create_overlay(int argc, char *argv[], const char *use)
 		}
 	}
 
-	/*
-	 * Overlays do not currently support persistence.
-	 * This will be addressed by https://www.illumos.org/issues/14434
-	 */
-	if ((flags & DLADM_OPT_PERSIST) != 0)
-		die("overlays do not (yet) support persistence, use -t");
-
 	if (havevid == B_FALSE)
 		die("missing required virtual network id");
 
@@ -9930,18 +9929,33 @@ do_delete_overlay(int argc, char *argv[], const char *use)
 {
 	datalink_id_t	linkid = DATALINK_ALL_LINKID;
 	dladm_status_t	status;
+	uint32_t flags = DLADM_OPT_ACTIVE | DLADM_OPT_PERSIST;
+	int option;
 
-	if (argc != 2) {
-		usage();
+	opterr = 0;
+	while ((option = getopt_long(argc, argv, ":t", lopts,
+	    NULL)) != -1) {
+		switch (option) {
+		case 't':
+			flags &= ~DLADM_OPT_PERSIST;
+			break;
+		default:
+			die_opterr(optopt, option, use);
+		}
 	}
 
-	status = dladm_name2info(handle, argv[1], &linkid, NULL, NULL, NULL);
-	if (status != DLADM_STATUS_OK)
-		die_dlerr(status, "failed to delete %s", argv[1]);
+	/* get overlay name (required last argument) */
+	if (optind != (argc - 1))
+		usage();
 
-	status = dladm_overlay_delete(handle, linkid);
+	status = dladm_name2info(handle, argv[optind], &linkid,
+	    NULL, NULL, NULL);
 	if (status != DLADM_STATUS_OK)
-		die_dlerr(status, "failed to delete %s", argv[1]);
+		die_dlerr(status, "failed to delete %s", argv[optind]);
+
+	status = dladm_overlay_delete(handle, linkid, flags);
+	if (status != DLADM_STATUS_OK)
+		die_dlerr(status, "failed to delete %s", argv[optind]);
 }
 
 typedef struct showoverlay_state {
@@ -10160,21 +10174,35 @@ static int
 show_one_overlay(dladm_handle_t hdl, datalink_id_t linkid, void *arg)
 {
 	char			buf[MAXLINKNAMELEN];
+	dladm_status_t		info_status;
 	showoverlay_state_t	state;
 	datalink_class_t	class;
+	show_overlay_request_t	*req = arg;
 
-	if (dladm_datalink_id2info(hdl, linkid, NULL, &class, NULL, buf,
-	    MAXLINKNAMELEN) != DLADM_STATUS_OK ||
-	    class != DATALINK_CLASS_OVERLAY)
+	if ((info_status = dladm_datalink_id2info(hdl, linkid, NULL, &class,
+	    NULL, buf, MAXLINKNAMELEN)) != DLADM_STATUS_OK) {
+		warn_dlerr(info_status, "failed to get info for "
+		    "datalink id %u", linkid);
+		req->sor_failed = B_TRUE;
 		return (DLADM_WALK_CONTINUE);
+	}
+
+	if (class != DATALINK_CLASS_OVERLAY) {
+		warn("%s is not an overlay", buf);
+		req->sor_failed = B_TRUE;
+		return (DLADM_WALK_CONTINUE);
+	}
 
 	state.sho_linkname = buf;
-	state.sho_ofmt = arg;
+	state.sho_ofmt = req->sor_ofmt;
 
 	dladm_errlist_reset(&errlist);
 	(void) dladm_overlay_walk_prop(handle, linkid, dladm_overlay_show_one,
 	    &state, &errlist);
 	warn_dlerrlist(&errlist);
+	if (errlist.el_count) {
+		req->sor_failed = B_TRUE;
+	}
 
 	return (DLADM_WALK_CONTINUE);
 }
@@ -10275,15 +10303,26 @@ static int
 show_one_overlay_table(dladm_handle_t handle, datalink_id_t linkid, void *arg)
 {
 	char				linkbuf[MAXLINKNAMELEN];
+	dladm_status_t			info_status;
 	showoverlay_targ_state_t	shot;
 	datalink_class_t		class;
+	show_overlay_request_t		*req = arg;
 
-	if (dladm_datalink_id2info(handle, linkid, NULL, &class, NULL, linkbuf,
-	    MAXLINKNAMELEN) != DLADM_STATUS_OK ||
-	    class != DATALINK_CLASS_OVERLAY)
+	if ((info_status = dladm_datalink_id2info(handle, linkid, NULL, &class,
+	    NULL, linkbuf, MAXLINKNAMELEN)) != DLADM_STATUS_OK) {
+		warn_dlerr(info_status, "failed to get info for "
+		    "datalink id %u", linkid);
+		req->sor_failed = B_TRUE;
 		return (DLADM_WALK_CONTINUE);
+	}
 
-	shot.shot_ofmt = arg;
+	if (class != DATALINK_CLASS_OVERLAY) {
+		warn("%s is not an overlay", linkbuf);
+		req->sor_failed = B_TRUE;
+		return (DLADM_WALK_CONTINUE);
+	}
+
+	shot.shot_ofmt = req->sor_ofmt;
 	shot.shot_linkname = linkbuf;
 
 	(void) dladm_overlay_walk_cache(handle, linkid,
@@ -10334,6 +10373,7 @@ show_one_overlay_fma(dladm_handle_t handle, datalink_id_t linkid, void *arg)
 	char			linkbuf[MAXLINKNAMELEN];
 	datalink_class_t	class;
 	showoverlay_fma_state_t	shof;
+	show_overlay_request_t	*req = arg;
 
 	if (dladm_datalink_id2info(handle, linkid, NULL, &class, NULL, linkbuf,
 	    MAXLINKNAMELEN) != DLADM_STATUS_OK ||
@@ -10341,7 +10381,7 @@ show_one_overlay_fma(dladm_handle_t handle, datalink_id_t linkid, void *arg)
 		die("datalink %s is not an overlay device\n", linkbuf);
 	}
 
-	shof.shof_ofmt = arg;
+	shof.shof_ofmt = req->sor_ofmt;
 	shof.shof_linkname = linkbuf;
 
 	status = dladm_overlay_status(handle, linkid,
@@ -10364,14 +10404,14 @@ do_show_overlay(int argc, char *argv[], const char *use)
 	const ofmt_field_t	*fieldsp;
 	ofmt_status_t		oferr;
 	boolean_t		parse;
-	ofmt_handle_t		ofmt;
+	show_overlay_request_t	req;
 	uint_t			ofmtflags;
 	int			err;
-
 
 	funcp = show_one_overlay;
 	fieldsp = overlay_fields;
 	parse = B_FALSE;
+	req.sor_failed = B_FALSE;
 	ofmtflags = OFMT_WRAP;
 	while ((opt = getopt_long(argc, argv, ":o:pft", overlay_show_lopts,
 	    NULL)) != -1) {
@@ -10399,8 +10439,8 @@ do_show_overlay(int argc, char *argv[], const char *use)
 	if (fields_str != NULL && strcasecmp(fields_str, "all") == 0)
 		fields_str = NULL;
 
-	oferr = ofmt_open(fields_str, fieldsp, ofmtflags, 0, &ofmt);
-	ofmt_check(oferr, parse, ofmt, die, warn);
+	oferr = ofmt_open(fields_str, fieldsp, ofmtflags, 0, &req.sor_ofmt);
+	ofmt_check(oferr, parse, req.sor_ofmt, die, warn);
 
 	err = 0;
 	if (argc > optind) {
@@ -10413,14 +10453,17 @@ do_show_overlay(int argc, char *argv[], const char *use)
 				err = 1;
 				continue;
 			}
-			(void) funcp(handle, linkid, ofmt);
+			(void) funcp(handle, linkid, &req);
 		}
 	} else {
-		(void) dladm_walk_datalink_id(funcp, handle, ofmt,
+		(void) dladm_walk_datalink_id(funcp, handle, &req,
 		    DATALINK_CLASS_OVERLAY, DATALINK_ANY_MEDIATYPE,
 		    DLADM_OPT_ACTIVE);
 	}
-	ofmt_close(ofmt);
+	if (req.sor_failed) {
+		err = 1;
+	}
+	ofmt_close(req.sor_ofmt);
 
 	exit(err);
 }
@@ -10509,4 +10552,36 @@ do_modify_overlay(int argc, char *argv[], const char *use)
 			    "target cache %s", optarg, argv[optind]);
 	}
 
+}
+
+static void
+do_up_overlay(int argc, char *argv[], const char *use)
+{
+	datalink_id_t	linkid = DATALINK_ALL_LINKID;
+	dladm_status_t	status;
+
+	/*
+	 * get the id or the name of the overlay (optional last argument)
+	 */
+	if (argc == 2) {
+		status = dladm_name2info(handle, argv[1], &linkid, NULL, NULL,
+		    NULL);
+		if (status != DLADM_STATUS_OK)
+			goto done;
+	} else if (argc > 2) {
+		usage();
+	}
+
+	status = dladm_overlay_up(handle, linkid, &errlist);
+
+done:
+	if (status != DLADM_STATUS_OK) {
+		if (argc == 2) {
+			die_dlerrlist(status, &errlist,
+			    "could not bring up overlay '%s'", argv[1]);
+		} else {
+			die_dlerrlist(status, &errlist,
+			    "could not bring overlays up");
+		}
+	}
 }

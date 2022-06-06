@@ -58,9 +58,12 @@ struct nvme_feature {
 	    nvme_version_t *);
 };
 
-#define	NVMEADM_CTRL	1
-#define	NVMEADM_NS	2
-#define	NVMEADM_BOTH	(NVMEADM_CTRL | NVMEADM_NS)
+#define	NVMEADM_F_CTRL	1
+#define	NVMEADM_F_NS	2
+#define	NVMEADM_F_BOTH	(NVMEADM_F_CTRL | NVMEADM_F_NS)
+
+#define	NVMEADM_C_MULTI	1
+#define	NVMEADM_C_EXCL	2
 
 struct nvmeadm_cmd {
 	char *c_name;
@@ -68,8 +71,8 @@ struct nvmeadm_cmd {
 	const char *c_flagdesc;
 	int (*c_func)(int, const nvme_process_arg_t *);
 	void (*c_usage)(const char *);
-	boolean_t c_multi;
 	void (*c_optparse)(nvme_process_arg_t *);
+	int c_flags;
 };
 
 
@@ -100,6 +103,7 @@ static int do_firmware_commit(int, const nvme_process_arg_t *);
 static int do_firmware_activate(int, const nvme_process_arg_t *);
 
 static void optparse_list(nvme_process_arg_t *);
+static void optparse_secure_erase(nvme_process_arg_t *);
 
 static void usage_list(const char *);
 static void usage_identify(const char *);
@@ -115,6 +119,9 @@ static void usage_firmware_activate(const char *);
 
 int verbose;
 int debug;
+
+#define	NVMEADM_O_SE_CRYPTO	0x00000004
+
 static int exitcode;
 
 static const nvmeadm_cmd_t nvmeadm_cmds[] = {
@@ -123,119 +130,131 @@ static const nvmeadm_cmd_t nvmeadm_cmds[] = {
 		"list controllers and namespaces",
 		"  -p\t\tprint parsable output\n"
 		    "  -o field\tselect a field for parsable output\n",
-		do_list, usage_list, B_TRUE, optparse_list
+		do_list, usage_list, optparse_list,
+		NVMEADM_C_MULTI
 	},
 	{
 		"identify",
 		"identify controllers and/or namespaces",
 		NULL,
-		do_identify, usage_identify, B_TRUE
+		do_identify, usage_identify, NULL,
+		NVMEADM_C_MULTI
 	},
 	{
 		"get-logpage",
 		"get a log page from controllers and/or namespaces",
 		NULL,
-		do_get_logpage, usage_get_logpage, B_TRUE
+		do_get_logpage, usage_get_logpage, NULL,
+		NVMEADM_C_MULTI
 	},
 	{
 		"get-features",
 		"get features from controllers and/or namespaces",
 		NULL,
-		do_get_features, usage_get_features, B_TRUE
+		do_get_features, usage_get_features, NULL,
+		NVMEADM_C_MULTI
 	},
 	{
 		"format",
 		"format namespace(s) of a controller",
 		NULL,
-		do_format, usage_format, B_FALSE
+		do_format, usage_format, NULL,
+		NVMEADM_C_EXCL
 	},
 	{
 		"secure-erase",
 		"secure erase namespace(s) of a controller",
 		"  -c  Do a cryptographic erase.",
-		do_secure_erase, usage_secure_erase, B_FALSE
+		do_secure_erase, usage_secure_erase, optparse_secure_erase,
+		NVMEADM_C_EXCL
 	},
 	{
 		"detach",
-		"detach blkdev(7d) from namespace(s) of a controller",
+		"detach blkdev(4D) from namespace(s) of a controller",
 		NULL,
-		do_attach_detach, usage_attach_detach, B_FALSE
+		do_attach_detach, usage_attach_detach, NULL,
+		NVMEADM_C_EXCL
 	},
 	{
 		"attach",
-		"attach blkdev(7d) to namespace(s) of a controller",
+		"attach blkdev(4D) to namespace(s) of a controller",
 		NULL,
-		do_attach_detach, usage_attach_detach, B_FALSE
+		do_attach_detach, usage_attach_detach, NULL,
+		NVMEADM_C_EXCL
 	},
 	{
 		"list-firmware",
 		"list firmware on a controller",
 		NULL,
-		do_get_logpage_fwslot, usage_firmware_list, B_FALSE
+		do_get_logpage_fwslot, usage_firmware_list, NULL,
+		0
 	},
 	{
 		"load-firmware",
 		"load firmware to a controller",
 		NULL,
-		do_firmware_load, usage_firmware_load, B_FALSE
+		do_firmware_load, usage_firmware_load, NULL,
+		0
 	},
 	{
 		"commit-firmware",
 		"commit downloaded firmware to a slot of a controller",
 		NULL,
-		do_firmware_commit, usage_firmware_commit, B_FALSE
+		do_firmware_commit, usage_firmware_commit, NULL,
+		0
 	},
 	{
 		"activate-firmware",
 		"activate a firmware slot of a controller",
 		NULL,
-		do_firmware_activate, usage_firmware_activate, B_FALSE
+		do_firmware_activate, usage_firmware_activate, NULL,
+		0
 	},
 	{
 		NULL, NULL, NULL,
-		NULL, NULL, B_FALSE
+		NULL, NULL, NULL, 0
 	}
 };
 
 static const nvme_feature_t features[] = {
 	{ "Arbitration", "",
-	    NVME_FEAT_ARBITRATION, 0, NVMEADM_CTRL,
+	    NVME_FEAT_ARBITRATION, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_arbitration },
 	{ "Power Management", "",
-	    NVME_FEAT_POWER_MGMT, 0, NVMEADM_CTRL,
+	    NVME_FEAT_POWER_MGMT, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_power_mgmt },
 	{ "LBA Range Type", "range",
-	    NVME_FEAT_LBA_RANGE, NVME_LBA_RANGE_BUFSIZE, NVMEADM_NS,
+	    NVME_FEAT_LBA_RANGE, NVME_LBA_RANGE_BUFSIZE, NVMEADM_F_NS,
 	    do_get_feat_common, nvme_print_feat_lba_range },
 	{ "Temperature Threshold", "",
-	    NVME_FEAT_TEMPERATURE, 0, NVMEADM_CTRL,
+	    NVME_FEAT_TEMPERATURE, 0, NVMEADM_F_CTRL,
 	    do_get_feat_temp_thresh, nvme_print_feat_temperature },
 	{ "Error Recovery", "",
-	    NVME_FEAT_ERROR, 0, NVMEADM_CTRL,
+	    NVME_FEAT_ERROR, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_error },
 	{ "Volatile Write Cache", "cache",
-	    NVME_FEAT_WRITE_CACHE, 0, NVMEADM_CTRL,
+	    NVME_FEAT_WRITE_CACHE, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_write_cache },
 	{ "Number of Queues", "queues",
-	    NVME_FEAT_NQUEUES, 0, NVMEADM_CTRL,
+	    NVME_FEAT_NQUEUES, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_nqueues },
 	{ "Interrupt Coalescing", "coalescing",
-	    NVME_FEAT_INTR_COAL, 0, NVMEADM_CTRL,
+	    NVME_FEAT_INTR_COAL, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_intr_coal },
 	{ "Interrupt Vector Configuration", "vector",
-	    NVME_FEAT_INTR_VECT, 0, NVMEADM_CTRL,
+	    NVME_FEAT_INTR_VECT, 0, NVMEADM_F_CTRL,
 	    do_get_feat_intr_vect, nvme_print_feat_intr_vect },
 	{ "Write Atomicity", "atomicity",
-	    NVME_FEAT_WRITE_ATOM, 0, NVMEADM_CTRL,
+	    NVME_FEAT_WRITE_ATOM, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_write_atom },
 	{ "Asynchronous Event Configuration", "event",
-	    NVME_FEAT_ASYNC_EVENT, 0, NVMEADM_CTRL,
+	    NVME_FEAT_ASYNC_EVENT, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_async_event },
 	{ "Autonomous Power State Transition", "",
-	    NVME_FEAT_AUTO_PST, NVME_AUTO_PST_BUFSIZE, NVMEADM_CTRL,
+	    NVME_FEAT_AUTO_PST, NVME_AUTO_PST_BUFSIZE, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_auto_pst },
 	{ "Software Progress Marker", "progress",
-	    NVME_FEAT_PROGRESS, 0, NVMEADM_CTRL,
+	    NVME_FEAT_PROGRESS, 0, NVMEADM_F_CTRL,
 	    do_get_feat_common, nvme_print_feat_progress },
 	{ NULL, NULL, 0, 0, B_FALSE, NULL }
 };
@@ -293,6 +312,8 @@ main(int argc, char **argv)
 	}
 
 	npa.npa_cmd = cmd;
+	npa.npa_interactive = B_TRUE;
+	npa.npa_excl = ((cmd->c_flags & NVMEADM_C_EXCL) != 0);
 
 	optind++;
 
@@ -333,7 +354,7 @@ main(int argc, char **argv)
 	 * aren't allowed to do that.
 	 */
 	if (ctrl != NULL && strchr(ctrl, ',') != NULL &&
-	    cmd->c_multi == B_FALSE) {
+	    (cmd->c_flags & NVMEADM_C_MULTI) == 0) {
 		warnx("%s not allowed on multiple controllers",
 		    cmd->c_name);
 		usage(cmd);
@@ -389,10 +410,12 @@ nvme_oferr(const char *fmt, ...)
 static void
 usage(const nvmeadm_cmd_t *cmd)
 {
+	const char *progname = getprogname();
+
 	(void) fprintf(stderr, "usage:\n");
-	(void) fprintf(stderr, "  %s -h %s\n", getprogname(),
+	(void) fprintf(stderr, "  %s -h %s\n", progname,
 	    cmd != NULL ? cmd->c_name : "[<command>]");
-	(void) fprintf(stderr, "  %s [-dv] ", getprogname());
+	(void) fprintf(stderr, "  %s [-dv] ", progname);
 
 	if (cmd != NULL) {
 		cmd->c_usage(cmd->c_name);
@@ -407,12 +430,17 @@ usage(const nvmeadm_cmd_t *cmd)
 			(void) fprintf(stderr, "  %-18s - %s\n",
 			    cmd->c_name, cmd->c_desc);
 	}
-	(void) fprintf(stderr, "\nflags:\n"
+	(void) fprintf(stderr, "\n%s flags:\n"
 	    "  -h\t\tprint usage information\n"
 	    "  -d\t\tprint information useful for debugging %s\n"
-	    "  -v\t\tprint verbose information\n", getprogname());
-	if (cmd != NULL && cmd->c_flagdesc != NULL)
+	    "  -v\t\tprint verbose information\n",
+	    progname, progname);
+
+	if (cmd != NULL && cmd->c_flagdesc != NULL) {
+		(void) fprintf(stderr, "\n%s %s flags:\n",
+		    progname, cmd->c_name);
 		(void) fprintf(stderr, "%s\n", cmd->c_flagdesc);
+	}
 }
 
 static boolean_t
@@ -455,6 +483,8 @@ nvme_dskname(const nvme_process_arg_t *npa)
 	di_node_t child;
 	di_dim_t dim;
 	char *addr;
+	char *disk_ctd;
+	char *diskname = NULL;
 
 	dim = di_dim_init();
 
@@ -484,19 +514,23 @@ nvme_dskname(const nvme_process_arg_t *npa)
 
 		/* Chop off 's0' and get everything past the last '/' */
 		path[strlen(path) - 2] = '\0';
-		path = strrchr(path, '/');
-		if (path == NULL)
+		disk_ctd = strrchr(path, '/');
+		if (disk_ctd == NULL)
 			goto fail;
-		path++;
+		diskname = strdup(++disk_ctd);
+		if (diskname == NULL)
+			goto fail;
 
+		free(path);
 		break;
 	}
 
 	di_dim_fini(dim);
 
-	return (path);
+	return (diskname);
 
 fail:
+	free(path);
 	err(-1, "nvme_dskname");
 }
 
@@ -512,7 +546,7 @@ nvme_process(di_node_t node, di_minor_t minor, void *arg)
 	if (!nvme_match(npa))
 		return (DI_WALK_CONTINUE);
 
-	if ((fd = nvme_open(minor)) < 0)
+	if ((fd = nvme_open(minor, npa->npa_excl)) < 0)
 		return (DI_WALK_CONTINUE);
 
 	npa->npa_found++;
@@ -533,21 +567,26 @@ nvme_process(di_node_t node, di_minor_t minor, void *arg)
 	if (npa->npa_idns == NULL)
 		goto out;
 
-	if (npa->npa_isns)
-		npa->npa_dsk = nvme_dskname(npa);
+	if (npa->npa_isns) {
+		npa->npa_ignored = nvme_is_ignored_ns(fd);
+		if (!npa->npa_ignored)
+			npa->npa_dsk = nvme_dskname(npa);
+	}
+
 
 	exitcode += npa->npa_cmd->c_func(fd, npa);
 
 out:
 	di_devfs_path_free(npa->npa_path);
-	free(npa->npa_dsk);
 	free(npa->npa_version);
 	free(npa->npa_idctl);
 	free(npa->npa_idns);
+	free(npa->npa_dsk);
 
 	npa->npa_version = NULL;
 	npa->npa_idctl = NULL;
 	npa->npa_idns = NULL;
+	npa->npa_dsk = NULL;
 
 	nvme_close(fd);
 
@@ -846,9 +885,9 @@ usage_get_features(const char *c_name)
 	for (feat = &features[0]; feat->f_feature != 0; feat++) {
 		char *type;
 
-		if ((feat->f_getflags & NVMEADM_BOTH) == NVMEADM_BOTH)
+		if ((feat->f_getflags & NVMEADM_F_BOTH) == NVMEADM_F_BOTH)
 			type = "both";
-		else if ((feat->f_getflags & NVMEADM_CTRL) != 0)
+		else if ((feat->f_getflags & NVMEADM_F_CTRL) != 0)
 			type = "controller only";
 		else
 			type = "namespace only";
@@ -1060,9 +1099,9 @@ do_get_features(int fd, const nvme_process_arg_t *npa)
 		(void) printf("%s: Get Features\n", npa->npa_name);
 		for (feat = &features[0]; feat->f_feature != 0; feat++) {
 			if ((npa->npa_isns &&
-			    (feat->f_getflags & NVMEADM_NS) == 0) ||
+			    (feat->f_getflags & NVMEADM_F_NS) == 0) ||
 			    (!npa->npa_isns &&
-			    (feat->f_getflags & NVMEADM_CTRL) == 0))
+			    (feat->f_getflags & NVMEADM_F_CTRL) == 0))
 				continue;
 
 			(void) feat->f_get(fd, feat, npa);
@@ -1096,11 +1135,12 @@ do_get_features(int fd, const nvme_process_arg_t *npa)
 		}
 
 		if ((npa->npa_isns &&
-		    (feat->f_getflags & NVMEADM_NS) == 0) ||
+		    (feat->f_getflags & NVMEADM_F_NS) == 0) ||
 		    (!npa->npa_isns &&
-		    (feat->f_getflags & NVMEADM_CTRL) == 0)) {
+		    (feat->f_getflags & NVMEADM_F_CTRL) == 0)) {
 			warnx("feature %s %s supported for namespaces",
-			    feat->f_name, (feat->f_getflags & NVMEADM_NS) != 0 ?
+			    feat->f_name,
+			    (feat->f_getflags & NVMEADM_F_NS) != 0 ?
 			    "only" : "not");
 			continue;
 		}
@@ -1187,9 +1227,30 @@ do_format(int fd, const nvme_process_arg_t *npa)
 static void
 usage_secure_erase(const char *c_name)
 {
-	(void) fprintf(stderr, "%s <ctl>[/<ns>] [-c]\n\n"
+	(void) fprintf(stderr, "%s [-c] <ctl>[/<ns>]\n\n"
 	    "  Secure-Erase one or all namespaces of the specified "
 	    "NVMe controller.\n", c_name);
+}
+
+static void
+optparse_secure_erase(nvme_process_arg_t *npa)
+{
+	int c;
+
+	optind = 0;
+	while ((c = getopt(npa->npa_argc, npa->npa_argv, ":c")) != -1) {
+		switch (c) {
+		case 'c':
+			npa->npa_cmdflags |= NVMEADM_O_SE_CRYPTO;
+			break;
+		case '?':
+			errx(-1, "unknown secure-erase option: -%c", optopt);
+			break;
+		}
+	}
+
+	npa->npa_argc -= optind;
+	npa->npa_argv += optind;
 }
 
 static int
@@ -1198,6 +1259,9 @@ do_secure_erase(int fd, const nvme_process_arg_t *npa)
 	unsigned long lbaf;
 	uint8_t ses = NVME_FRMT_SES_USER;
 
+	if (npa->npa_argc > 0)
+		errx(-1, "Too many arguments");
+
 	if (npa->npa_idctl->id_oacs.oa_format == 0)
 		errx(-1, "%s not supported", npa->npa_cmd->c_name);
 
@@ -1205,12 +1269,8 @@ do_secure_erase(int fd, const nvme_process_arg_t *npa)
 		errx(-1, "%s not supported on individual namespace",
 		    npa->npa_cmd->c_name);
 
-	if (npa->npa_argc > 0) {
-		if (strcmp(npa->npa_argv[0], "-c") == 0)
-			ses = NVME_FRMT_SES_CRYPTO;
-		else
-			usage(npa->npa_cmd);
-	}
+	if ((npa->npa_cmdflags & NVMEADM_O_SE_CRYPTO) != 0)
+		ses = NVME_FRMT_SES_CRYPTO;
 
 	if (ses == NVME_FRMT_SES_CRYPTO &&
 	    npa->npa_idctl->id_fna.fn_crypt_erase == 0)
@@ -1226,7 +1286,7 @@ static void
 usage_attach_detach(const char *c_name)
 {
 	(void) fprintf(stderr, "%s <ctl>[/<ns>]\n\n"
-	    "  %c%s blkdev(7d) %s one or all namespaces of the "
+	    "  %c%s blkdev(4D) %s one or all namespaces of the "
 	    "specified NVMe controller.\n",
 	    c_name, toupper(c_name[0]), &c_name[1],
 	    c_name[0] == 'd' ? "from" : "to");
@@ -1243,16 +1303,26 @@ do_attach_detach(int fd, const nvme_process_arg_t *npa)
 		ns_npa.npa_name = npa->npa_name;
 		ns_npa.npa_isns = B_TRUE;
 		ns_npa.npa_cmd = npa->npa_cmd;
+		ns_npa.npa_excl = npa->npa_excl;
 
 		nvme_walk(&ns_npa, npa->npa_node);
 
 		return (exitcode);
-	} else {
-		if ((c_name[0] == 'd' ? nvme_detach : nvme_attach)(fd)
-		    == B_FALSE) {
-			warn("%s failed", c_name);
-			return (-1);
-		}
+	}
+
+	/*
+	 * Unless the user interactively requested a particular namespace to be
+	 * attached or detached, don't even try to attach or detach namespaces
+	 * that are ignored by the driver, thereby avoiding printing pointless
+	 * error messages.
+	 */
+	if (!npa->npa_interactive && npa->npa_ignored)
+		return (0);
+
+	if ((c_name[0] == 'd' ? nvme_detach : nvme_attach)(fd)
+	    == B_FALSE) {
+		warn("%s failed", c_name);
+		return (-1);
 	}
 
 	return (0);
