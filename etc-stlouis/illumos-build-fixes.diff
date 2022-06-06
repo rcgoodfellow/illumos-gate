@@ -1,5 +1,5 @@
 diff --git a/usr/src/Makefile b/usr/src/Makefile
-index 6d31345421..d597a413a4 100644
+index 4342f8d6dd..630d4c629e 100644
 --- a/usr/src/Makefile
 +++ b/usr/src/Makefile
 @@ -110,7 +110,7 @@ install: install1 install2 _msg stage-licenses
@@ -24,21 +24,25 @@ index 4f496112e8..e3966f4378 100644
  	ldapcachemgr	\
  	lgrpinfo	\
 diff --git a/usr/src/cmd/bhyve/Makefile b/usr/src/cmd/bhyve/Makefile
-index 72885e3633..c1b52a54d7 100644
+index 509c389f11..3f865b5c54 100644
 --- a/usr/src/cmd/bhyve/Makefile
 +++ b/usr/src/cmd/bhyve/Makefile
-@@ -154,11 +154,11 @@ $(PROG) := LDLIBS += \
- 	-lmd \
- 	-lnvpair \
- 	-lproc \
+@@ -149,7 +149,7 @@ CSTD=		$(CSTD_GNU99)
+ $(PROG) := LDLIBS += \
+ 	-l9p \
+ 	-lcmdutils \
 -	-lcrypto \
 +	-lsunw_crypto \
+ 	-ldladm \
+ 	-ldlpi \
+ 	-lidspace \
+@@ -161,7 +161,7 @@ $(PROG) := LDLIBS += \
  	-luuid \
  	-lvmmapi \
  	-lz
 -NATIVE_LIBS += libz.so libcrypto.so
 +NATIVE_LIBS += libz.so libsunw_crypto.so
- $(MEVENT_TEST_PROG) := LDLIBS += -lsocket -lproc
+ $(MEVENT_TEST_PROG) := LDLIBS += -lsocket
  $(PROG) := LDFLAGS += $(ZASLR)
  
 diff --git a/usr/src/cmd/cmd-inet/usr.lib/wpad/Makefile b/usr/src/cmd/cmd-inet/usr.lib/wpad/Makefile

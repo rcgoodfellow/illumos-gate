@@ -44,7 +44,6 @@ HDRS=  \
 	cram.h		\
 	ddi_subrdefs.h	\
 	debug_info.h	\
-	hma.h		\
 	mach_mmu.h	\
 	machclock.h	\
 	machcpuvar.h	\
@@ -60,7 +59,6 @@ HDRS=  \
 	rm_platter.h	\
 	sbd_ioctl.h	\
 	smp_impldefs.h	\
-	smt.h		\
 	vm_machparam.h	\
 	x_call.h	\
 	xc_levels.h
