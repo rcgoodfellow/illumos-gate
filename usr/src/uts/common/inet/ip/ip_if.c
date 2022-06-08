@@ -24,6 +24,7 @@
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright (c) 2016, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014, OmniTI Computer Consulting, Inc. All rights reserved.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*
@@ -57,6 +58,7 @@
 #include <sys/isa_defs.h>
 #include <net/if.h>
 #include <net/if_arp.h>
+#include <net/if_ndp.h>
 #include <net/if_types.h>
 #include <net/if_dl.h>
 #include <net/route.h>
@@ -226,6 +228,9 @@ static	void	ipif_trace_cleanup(const ipif_t *);
 static	void	ill_dlpi_clear_deferred(ill_t *ill);
 
 static	void	phyint_flags_init(phyint_t *, t_uscalar_t);
+
+static	int	ip_get_nd_count(ip_stack_t *ipst, struct ndpreq *);
+static	int	ip_get_nd_entries(ip_stack_t *ipst, struct ndpreq *, uchar_t *);
 
 /*
  * if we go over the memory footprint limit more than once in this msec
@@ -8497,6 +8502,146 @@ ip_extract_arpreq(queue_t *q, mblk_t *mp, const ip_ioctl_cmd_t *ipip,
 	return (0);
 }
 
+/* Neighbor Discovery IOCTLs */
+/* ARGSUSED */
+int
+ip_sioctl_nd(ipif_t *ipif, sin_t *dummy_sin, queue_t *q, mblk_t *mp,
+    ip_ioctl_cmd_t *ipip, void *dummy)
+{
+	conn_t		*connp;
+	ip_stack_t	*ipst;
+	struct iocblk	*iocp;
+	struct ndpreq	*req;
+	mblk_t		*mp1;
+	size_t		bufsize;
+
+	connp = Q_TO_CONN(q);
+	ipst = connp->conn_netstack->netstack_ip;
+	iocp = (struct iocblk *)mp->b_rptr;
+	req = (struct ndpreq *)mp->b_cont->b_cont->b_rptr;
+
+	switch (iocp->ioc_cmd) {
+		case SIOCGNDNUM:
+			return (ip_get_nd_count(ipst, req));
+		case SIOCGNDS:
+			bufsize = req->ndpr_count * sizeof (struct ndpr_entry);
+			mp1 = mi_copyout_alloc(q, mp, req->ndpr_buf, bufsize,
+			    B_FALSE);
+			mp1->b_wptr = mp1->b_rptr + bufsize;
+			bzero(mp1->b_rptr, mp1->b_wptr - mp1->b_rptr);
+			ip_get_nd_entries(ipst, req, mp1->b_rptr);
+			return (0);
+	}
+
+	return (ENOTSUP);
+}
+
+static int
+ip_get_nd_count(ip_stack_t *ipst, struct ndpreq *req)
+{
+	int			list;
+	ill_t			*ill;
+	ill_walk_context_t	ctx;
+
+	req->ndpr_count = 0;
+	list = IP_V6_G_HEAD;
+
+	/*
+	 * walk the ills of the given ip stack and sum up the number of nces in
+	 * each ill
+	 */
+	rw_enter(&ipst->ips_ill_g_lock, RW_READER);
+	ill = ill_first(list, list, &ctx, ipst);
+	for (; ill != NULL; ill = ill_next(&ctx, ill)) {
+		req->ndpr_count += ill->ill_nce_cnt;
+	}
+	rw_exit(&ipst->ips_ill_g_lock);
+
+	return (0);
+}
+
+struct ndp_iterator {
+	struct ndpreq *ndpi_req;
+	uint64_t ndpi_index;
+	uchar_t *copyout;
+};
+
+static int
+ip_nd_entries_walk(ill_t *ill, nce_t *nce, void *arg)
+{
+	size_t i;
+	char *c;
+	uint8_t *x;
+	struct ndp_iterator *it;
+	struct ndpr_entry *entry;
+
+	it = (struct ndp_iterator *)arg;
+
+	/* bail if we've reached the maximum number of entries we can return */
+	if (it->ndpi_index >= it->ndpi_req->ndpr_count) {
+		return (0);
+	}
+
+	entry = (struct ndpr_entry *)it->copyout;
+	entry += it->ndpi_index;
+	for (i = 0; i < 6; i++) {
+		x = nce->nce_common->ncec_lladdr+i;
+		if (x == NULL)
+			break;
+		entry->ndpre_l2_addr[i] = *x;
+	}
+	entry->ndpre_l3_addr = nce->nce_common->ncec_addr;
+	if (ill->ill_name != NULL) {
+		for (i = 0; i < ill->ill_name_length; i++) {
+			if (i >= LIFNAMSIZ) {
+				break;
+			}
+			entry->ndpre_ifname[i] = *(ill->ill_name+i);
+		}
+	}
+
+	it->ndpi_index++;
+
+	return (0);
+}
+
+static int
+ip_get_nd_entries(ip_stack_t *ipst, struct ndpreq *req, uchar_t *copyout)
+{
+	int			list;
+	ill_l			*ill;
+	ill_walk_context_t	ctx;
+	struct ndp_iterator	it;
+
+	list = IP_V6_G_HEAD;
+	it.ndpi_req = req;
+	it.ndpi_index = 0;
+	it.copyout = copyout;
+
+	/*
+	 * Walk through the nce entries of each ill, adding an entry to
+	 * req.ndpreq_buf for each nce entry encountered. Return a maximum of
+	 * req.ndpreq_count entries as that is all there is space to hold in
+	 * ndpr_buf, stopping short if there are more entries than space.
+	 */
+	rw_enter(&ipst->ips_ill_g_lock, RW_READER);
+	ill = ill_first(list, list, &ctx, ipst);
+	for (; ill != NULL; ill = ill_next(&ctx, ill)) {
+		nce_walk(ill, ip_nd_entries_walk, &it);
+	}
+	rw_exit(&ipst->ips_ill_g_lock);
+
+	/*
+	 * It's possible some entries have dissapeared in the time the caller
+	 * set ndpr_count and the time we ran through this iteration. In this
+	 * case set the ndpr_count to the number of entries we are actually
+	 * returning.
+	 */
+	req->ndpr_count = it.ndpi_index;
+
+	return (0);
+}
+
 /*
  * Link or unlink the illgrp on IPMP meta-interface `ill' depending on the
  * value of `ioccmd'.  While an illgrp is linked to an ipmp_grp_t, it is
@@ -9123,6 +9268,11 @@ ip_sioctl_copyin_setup(queue_t *q, mblk_t *mp)
 	case O_SIOCGLIFCONF:
 	case SIOCGLIFCONF:
 		copyin_size = SIZEOF_STRUCT(lifconf, iocp->ioc_flag);
+		mi_copyin(q, mp, NULL, copyin_size);
+		return;
+
+	case SIOCGNDS:
+		copyin_size = sizeof (struct ndpreq);
 		mi_copyin(q, mp, NULL, copyin_size);
 		return;
 
