@@ -8609,7 +8609,7 @@ static int
 ip_get_nd_entries(ip_stack_t *ipst, struct ndpreq *req, uchar_t *copyout)
 {
 	int			list;
-	ill_l			*ill;
+	ill_t			*ill;
 	ill_walk_context_t	ctx;
 	struct ndp_iterator	it;
 
