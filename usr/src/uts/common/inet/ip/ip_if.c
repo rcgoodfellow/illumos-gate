@@ -8599,6 +8599,7 @@ ip_nd_entries_walk(ill_t *ill, nce_t *nce, void *arg)
 			entry->ndpre_ifname[i] = *(ill->ill_name+i);
 		}
 	}
+        entry->ndpre_state = nce->nce_common->ncec_state;
 
 	it->ndpi_index++;
 

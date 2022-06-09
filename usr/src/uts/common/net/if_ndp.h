@@ -15,6 +15,7 @@ extern "C" {
 		char			ndpre_ifname[LIFNAMSIZ];
 		uint8_t			ndpre_l2_addr[6];
 		struct in6_addr		ndpre_l3_addr;
+		uint16_t		ndpre_state;
 	};
 
 	struct ndpreq {
