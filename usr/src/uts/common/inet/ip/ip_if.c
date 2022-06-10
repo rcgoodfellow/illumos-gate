@@ -8566,6 +8566,7 @@ struct ndp_iterator {
 	uchar_t *copyout;
 };
 
+
 static int
 ip_nd_entries_walk(ill_t *ill, nce_t *nce, void *arg)
 {
@@ -8600,6 +8601,18 @@ ip_nd_entries_walk(ill_t *ill, nce_t *nce, void *arg)
 		}
 	}
         entry->ndpre_state = nce->nce_common->ncec_state;
+
+        if (NCE_MYADDR(nce->nce_common)) {
+                entry->ndpr_type = NDP_TYPE_LOCAL;
+	} else if (nce->nce_common->ncec_flags & NCE_F_PUBLISH) {
+                entry->ndpr_type = NDP_TYPE_OTHER;
+	} else if (nce->nce_common->ncec_flags & NCE_F_STATIC) {
+                entry->ndpr_type = NDP_TYPE_STATIC;
+	} else if (nce->nce_common->ncec_flags & (NCE_F_MCAST|NCE_F_BCAST)) {
+                entry->ndpr_type = NDP_TYPE_OTHER;
+	} else {
+                entry->ndpr_type = NDP_TYPE_DYNAMIC;
+	}
 
 	it->ndpi_index++;
 
