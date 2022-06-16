@@ -4,7 +4,9 @@ You will need:
 - Milan, possibly; I believe this should also work on Rome but have not tried
   it yet
 - illumos-gate stlouis a368956d97835cacf0266ab9ff2fe7b7944afa09 or later
-- nanobl-rs 0.4.1 or later
+- nanobl-rs 0.4.7 or later (0.4.1 and later will work but will require manual
+  mapping of the space for the ramdisk prior to receiving it; the ramdisk
+  exceeds the automap limit of 64 MiB in loaders older than 0.4.7)
 - The tools in this directory
 
 Steps:

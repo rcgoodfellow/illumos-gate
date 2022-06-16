@@ -914,7 +914,7 @@ fix_ppb_res(uchar_t secbus, boolean_t prog_sub)
 	uint_t io_base, io_limit, mem_base;
 	uint_t io_size, io_align;
 	uint64_t mem_size, mem_align, mem_limit;
-	uint64_t pmem_size, pmem_base, pmem_limit;
+	uint64_t pmem_size, pmem_align, pmem_base, pmem_limit;
 	uint64_t addr = 0;
 	int *regp = NULL;
 	uint_t val, reglen;
@@ -1025,19 +1025,33 @@ fix_ppb_res(uchar_t secbus, boolean_t prog_sub)
 
 	/*
 	 * Calculate required MEM size and alignment
-	 * If bus mem_size is zero, we are going to assign 1M bytes per bus,
+	 * If bus mem_size is zero, we are going to assign 32M bytes per bus,
 	 * otherwise, we'll choose the maximum value of such calculation and
 	 * bus mem_size. The size needs to be 1M aligned.
 	 *
 	 * For the alignment, refer to the I/O comment above.
 	 */
-	mem_size = (subbus - secbus + 1) * PPB_MEM_ALIGNMENT;
+	mem_size = (subbus - secbus + 1) * PPB_MEM_ALIGNMENT * 32;
 	if (mem_size < pci_bus_res[secbus].mem_size) {
 		mem_size = pci_bus_res[secbus].mem_size;
 		mem_size = P2ROUNDUP(mem_size, PPB_MEM_ALIGNMENT);
 	}
 	mem_align = mem_size;
 	P2LE(mem_align);
+
+	/*
+	 * XXX Likewise for prefetchable memory.  This is a workaround that
+	 * probably will not go well on PCs, certainly not if the available PF
+	 * MMIO space is the same as the regular MMIO space or is otherwise
+	 * limited to being below the 32-bit boundary.  Since on oxide machines
+	 * this is always above the boundary and practically unlimited, we
+	 * allocate each bridge 512 MiB.  The number is arbitrary and could be
+	 * much greater, and computed from the number of bridges that share the
+	 * parent bus's resources.
+	 */
+	pmem_size = (subbus - secbus + 1) * PPB_MEM_ALIGNMENT * 512;
+	pmem_align = pmem_size;
+	P2LE(pmem_align);
 
 	/* Subtractive bridge */
 	if (pci_bus_res[secbus].subtractive && prog_sub) {
@@ -1191,8 +1205,8 @@ fix_ppb_res(uchar_t secbus, boolean_t prog_sub)
 	mem_base = (uint_t)pci_getw(bus, dev, func, PCI_BCNF_MEM_BASE);
 	mem_base = (mem_base & PCI_BCNF_MEM_MASK) << PCI_BCNF_MEM_SHIFT;
 	mem_limit = (uint_t)pci_getw(bus, dev, func, PCI_BCNF_MEM_LIMIT);
-	mem_limit = ((mem_limit & PCI_BCNF_MEM_MASK) << PCI_BCNF_MEM_SHIFT)
-	    | 0xfffff;
+	mem_limit = ((mem_limit & PCI_BCNF_MEM_MASK) << PCI_BCNF_MEM_SHIFT) |
+	    0xfffff;
 
 	val = (uint_t)pci_getw(bus, dev, func, PCI_BCNF_PF_LIMIT_LOW);
 	pmem_limit = ((val & PCI_BCNF_MEM_MASK) << PCI_BCNF_MEM_SHIFT) |
@@ -1287,13 +1301,13 @@ fix_ppb_res(uchar_t secbus, boolean_t prog_sub)
 	memlist_merge(&pci_bus_res[secbus].pmem_used, &scratch_list);
 
 	/*
-	 * Only reprogram prefetchable memory If the MEM access bit is
-	 * currently enabled. If it is not, then prefetchable memory will be
-	 * disabled anyway via base/limit below.
+	 * XXX Historically this only reprogrammed prefetchable memory if the
+	 * MEM access bit was already enabled; otherwise, prefetchable memory
+	 * would be disabled anyway via base/limit below.  Since we need to
+	 * handle preallocating resources to bridges that have never been
+	 * configured at all, this restriction has been removed.
 	 */
-	if (reprogram_mem && !list_is_vga_only(scratch_list, MEM) &&
-	    (cmd_reg & PCI_COMM_MAE)) {
-
+	if (reprogram_mem && !list_is_vga_only(scratch_list, MEM)) {
 		if (pci_bus_res[secbus].pmem_used) {
 			memlist_subsume(&pci_bus_res[secbus].pmem_used,
 			    &pci_bus_res[secbus].pmem_avail);
@@ -1323,11 +1337,11 @@ fix_ppb_res(uchar_t secbus, boolean_t prog_sub)
 			pci_bus_res[secbus].mem_reprogram = B_TRUE;
 		} else {
 			/* get new mem resource from parent bus */
-			addr = get_parbus_res(parbus, secbus, mem_size,
-			    mem_align, PB_PMEM);
+			addr = get_parbus_res(parbus, secbus, pmem_size,
+			    pmem_align, PB_PMEM);
 			if (addr) {
 				pmem_base = addr;
-				pmem_limit = addr + mem_size - 1;
+				pmem_limit = addr + pmem_size - 1;
 				pci_bus_res[secbus].mem_reprogram = B_TRUE;
 			}
 		}
@@ -1349,7 +1363,14 @@ fix_ppb_res(uchar_t secbus, boolean_t prog_sub)
 		    " ppb[%x/%x/%x]: 0x%x ~ 0x%"PRIx64"",
 		    bus, dev, func, mem_base, mem_limit);
 
-		if (!(cmd_reg & PCI_COMM_MAE)) {
+		/*
+		 * XXX See the note above.  We want to allocate space to every
+		 * bridge, even if it didn't previously have any space allocated
+		 * or presently has no children: it may be hotplug-capable, and
+		 * the pcicfg logic cannot handle allocating space to a
+		 * hotplugged device's parent bridge at that time.
+		 */
+		if (0 && !(cmd_reg & PCI_COMM_MAE)) {
 			/*
 			 * If the MEM access bit is initially disabled by BIOS,
 			 * we disable the PMEM window manually by setting PMEM
@@ -1392,7 +1413,7 @@ cmd_enable:
 
 	if (pci_bus_res[secbus].io_avail)
 		cmd_reg |= PCI_COMM_IO | PCI_COMM_ME;
-	if (pci_bus_res[secbus].mem_avail)
+	if (pci_bus_res[secbus].mem_avail || pci_bus_res[secbus].pmem_avail)
 		cmd_reg |= PCI_COMM_MAE | PCI_COMM_ME;
 	pci_putw(bus, dev, func, PCI_CONF_COMM, cmd_reg);
 }
@@ -3393,11 +3414,26 @@ memlist_to_spec(struct pci_phys_spec *sp, struct memlist *list, int type)
 	int i = 0;
 
 	while (list) {
-		/* assume 32-bit addresses */
+		/*
+		 * XXX This previously assumed all addresses were 32 bits.  That
+		 * doesn't work for allocating large upper prefetchable memory
+		 * regions, so we have relaxed this constraint and now take into
+		 * consideration the complete address.
+		 */
+		if (list->ml_address + (list->ml_size - 1) > 0xffffffffUL) {
+			if (type & PCI_ADDR_IO) {
+				/* XXX this is invalid and should warn */
+				continue;
+			} else {
+				type &= ~PCI_ADDR_MEM32;
+				type |= PCI_ADDR_MEM64;
+			}
+		}
+
 		sp->pci_phys_hi = type;
-		sp->pci_phys_mid = 0;
+		sp->pci_phys_mid = (uint32_t)(list->ml_address >> 32);
 		sp->pci_phys_low = (uint32_t)list->ml_address;
-		sp->pci_size_hi = 0;
+		sp->pci_size_hi = (uint32_t)(list->ml_size >> 32);
 		sp->pci_size_low = (uint32_t)list->ml_size;
 
 		list = list->ml_next;

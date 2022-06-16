@@ -643,13 +643,6 @@ startup(void)
 	 */
 	milan_fabric_init();
 
-#if 0 /* XXX replacement? */
-	/*
-	 * Note we need to do this even on fast reboot in order to access
-	 * the irq routing table (used for pci labels).
-	 */
-	startup_pci_bios();
-#endif
 	startup_smap();
 	startup_modules();
 

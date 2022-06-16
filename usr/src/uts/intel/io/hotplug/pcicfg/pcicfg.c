@@ -2041,6 +2041,11 @@ pcicfg_device_assign(dev_info_t *dip)
 	 * allocations are made within 32bit space. Currently, BIOSs
 	 * allocate device memory for PCI devices within the 32bit space
 	 * so this will not be a problem.
+	 *
+	 * XXX This does not work in general, and certainly does not work on
+	 * machines that do not employ a BIOS.  Several temporary and incomplete
+	 * workarounds have been made below to work around some of this
+	 * limitation.
 	 */
 	request.ra_flags |= NDI_RA_ALIGN_SIZE | NDI_RA_ALLOC_BOUNDED;
 	request.ra_boundbase = 0;
@@ -2051,15 +2056,29 @@ pcicfg_device_assign(dev_info_t *dip)
 	for (i = 0; i < rcount; i++) {
 		char	*mem_type;
 
-		if ((reg[i].pci_size_low != 0)|| (reg[i].pci_size_hi != 0)) {
+		if ((reg[i].pci_size_low != 0) || (reg[i].pci_size_hi != 0)) {
 
 			offset = PCI_REG_REG_G(reg[i].pci_phys_hi);
+			/*
+			 * XXX This does not handle requests > 4 GiB.  It is
+			 * unlikely that we will encounter such devices.
+			 */
 			request.ra_len = reg[i].pci_size_low;
 
 			switch (PCI_REG_ADDR_G(reg[i].pci_phys_hi)) {
 			case PCI_REG_ADDR_G(PCI_ADDR_MEM64):
 				if (reg[i].pci_phys_hi & PCI_REG_PF_M) {
 					mem_type = NDI_RA_TYPE_PCI_PREFETCH_MEM;
+					/*
+					 * XXX Requests for prefetchable memory
+					 * that can be satisfied from resources
+					 * above the 32-bit boundary should not
+					 * be restricted to scarce lower
+					 * resources, so we clear BOUNDED.
+					 */
+					request.ra_flags &=
+					    ~NDI_RA_ALLOC_BOUNDED;
+					request.ra_boundlen = 0;
 				} else {
 					mem_type = NDI_RA_TYPE_MEM;
 				}
@@ -2086,11 +2105,14 @@ pcicfg_device_assign(dev_info_t *dip)
 				reg[i].pci_phys_low = PCICFG_LOADDR(answer);
 				reg[i].pci_phys_mid = PCICFG_HIADDR(answer);
 				/*
-				 * currently support 32b address space
-				 * assignments only.
+				 * XXX This was unconditional in the past, but
+				 * if we have allocated from 64-bit space we
+				 * must leave ADDR_MEM64 set.
 				 */
-				reg[i].pci_phys_hi ^=
-				    PCI_ADDR_MEM64 ^ PCI_ADDR_MEM32;
+				if (reg[i].pci_phys_mid == 0) {
+					reg[i].pci_phys_hi ^=
+					    PCI_ADDR_MEM64 ^ PCI_ADDR_MEM32;
+				}
 
 				offset += 8;
 				break;
