@@ -190,7 +190,6 @@ f etc/dladm/flowprop.conf 0644 dladm netadm
 f etc/dladm/secobj.conf 0660 dladm netadm
 f etc/driver_aliases 0644 root sys
 f etc/driver_classes 0644 root sys
-f etc/dumpadm.conf 0644 root other
 d etc/fs 0755 root sys
 d etc/fs/dev 0755 root sys
 f etc/fs/dev/mount 0555 root bin
