@@ -24,6 +24,7 @@
  */
 /*
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef	_SYS_MACHCPUVAR_H
@@ -68,6 +69,8 @@ extern int vcpu_on_pcpu(processorid_t);
 struct cpuid_info;
 struct cpu_ucode_info;
 struct cmi_hdl;
+
+struct milan_thread;
 
 /*
  * A note about the hypervisor affinity bits: a one bit in the affinity mask
@@ -157,7 +160,7 @@ typedef struct cpu_smt {
  *
  * There are CTASSERTs in os/intr.c that verify this all works out.
  */
-#define	MACHCPU_SIZE	(1568 + 696)
+#define	MACHCPU_SIZE	(1568 + 704)
 #define	MACHCPU_PAD	(MMU_PAGESIZE - MACHCPU_SIZE)
 #define	MACHCPU_PAD2	(MMU_PAGESIZE - 16 - 3 * sizeof (struct kpti_frame))
 
@@ -226,6 +229,7 @@ struct	machcpu {
 	void			*mcpu_pm_mach_state;
 	struct cmi_hdl		*mcpu_cmi_hdl;
 	void			*mcpu_mach_ctx_ptr;
+	struct milan_thread	*mcpu_hwthread;
 
 	/*
 	 * A stamp that is unique per processor and changes

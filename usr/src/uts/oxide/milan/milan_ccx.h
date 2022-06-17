@@ -105,7 +105,6 @@ typedef struct milan_ccd {
 extern void milan_ccx_mmio_init(uint64_t, boolean_t);
 extern void milan_ccx_physmem_init(void);
 extern boolean_t milan_ccx_start_thread(const milan_thread_t *);
-extern milan_thread_t *milan_ccx_thread_self(void);
 extern void milan_ccx_set_brandstr(void);
 
 #ifdef __cplusplus

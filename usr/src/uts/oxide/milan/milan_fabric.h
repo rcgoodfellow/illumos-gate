@@ -48,13 +48,14 @@ extern void milan_fabric_init(void);
 extern struct memlist *milan_fabric_pci_subsume(uint32_t, pci_prd_rsrc_t);
 
 typedef int (*milan_thread_cb_f)(milan_thread_t *, void *);
-extern int milan_fabric_walk_thread(milan_thread_cb_f, void *);
+extern int milan_walk_thread(milan_thread_cb_f, void *);
+
 extern milan_thread_t *milan_fabric_find_thread_by_cpuid(uint32_t);
 extern size_t milan_fabric_thread_get_brandstr(const milan_thread_t *,
     char *, size_t);
 
-extern uint32_t milan_smupwr_read32(milan_ccd_t *, uint32_t);
-extern void milan_smupwr_write32(milan_ccd_t *, uint32_t, uint32_t);
+extern uint32_t milan_ccd_smupwr_read32(milan_ccd_t *, uint32_t);
+extern void milan_ccd_smupwr_write32(milan_ccd_t *, uint32_t, uint32_t);
 
 /*
  * In general, each functional block attached to the SMN is allotted its own

@@ -89,25 +89,19 @@ milan_ccx_start_thread(const milan_thread_t *thread)
 	VERIFY3U(thr_ccd_idx, <, MILAN_MAX_CCXS_PER_CCD *
 	    MILAN_MAX_CORES_PER_CCX * MILAN_MAX_THREADS_PER_CORE);
 
-	en = milan_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE);
+	en = milan_ccd_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE);
 	if (MILAN_SMUPWR_R_GET_THREAD_ENABLE_T(en, thr_ccd_idx) != 0)
 		return (B_FALSE);
 
 	en = MILAN_SMUPWR_R_SET_THREAD_ENABLE_T(en, thr_ccd_idx);
-	milan_smupwr_write32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE, en);
+	milan_ccd_smupwr_write32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE, en);
 	return (B_TRUE);
-}
-
-milan_thread_t *
-milan_ccx_thread_self(void)
-{
-	return (milan_fabric_find_thread_by_cpuid(CPU->cpu_id));
 }
 
 void
 milan_ccx_set_brandstr(void)
 {
-	const milan_thread_t *thread = milan_ccx_thread_self();
+	const milan_thread_t *thread = CPU->cpu_m.mcpu_hwthread;
 	char str[CPUID_BRANDSTR_STRLEN + 1];
 	uint_t n;
 

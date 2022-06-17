@@ -254,9 +254,13 @@ mlsetup(struct regs *rp)
 
 	/*
 	 * with PCIe up and running, set up our data structures for tracking the
-	 * Milan topology so we can use the at later parts of the build.
+	 * Milan topology so we can use the at later parts of the build.  We
+	 * need to probe out the CCXs before we can set mcpu_hwthread, and we
+	 * need mcpu_hwthread to set up brand strings for cpuid.
 	 */
 	milan_fabric_topo_init();
+	CPU->cpu_m.mcpu_hwthread =
+	    milan_fabric_find_thread_by_cpuid(CPU->cpu_id);
 	milan_ccx_set_brandstr();
 
 	determine_platform();

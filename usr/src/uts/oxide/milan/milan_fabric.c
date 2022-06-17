@@ -1133,6 +1133,18 @@ typedef enum milan_iommul1_type {
 #define	MILAN_DXIO_RT_FORGET_BER	0x22
 
 /*
+ * These forward-declarations are needed here to break the type dependency cycle
+ * so that each type can contain both its children and a back-pointer to its
+ * parent.
+ */
+struct milan_fabric;
+struct milan_soc;
+struct milan_iodie;
+struct milan_ioms;
+struct milan_pcie_port;
+struct milan_nbif;
+
+/*
  * DXIO Link training state machine states
  */
 typedef enum milan_dxio_sm_state {
@@ -1397,6 +1409,7 @@ typedef struct milan_nbif_func {
 	uint8_t			mne_dev;
 	uint8_t			mne_func;
 	uint32_t		mne_func_smn_base;
+	struct milan_nbif	*mne_nbif;
 } milan_nbif_func_t;
 
 typedef struct milan_nbif {
@@ -1405,6 +1418,7 @@ typedef struct milan_nbif {
 	uint8_t			mn_nbifno;
 	uint8_t			mn_nfuncs;
 	milan_nbif_func_t	mn_funcs[MILAN_NBIF_MAX_FUNCS];
+	struct milan_ioms	*mn_ioms;
 } milan_nbif_t;
 
 typedef enum milan_pcie_bridge_flags {
@@ -1436,6 +1450,7 @@ typedef struct milan_pcie_bridge {
 	smu_hotplug_type_t		mpb_hp_type;
 	uint16_t			mpb_hp_slotno;
 	uint32_t			mpb_hp_smu_mask;
+	struct milan_pcie_port		*mpb_port;
 } milan_pcie_bridge_t;
 
 /*
@@ -1495,6 +1510,7 @@ typedef struct milan_pcie_port {
 	uint32_t		mpp_core_smn_addr;
 	uint32_t		mpp_strap_smn_addr;
 	milan_pcie_bridge_t	mpp_bridges[MILAN_IOMS_MAX_PCIE_BRIDGES];
+	struct milan_ioms	*mpp_ioms;
 } milan_pcie_port_t;
 
 typedef enum milan_ioms_flag {
@@ -1536,6 +1552,7 @@ typedef struct milan_ioms {
 	milan_pcie_port_t	mio_pcie_ports[MILAN_IOMS_MAX_PCIE_PORTS];
 	milan_nbif_t		mio_nbifs[MILAN_IOMS_MAX_NBIF];
 	ioms_memlists_t		mio_memlists;
+	struct milan_iodie	*mio_iodie;
 } milan_ioms_t;
 
 typedef struct milan_dxio_config {
@@ -1610,17 +1627,11 @@ typedef struct milan_fabric {
 /*
  * Function callback signatures for making operating on a given unit simpler.
  */
-typedef int (*milan_iodie_cb_f)(milan_fabric_t *, milan_soc_t *,
-    milan_iodie_t *, void *);
-typedef int (*milan_ioms_cb_f)(milan_fabric_t *, milan_soc_t *,
-    milan_iodie_t *, milan_ioms_t *, void *);
-typedef int (*milan_nbif_cb_f)(milan_fabric_t *, milan_soc_t *,
-    milan_iodie_t *, milan_ioms_t *, milan_nbif_t *, void *);
-typedef int (*milan_pcie_port_cb_f)(milan_fabric_t *, milan_soc_t *,
-    milan_iodie_t *, milan_ioms_t *, milan_pcie_port_t *port, void *);
-typedef int (*milan_bridge_cb_f)(milan_fabric_t *, milan_soc_t *,
-    milan_iodie_t *, milan_ioms_t *, milan_pcie_port_t *port,
-    milan_pcie_bridge_t *, void *);
+typedef int (*milan_iodie_cb_f)(milan_iodie_t *, void *);
+typedef int (*milan_ioms_cb_f)(milan_ioms_t *, void *);
+typedef int (*milan_nbif_cb_f)(milan_nbif_t *, void *);
+typedef int (*milan_pcie_port_cb_f)(milan_pcie_port_t *, void *);
+typedef int (*milan_bridge_cb_f)(milan_pcie_bridge_t *, void *);
 
 typedef int (*milan_ccd_cb_f)(milan_ccd_t *, void *);
 typedef int (*milan_ccx_cb_f)(milan_ccx_t *, void *);
@@ -1656,7 +1667,7 @@ milan_fabric_walk_iodie(milan_fabric_t *fabric, milan_iodie_cb_f func,
 			int ret;
 			milan_iodie_t *iodie = &soc->ms_iodies[iono];
 
-			ret = func(fabric, soc, iodie, arg);
+			ret = func(iodie, arg);
 			if (ret != 0) {
 				return (ret);
 			}
@@ -1672,8 +1683,7 @@ typedef struct milan_fabric_ioms_cb {
 } milan_fabric_ioms_cb_t;
 
 static int
-milan_fabric_walk_ioms_iodie_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_fabric_walk_ioms_iodie_cb(milan_iodie_t *iodie, void *arg)
 {
 	milan_fabric_ioms_cb_t *cb = arg;
 
@@ -1681,7 +1691,7 @@ milan_fabric_walk_ioms_iodie_cb(milan_fabric_t *fabric, milan_soc_t *soc,
 		int ret;
 		milan_ioms_t *ioms = &iodie->mi_ioms[iomsno];
 
-		ret = cb->mfic_func(fabric, soc, iodie, ioms, cb->mfic_arg);
+		ret = cb->mfic_func(ioms, cb->mfic_arg);
 		if (ret != 0) {
 			return (ret);
 		}
@@ -1707,16 +1717,14 @@ typedef struct milan_fabric_nbif_cb {
 } milan_fabric_nbif_cb_t;
 
 static int
-milan_fabric_walk_nbif_ioms_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_walk_nbif_ioms_cb(milan_ioms_t *ioms, void *arg)
 {
 	milan_fabric_nbif_cb_t *cb = arg;
 
 	for (uint_t nbifno = 0; nbifno < ioms->mio_nnbifs; nbifno++) {
 		int ret;
 		milan_nbif_t *nbif = &ioms->mio_nbifs[nbifno];
-		ret = cb->mfnc_func(fabric, soc, iodie, ioms, nbif,
-		    cb->mfnc_arg);
+		ret = cb->mfnc_func(nbif, cb->mfnc_arg);
 		if (ret != 0) {
 			return (ret);
 		}
@@ -1742,8 +1750,7 @@ typedef struct milan_fabric_pcie_port_cb {
 } milan_fabric_pcie_port_cb_t;
 
 static int
-milan_fabric_walk_pcie_port_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_walk_pcie_port_cb(milan_ioms_t *ioms, void *arg)
 {
 	milan_fabric_pcie_port_cb_t *cb = arg;
 
@@ -1751,8 +1758,7 @@ milan_fabric_walk_pcie_port_cb(milan_fabric_t *fabric, milan_soc_t *soc,
 		int ret;
 		milan_pcie_port_t *port = &ioms->mio_pcie_ports[portno];
 
-		ret = cb->mfppc_func(fabric, soc, iodie, ioms, port,
-		    cb->mfppc_arg);
+		ret = cb->mfppc_func(port, cb->mfppc_arg);
 		if (ret != 0) {
 			return (ret);
 		}
@@ -1779,9 +1785,7 @@ typedef struct milan_fabric_bridge_cb {
 } milan_fabric_bridge_cb_t;
 
 static int
-milan_fabric_walk_bridge_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    void *arg)
+milan_fabric_walk_bridge_cb(milan_pcie_port_t *port, void *arg)
 {
 	milan_fabric_bridge_cb_t *cb = arg;
 
@@ -1790,8 +1794,7 @@ milan_fabric_walk_bridge_cb(milan_fabric_t *fabric, milan_soc_t *soc,
 		int ret;
 		milan_pcie_bridge_t *bridge = &port->mpp_bridges[bridgeno];
 
-		ret = cb->mfbc_func(fabric, soc, iodie, ioms, port, bridge,
-		    cb->mfbc_arg);
+		ret = cb->mfbc_func(bridge, cb->mfbc_arg);
 		if (ret != 0) {
 			return (ret);
 		}
@@ -1818,8 +1821,7 @@ typedef struct milan_fabric_ccd_cb {
 } milan_fabric_ccd_cb_t;
 
 static int
-milan_fabric_walk_ccd_iodie_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_fabric_walk_ccd_iodie_cb(milan_iodie_t *iodie, void *arg)
 {
 	milan_fabric_ccd_cb_t *cb = arg;
 
@@ -1835,13 +1837,13 @@ milan_fabric_walk_ccd_iodie_cb(milan_fabric_t *fabric, milan_soc_t *soc,
 }
 
 static int
-milan_fabric_walk_ccd(milan_ccd_cb_f func, void *arg)
+milan_fabric_walk_ccd(milan_fabric_t *fabric, milan_ccd_cb_f func, void *arg)
 {
 	milan_fabric_ccd_cb_t cb;
 
 	cb.mfcc_func = func;
 	cb.mfcc_arg = arg;
-	return (milan_fabric_walk_iodie(&milan_fabric,
+	return (milan_fabric_walk_iodie(fabric,
 	    milan_fabric_walk_ccd_iodie_cb, &cb));
 }
 
@@ -1867,13 +1869,14 @@ milan_fabric_walk_ccx_ccd_cb(milan_ccd_t *ccd, void *arg)
 }
 
 static int
-milan_fabric_walk_ccx(milan_ccx_cb_f func, void *arg)
+milan_fabric_walk_ccx(milan_fabric_t *fabric, milan_ccx_cb_f func, void *arg)
 {
 	milan_fabric_ccx_cb_t cb;
 
 	cb.mfcc_func = func;
 	cb.mfcc_arg = arg;
-	return (milan_fabric_walk_ccd(milan_fabric_walk_ccx_ccd_cb, &cb));
+	return (milan_fabric_walk_ccd(fabric,
+	    milan_fabric_walk_ccx_ccd_cb, &cb));
 }
 
 typedef struct milan_fabric_core_cb {
@@ -1898,13 +1901,14 @@ milan_fabric_walk_core_ccx_cb(milan_ccx_t *ccx, void *arg)
 }
 
 static int
-milan_fabric_walk_core(milan_core_cb_f func, void *arg)
+milan_fabric_walk_core(milan_fabric_t *fabric, milan_core_cb_f func, void *arg)
 {
 	milan_fabric_core_cb_t cb;
 
 	cb.mfcc_func = func;
 	cb.mfcc_arg = arg;
-	return (milan_fabric_walk_ccx(milan_fabric_walk_core_ccx_cb, &cb));
+	return (milan_fabric_walk_ccx(fabric,
+	    milan_fabric_walk_core_ccx_cb, &cb));
 }
 
 typedef struct milan_fabric_thread_cb {
@@ -1928,14 +1932,22 @@ milan_fabric_walk_thread_core_cb(milan_core_t *core, void *arg)
 	return (0);
 }
 
-int
-milan_fabric_walk_thread(milan_thread_cb_f func, void *arg)
+static int
+milan_fabric_walk_thread(milan_fabric_t *fabric,
+    milan_thread_cb_f func, void *arg)
 {
 	milan_fabric_thread_cb_t cb;
 
 	cb.mftc_func = func;
 	cb.mftc_arg = arg;
-	return (milan_fabric_walk_core(milan_fabric_walk_thread_core_cb, &cb));
+	return (milan_fabric_walk_core(fabric,
+	    milan_fabric_walk_thread_core_cb, &cb));
+}
+
+int
+milan_walk_thread(milan_thread_cb_f func, void *arg)
+{
+	return (milan_fabric_walk_thread(&milan_fabric, func, arg));
 }
 
 typedef struct {
@@ -1944,8 +1956,7 @@ typedef struct {
 } milan_fabric_find_ioms_t;
 
 static int
-milan_fabric_find_ioms_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_find_ioms_cb(milan_ioms_t *ioms, void *arg)
 {
 	milan_fabric_find_ioms_t *mffi = arg;
 
@@ -1957,8 +1968,7 @@ milan_fabric_find_ioms_cb(milan_fabric_t *fabric, milan_soc_t *soc,
 }
 
 static int
-milan_fabric_find_ioms_by_bus_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_find_ioms_by_bus_cb(milan_ioms_t *ioms, void *arg)
 {
 	milan_fabric_find_ioms_t *mffi = arg;
 
@@ -2003,13 +2013,11 @@ typedef struct {
 } milan_fabric_find_port_t;
 
 static int
-milan_fabric_find_port_by_lanes_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    void *arg)
+milan_fabric_find_port_by_lanes_cb(milan_pcie_port_t *port, void *arg)
 {
 	milan_fabric_find_port_t *mffp = arg;
 
-	if (mffp->mffp_iodie != iodie) {
+	if (mffp->mffp_iodie != port->mpp_ioms->mio_iodie) {
 		return (0);
 	}
 
@@ -2026,7 +2034,7 @@ milan_fabric_find_port_by_lanes_cb(milan_fabric_t *fabric, milan_soc_t *soc,
 
 
 static milan_pcie_port_t *
-milan_fabric_find_port_by_lanes(milan_fabric_t *fabric, milan_iodie_t *iodie,
+milan_fabric_find_port_by_lanes(milan_iodie_t *iodie,
     uint16_t start, uint16_t end)
 {
 	milan_fabric_find_port_t mffp;
@@ -2037,19 +2045,12 @@ milan_fabric_find_port_by_lanes(milan_fabric_t *fabric, milan_iodie_t *iodie,
 	mffp.mffp_port = NULL;
 	ASSERT3U(start, <=, end);
 
-	(void) milan_fabric_walk_pcie_port(fabric,
+	(void) milan_fabric_walk_pcie_port(iodie->mi_soc->ms_fabric,
 	    milan_fabric_find_port_by_lanes_cb, &mffp);
 
 	return (mffp.mffp_port);
 }
 
-/*
- * XXX optimise me so this isn't N^2 for the caller, ugh.  Requires documenting
- * and maintaining an invariant ordering in these traversals.  As it is, this
- * is just about the worst implementation imaginable.  Consider instead putting
- * a pointer to the fabric thread into struct machcpu or perhaps hashing this
- * somewhere; it's static on our architecture.
- */
 typedef struct milan_fabric_find_thread {
 	uint32_t	mfft_search;
 	uint32_t	mfft_count;
@@ -2076,8 +2077,8 @@ milan_fabric_find_thread_by_cpuid(uint32_t cpuid)
 	mfft.mfft_search = cpuid;
 	mfft.mfft_count = 0;
 	mfft.mfft_found = NULL;
-	(void) milan_fabric_walk_thread(milan_fabric_find_thread_by_cpuid_cb,
-	    &mfft);
+	(void) milan_fabric_walk_thread(&milan_fabric,
+	    milan_fabric_find_thread_by_cpuid_cb, &mfft);
 
 	return (mfft.mfft_found);
 }
@@ -2179,62 +2180,58 @@ milan_smn_write32(milan_iodie_t *iodie, uint32_t reg, uint32_t val)
 }
 
 static uint32_t
-milan_iohc_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+milan_iohc_read32(milan_ioms_t *ioms, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(ioms->mio_iodie,
 	    MILAN_SMN_IOHC_MAKE_ADDR(ioms->mio_iohc_smn_base, reg)));
 }
 
 static void
-milan_iohc_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
-    uint32_t val)
+milan_iohc_write32(milan_ioms_t *ioms, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(ioms->mio_iodie,
 	    MILAN_SMN_IOHC_MAKE_ADDR(ioms->mio_iohc_smn_base, reg), val);
 }
 
 static uint32_t
-milan_ioagr_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+milan_ioagr_read32(milan_ioms_t *ioms, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(ioms->mio_iodie,
 	    MILAN_SMN_IOAGR_MAKE_ADDR(ioms->mio_ioagr_smn_base, reg)));
 }
 
 static void
-milan_ioagr_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
-    uint32_t val)
+milan_ioagr_write32(milan_ioms_t *ioms, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(ioms->mio_iodie,
 	    MILAN_SMN_IOAGR_MAKE_ADDR(ioms->mio_ioagr_smn_base, reg), val);
 }
 
 static uint32_t
-milan_sdpmux_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+milan_sdpmux_read32(milan_ioms_t *ioms, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(ioms->mio_iodie,
 	    MILAN_SMN_SDPMUX_MAKE_ADDR(ioms->mio_sdpmux_smn_base, reg)));
 }
 
 static void
-milan_sdpmux_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
-    uint32_t val)
+milan_sdpmux_write32(milan_ioms_t *ioms, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(ioms->mio_iodie,
 	    MILAN_SMN_SDPMUX_MAKE_ADDR(ioms->mio_sdpmux_smn_base, reg), val);
 }
 
 static uint32_t
-milan_ioapic_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+milan_ioapic_read32(milan_ioms_t *ioms, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(ioms->mio_iodie,
 	    MILAN_SMN_IOAPIC_MAKE_ADDR(ioms->mio_ioapic_smn_base, reg)));
 }
 
 static void
-milan_ioapic_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
-    uint32_t val)
+milan_ioapic_write32(milan_ioms_t *ioms, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(ioms->mio_iodie,
 	    MILAN_SMN_IOAPIC_MAKE_ADDR(ioms->mio_ioapic_smn_base, reg), val);
 }
 
@@ -2259,159 +2256,163 @@ milan_iommul1_addr(const milan_ioms_t *ioms,
 }
 
 static uint32_t
-milan_iommul1_read32(milan_iodie_t *iodie, milan_ioms_t *ioms,
-    milan_iommul1_type_t l1t, uint32_t reg)
+milan_iommul1_read32(milan_ioms_t *ioms, milan_iommul1_type_t l1t, uint32_t reg)
 {
-	return (milan_smn_read32(iodie, milan_iommul1_addr(ioms, l1t, reg)));
+	return (milan_smn_read32(ioms->mio_iodie,
+	    milan_iommul1_addr(ioms, l1t, reg)));
 }
 
 static void
-milan_iommul1_write32(milan_iodie_t *iodie, milan_ioms_t *ioms,
+milan_iommul1_write32(milan_ioms_t *ioms,
     milan_iommul1_type_t l1t, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie, milan_iommul1_addr(ioms, l1t, reg), val);
+	milan_smn_write32(ioms->mio_iodie,
+	    milan_iommul1_addr(ioms, l1t, reg), val);
 }
 
 static uint32_t
-milan_iommul2_read32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg)
+milan_iommul2_read32(milan_ioms_t *ioms, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(ioms->mio_iodie,
 	    MILAN_SMN_IOMMUL2_MAKE_ADDR(ioms->mio_iommul2_smn_base, reg)));
 }
 
 static void
-milan_iommul2_write32(milan_iodie_t *iodie, milan_ioms_t *ioms, uint32_t reg,
-    uint32_t val)
+milan_iommul2_write32(milan_ioms_t *ioms, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(ioms->mio_iodie,
 	    MILAN_SMN_IOMMUL2_MAKE_ADDR(ioms->mio_iommul2_smn_base, reg), val);
 }
 
 static uint32_t
-milan_nbif_read32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg)
+milan_nbif_read32(milan_nbif_t *nbif, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(nbif->mn_ioms->mio_iodie,
 	    MILAN_SMN_NBIF_MAKE_ADDR(nbif->mn_nbif_smn_base, reg)));
 }
 
 static void
-milan_nbif_write32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg,
-    uint32_t val)
+milan_nbif_write32(milan_nbif_t *nbif, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(nbif->mn_ioms->mio_iodie,
 	    MILAN_SMN_NBIF_MAKE_ADDR(nbif->mn_nbif_smn_base, reg), val);
 }
 
 static uint32_t
-milan_nbif_func_read32(milan_iodie_t *iodie, milan_nbif_func_t *func,
-    uint32_t reg)
+milan_nbif_func_read32(milan_nbif_func_t *func, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(func->mne_nbif->mn_ioms->mio_iodie,
 	    MILAN_SMN_NBIF_FUNC_MAKE_ADDR(func->mne_func_smn_base, reg)));
 }
 
 static void
-milan_nbif_func_write32(milan_iodie_t *iodie, milan_nbif_func_t *func,
-    uint32_t reg, uint32_t val)
+milan_nbif_func_write32(milan_nbif_func_t *func, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(func->mne_nbif->mn_ioms->mio_iodie,
 	    MILAN_SMN_NBIF_FUNC_MAKE_ADDR(func->mne_func_smn_base, reg), val);
 }
 
 static uint32_t
-milan_nbif_alt_read32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg)
+milan_nbif_alt_read32(milan_nbif_t *nbif, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(nbif->mn_ioms->mio_iodie,
 	    MILAN_SMN_NBIF_ALT_MAKE_ADDR(nbif->mn_nbif_alt_smn_base, reg)));
 }
 
 static void
-milan_nbif_alt_write32(milan_iodie_t *iodie, milan_nbif_t *nbif, uint32_t reg,
-    uint32_t val)
+milan_nbif_alt_write32(milan_nbif_t *nbif, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(nbif->mn_ioms->mio_iodie,
 	    MILAN_SMN_NBIF_ALT_MAKE_ADDR(nbif->mn_nbif_alt_smn_base, reg), val);
 }
 
 static uint32_t
-milan_iohc_pcie_read32(milan_iodie_t *iodie, milan_pcie_bridge_t *bridge,
-    uint32_t reg)
+milan_iohc_pcie_read32(milan_pcie_bridge_t *bridge, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(bridge->mpb_port->mpp_ioms->mio_iodie,
 	    MILAN_SMN_IOHC_PCIE_MAKE_ADDR(bridge->mpb_iohc_smn_base, reg)));
 }
 
 static void
-milan_iohc_pcie_write32(milan_iodie_t *iodie, milan_pcie_bridge_t *bridge,
-    uint32_t reg, uint32_t val)
+milan_iohc_pcie_write32(milan_pcie_bridge_t *bridge, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(bridge->mpb_port->mpp_ioms->mio_iodie,
 	    MILAN_SMN_IOHC_PCIE_MAKE_ADDR(bridge->mpb_iohc_smn_base, reg), val);
 }
 
 static uint32_t
-milan_bridge_port_read32(milan_iodie_t *iodie, milan_pcie_bridge_t *bridge,
-    uint32_t reg)
+milan_bridge_port_read32(milan_pcie_bridge_t *bridge, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(bridge->mpb_port->mpp_ioms->mio_iodie,
 	    MILAN_SMN_PCIE_PORT_MAKE_ADDR(bridge->mpb_port_smn_base, reg)));
 }
 
 static void
-milan_bridge_port_write32(milan_iodie_t *iodie, milan_pcie_bridge_t *bridge,
+milan_bridge_port_write32(milan_pcie_bridge_t *bridge,
     uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(bridge->mpb_port->mpp_ioms->mio_iodie,
 	    MILAN_SMN_PCIE_PORT_MAKE_ADDR(bridge->mpb_port_smn_base, reg), val);
 }
 
 static uint32_t
-milan_pcie_core_read32(milan_iodie_t *iodie, milan_pcie_port_t *port,
-    uint32_t reg)
+milan_pcie_core_read32(milan_pcie_port_t *port, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(port->mpp_ioms->mio_iodie,
 	    MILAN_SMN_PCIE_CORE_MAKE_ADDR(port->mpp_core_smn_addr, reg)));
 }
 
 static void
-milan_pcie_core_write32(milan_iodie_t *iodie, milan_pcie_port_t *port,
-    uint32_t reg, uint32_t val)
+milan_pcie_core_write32(milan_pcie_port_t *port, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(port->mpp_ioms->mio_iodie,
 	    MILAN_SMN_PCIE_CORE_MAKE_ADDR(port->mpp_core_smn_addr, reg), val);
 }
 
 uint32_t
-milan_smupwr_read32(milan_ccd_t *ccd, uint32_t reg)
+milan_ccd_smupwr_read32(milan_ccd_t *ccd, uint32_t reg)
 {
-	milan_iodie_t *iodie = ccd->mcd_iodie;
-
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(ccd->mcd_iodie,
 	    MILAN_SMN_SMUPWR_MAKE_ADDR(ccd->mcd_smupwr_smn_base, reg)));
 }
 
 void
-milan_smupwr_write32(milan_ccd_t *ccd, uint32_t reg, uint32_t val)
+milan_ccd_smupwr_write32(milan_ccd_t *ccd, uint32_t reg, uint32_t val)
 {
-	milan_iodie_t *iodie = ccd->mcd_iodie;
-
-	milan_smn_write32(iodie,
+	milan_smn_write32(ccd->mcd_iodie,
 	    MILAN_SMN_SMUPWR_MAKE_ADDR(ccd->mcd_smupwr_smn_base, reg), val);
 }
 
 static uint32_t
-milan_scfctp_read32(milan_iodie_t *iodie, milan_core_t *core, uint32_t reg)
+milan_core_scfctp_read32(milan_core_t *core, uint32_t reg)
 {
-	return (milan_smn_read32(iodie,
+	return (milan_smn_read32(core->mc_ccx->mcx_ccd->mcd_iodie,
 	    MILAN_SMN_SCFCTP_MAKE_ADDR(core->mc_scfctp_smn_base, reg)));
 }
 
 static void
-milan_scfctp_write32(milan_iodie_t *iodie, milan_core_t *core,
-    uint32_t reg, uint32_t val)
+milan_core_scfctp_write32(milan_core_t *core, uint32_t reg, uint32_t val)
 {
-	milan_smn_write32(iodie,
+	milan_smn_write32(core->mc_ccx->mcx_ccd->mcd_iodie,
 	    MILAN_SMN_SCFCTP_MAKE_ADDR(core->mc_scfctp_smn_base, reg), val);
+}
+
+typedef enum {
+	MBT_GIMLET,
+	MBT_ETHANOL
+} milan_board_type_t;
+
+/*
+ * Here is a temporary rough heuristic for determining what board we're on.
+ */
+static milan_board_type_t
+milan_board_type(const milan_fabric_t *fabric)
+{
+	if (fabric->mf_nsocs == 2) {
+		return (MBT_ETHANOL);
+	} else {
+		return (MBT_GIMLET);
+	}
 }
 
 static void
@@ -2423,6 +2424,7 @@ milan_fabric_ioms_pcie_init(milan_ioms_t *ioms)
 		const milan_pcie_port_info_t *info;
 
 		port->mpp_portno = pcino;
+		port->mpp_ioms = ioms;
 		if (pcino == MILAN_IOMS_WAFL_PCIE_PORT) {
 			port->mpp_nbridges = MILAN_IOMS_WAFL_PCIE_NBRIDGES;
 		} else {
@@ -2478,6 +2480,7 @@ milan_fabric_ioms_pcie_init(milan_ioms_t *ioms)
 			    &port->mpp_bridges[bridgeno];
 			uint32_t shift;
 
+			bridge->mpb_port = port;
 			bridge->mpb_device = binfop[bridgeno].mpbi_dev;
 			bridge->mpb_func = binfop[bridgeno].mpbi_func;
 			bridge->mpb_hp_type = SMU_HP_INVALID;
@@ -2518,6 +2521,7 @@ milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 		milan_nbif_t *nbif = &ioms->mio_nbifs[nbifno];
 
 		nbif->mn_nbifno = nbifno;
+		nbif->mn_ioms = ioms;
 		VERIFY3U(nbifno, <, MILAN_IOMS_MAX_NBIF);
 		switch (nbifno) {
 		case 0:
@@ -2549,6 +2553,7 @@ milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 		for (uint_t funcno = 0; funcno < nbif->mn_nfuncs; funcno++) {
 			milan_nbif_func_t *func = &nbif->mn_funcs[funcno];
 
+			func->mne_nbif = nbif;
 			func->mne_type = ninfo[funcno].mni_type;
 			func->mne_dev = ninfo[funcno].mni_dev;
 			func->mne_func = ninfo[funcno].mni_func;
@@ -2587,8 +2592,7 @@ milan_ccx_init_core(milan_ccx_t *ccx, uint8_t lidx, uint8_t pidx)
 
 	core->mc_physical_coreno = pidx;
 
-	val = milan_scfctp_read32(iodie, core,
-	    MILAN_SCFCTP_R_SMN_PMREG_INITPKG0);
+	val = milan_core_scfctp_read32(core, MILAN_SCFCTP_R_SMN_PMREG_INITPKG0);
 	VERIFY3U(val, !=, 0xffffffffU);
 
 	core->mc_logical_coreno =
@@ -2718,10 +2722,11 @@ milan_ccx_init_soc(milan_soc_t *soc)
 		    MILAN_SMN_SMUPWR_BASE_BITS);
 
 		/* XXX avoid panicking on bad data from firmware */
-		val = milan_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_CCD_DIE_ID);
+		val = milan_ccd_smupwr_read32(ccd,
+		    MILAN_SMUPWR_R_SMN_CCD_DIE_ID);
 		VERIFY3U(val, ==, ccdpno);
 
-		val = milan_smupwr_read32(ccd,
+		val = milan_ccd_smupwr_read32(ccd,
 		    MILAN_SMUPWR_R_SMN_THREAD_CONFIGURATION);
 		ccd->mcd_nccxs =
 		    MILAN_SMUPWR_R_GET_THREAD_CONFIGURATION_COMPLEX_COUNT(val) +
@@ -2740,7 +2745,8 @@ milan_ccx_init_soc(milan_soc_t *soc)
 		 * the DF.  A mismatch here is a firmware bug; XXX and
 		 * if that happens?
 		 */
-		val = milan_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_CORE_ENABLE);
+		val = milan_ccd_smupwr_read32(ccd,
+		    MILAN_SMUPWR_R_SMN_CORE_ENABLE);
 		VERIFY3U(MILAN_SMUPWR_R_GET_CORE_ENABLE_COREEN(val), ==,
 		    cores_enabled);
 
@@ -2902,6 +2908,7 @@ milan_fabric_topo_init(void)
 			milan_ioms_t *ioms = &iodie->mi_ioms[iomsno];
 
 			ioms->mio_num = iomsno;
+			ioms->mio_iodie = iodie;
 			ioms->mio_comp_id = MILAN_DF_FIRST_IOMS_ID + iomsno;
 			ioms->mio_fabric_id = ioms->mio_comp_id |
 			    (iodie->mi_node_id << fabric->mf_node_shift);
@@ -3536,11 +3543,11 @@ milan_dxio_rpc_retrieve_engine(milan_iodie_t *iodie)
 }
 
 static int
-milan_dump_versions(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_dump_versions(milan_iodie_t *iodie, void *arg)
 {
 	uint8_t maj, min, patch;
 	uint32_t dxmaj, dxmin;
+	milan_soc_t *soc = iodie->mi_soc;
 
 	if (milan_smu_rpc_get_version(iodie, &maj, &min, &patch)) {
 		cmn_err(CE_NOTE, "Socket %u SMU Version: %u.%u.%u",
@@ -3574,11 +3581,11 @@ milan_dump_versions(milan_fabric_t *fabric, milan_soc_t *soc,
  * register in the IOHC for indicating DRAM/MMIO splits.
  */
 static int
-milan_fabric_init_tom(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_tom(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 	uint64_t tom2, tom3;
+	milan_fabric_t *fabric = ioms->mio_iodie->mi_soc->ms_fabric;
 
 	/*
 	 * This register is a little funky. Bit 32 of the address has to be
@@ -3611,23 +3618,23 @@ milan_fabric_init_tom(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * Write the upper register before the lower so we don't accidentally
 	 * enable it in an incomplete fashion.
 	 */
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_HI);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_HI);
 	val = MILAN_IOHC_R_SET_DRAM_TOM2_HI_TOM2(val, bitx64(tom2, 40, 32));
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_HI, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_HI, val);
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_LOW);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_LOW);
 	val = MILAN_IOHC_R_SET_DRAM_TOM2_LOW_EN(val, 1);
 	val = MILAN_IOHC_R_SET_DRAM_TOM2_LOW_TOM2(val, bitx64(tom2, 31, 23));
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_LOW, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_DRAM_TOM2_LOW, val);
 
 	if (tom3 == 0) {
 		return (0);
 	}
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_DRAM_TOM3);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_DRAM_TOM3);
 	val = MILAN_IOHC_R_SET_DRAM_TOM3_EN(val, 1);
 	val = MILAN_IOHC_R_SET_DRAM_TOM3_LIMIT(val, bitx64(tom3, 51, 22));
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_DRAM_TOM3, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_DRAM_TOM3, val);
 
 	return (0);
 }
@@ -3640,21 +3647,18 @@ milan_fabric_init_tom(milan_fabric_t *fabric, milan_soc_t *soc,
  * to zero out some of this.
  */
 static int
-milan_fabric_init_iohc_fch_link(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_iohc_fch_link(milan_ioms_t *ioms, void *arg)
 {
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		uint32_t val;
 
-		val = milan_iohc_read32(iodie, ioms,
-		    MILAN_IOHC_R_SMN_SB_LOCATION);
-		milan_iommul1_write32(iodie, ioms, IOMMU_L1_IOAGR,
+		val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_SB_LOCATION);
+		milan_iommul1_write32(ioms, IOMMU_L1_IOAGR,
 		    MILAN_IOMMUL1_R_SMN_SB_LOCATION, val);
-		milan_iommul2_write32(iodie, ioms,
+		milan_iommul2_write32(ioms,
 		    MILAN_IOMMUL2_R_SMN_SB_LOCATION, val);
 	} else {
-		milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_SB_LOCATION,
-		    0);
+		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_SB_LOCATION, 0);
 	}
 
 	return (0);
@@ -3665,16 +3669,15 @@ milan_fabric_init_iohc_fch_link(milan_fabric_t *fabric, milan_soc_t *soc,
  * to do this ourselves. If we don't do this, PCIe will not be very happy.
  */
 static int
-milan_fabric_init_pcie_refclk(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_pcie_refclk(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_REFCLK_MODE);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_REFCLK_MODE);
 	val = MILAN_IOHC_R_REFCLK_MODE_SET_MODE_27MHZ(val, 0);
 	val = MILAN_IOHC_R_REFCLK_MODE_SET_MODE_25MHZ(val, 0);
 	val = MILAN_IOHC_R_REFCLK_MODE_SET_MODE_100MHZ(val, 1);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_REFCLK_MODE, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_REFCLK_MODE, val);
 
 	return (0);
 }
@@ -3684,15 +3687,14 @@ milan_fabric_init_pcie_refclk(milan_fabric_t *fabric, milan_soc_t *soc,
  * comes from other AMD sources.
  */
 static int
-milan_fabric_init_pci_to(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_pci_to(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_PCIE_CRS_COUNT);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_PCIE_CRS_COUNT);
 	val = MILAN_IOHC_R_SET_PCIE_CRS_COUNT_LIMIT(val, 0x262);
 	val = MILAN_IOHC_R_SET_PCIE_CRS_COUNT_DELAY(val, 0x6);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_PCIE_CRS_COUNT, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_PCIE_CRS_COUNT, val);
 
 	return (0);
 }
@@ -3707,24 +3709,22 @@ milan_fabric_init_pci_to(milan_fabric_t *fabric, milan_soc_t *soc,
  * only touch this reg in one place if we can.
  */
 static int
-milan_fabric_init_iohc_features(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_iohc_features(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
-	val = milan_iohc_read32(iodie, ioms, MILAH_IOHC_R_SMN_FEATURE_CNTL);
+	val = milan_iohc_read32(ioms, MILAH_IOHC_R_SMN_FEATURE_CNTL);
 	val = MILAN_IOHC_R_FEATURE_CNTL_SET_ARI(val, 1);
 	/* XXX Wants to be MILAN_IOHC_R_FEATURE_CNTL_P2P_DISABLE? */
 	val = MILAN_IOHC_R_FEATURE_CNTL_SET_P2P(val,
 	    MILAN_IOHC_R_FEATURE_CNTL_P2P_DROP_NMATCH);
-	milan_iohc_write32(iodie, ioms, MILAH_IOHC_R_SMN_FEATURE_CNTL, val);
+	milan_iohc_write32(ioms, MILAH_IOHC_R_SMN_FEATURE_CNTL, val);
 
 	return (0);
 }
 
 static int
-milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
@@ -3737,29 +3737,29 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 		uint32_t tsval;
 		uint32_t regoff = MILAN_IOHC_R_SION_SHIFT(i);
 
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S0_CLIREQ_BURST_LOW,
 		    MILAN_IOHC_R_SION_CLIREQ_BURST_VAL);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S0_CLIREQ_BURST_HI,
 		    MILAN_IOHC_R_SION_CLIREQ_BURST_VAL);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S1_CLIREQ_BURST_LOW,
 		    MILAN_IOHC_R_SION_CLIREQ_BURST_VAL);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S1_CLIREQ_BURST_HI,
 		    MILAN_IOHC_R_SION_CLIREQ_BURST_VAL);
 
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S0_RDRSP_BURST_LOW,
 		    MILAN_IOHC_R_SION_RDRSP_BURST_VAL);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S0_RDRSP_BURST_HI,
 		    MILAN_IOHC_R_SION_RDRSP_BURST_VAL);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S1_RDRSP_BURST_LOW,
 		    MILAN_IOHC_R_SION_RDRSP_BURST_VAL);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S1_RDRSP_BURST_HI,
 		    MILAN_IOHC_R_SION_RDRSP_BURST_VAL);
 
@@ -3780,9 +3780,9 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 			continue;
 		}
 
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S0_CLIREQ_TIME_LOW, tsval);
-		milan_iohc_write32(iodie, ioms, regoff +
+		milan_iohc_write32(ioms, regoff +
 		    MILAN_IOHC_R_SMN_SION_S0_CLIREQ_TIME_HI, tsval);
 	}
 
@@ -3793,11 +3793,11 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 	for (uint_t i = 1; i < 4; i++) {
 		uint32_t regoff = MILAN_IOHC_R_SION_SHIFT(i);
 
-		val = milan_iohc_read32(iodie, ioms,
+		val = milan_iohc_read32(ioms,
 		    regoff + MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT);
 		val = MILAN_IOHC_R_SET_SION_CLI_NP_DEFICIT(val,
 		    MILAN_IOHC_R_SION_CLI_NP_DEFICIT_VAL);
-		milan_iohc_write32(iodie, ioms,
+		milan_iohc_write32(ioms,
 		    regoff + MILAN_IOHC_R_SMN_SION_S0_CLI_NP_DEFICIT, val);
 	}
 
@@ -3805,17 +3805,15 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * Go back and finally set the S1 threshold and live lock watchdog to
 	 * finish off the IOHC.
 	 */
-	val = milan_iohc_read32(iodie, ioms,
-	    MILAN_IOHC_R_SMN_SION_S1_CLI_NP_DEFECIT);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_SION_S1_CLI_NP_DEFECIT);
 	val = MILAN_IOHC_R_SET_SION_CLI_NP_DEFICIT(val,
 	    MILAN_IOHC_R_SION_CLI_NP_DEFICIT_VAL);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_SION_S1_CLI_NP_DEFECIT,
-	    val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_SION_S1_CLI_NP_DEFECIT, val);
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_SION_LLWD_THRESH);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_SION_LLWD_THRESH);
 	val = MILAN_IOHC_R_SET_SION_LLWD_THRESH_THRESH(val,
 	    MILAN_IOHC_R_SION_LLWD_THRESH_VAL);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_SION_LLWD_THRESH, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_SION_LLWD_THRESH, val);
 
 	/*
 	 * Next on our list is the IOAGR. While there are 5 entries, only 4 are
@@ -3825,29 +3823,29 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 		uint32_t tsval;
 		uint32_t regoff = MILAN_IOAGR_R_SION_SHIFT(i);
 
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S0_CLIREQ_BURST_LOW,
 		    MILAN_IOAGR_R_SION_CLIREQ_BURST_VAL);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S0_CLIREQ_BURST_HI,
 		    MILAN_IOAGR_R_SION_CLIREQ_BURST_VAL);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S1_CLIREQ_BURST_LOW,
 		    MILAN_IOAGR_R_SION_CLIREQ_BURST_VAL);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S1_CLIREQ_BURST_HI,
 		    MILAN_IOAGR_R_SION_CLIREQ_BURST_VAL);
 
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S0_RDRSP_BURST_LOW,
 		    MILAN_IOAGR_R_SION_RDRSP_BURST_VAL);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S0_RDRSP_BURST_HI,
 		    MILAN_IOAGR_R_SION_RDRSP_BURST_VAL);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S1_RDRSP_BURST_LOW,
 		    MILAN_IOAGR_R_SION_RDRSP_BURST_VAL);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S1_RDRSP_BURST_HI,
 		    MILAN_IOAGR_R_SION_RDRSP_BURST_VAL);
 
@@ -3864,21 +3862,19 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 			continue;
 		}
 
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S0_CLIREQ_TIME_LOW, tsval);
-		milan_ioagr_write32(iodie, ioms, regoff +
+		milan_ioagr_write32(ioms, regoff +
 		    MILAN_IOAGR_R_SMN_SION_S0_CLIREQ_TIME_HI, tsval);
 	}
 
 	/*
 	 * The IOAGR only has the watchdog.
 	 */
-	val = milan_ioagr_read32(iodie, ioms,
-	    MILAN_IOAGR_R_SMN_SION_LLWD_THRESH);
+	val = milan_ioagr_read32(ioms, MILAN_IOAGR_R_SMN_SION_LLWD_THRESH);
 	val = MILAN_IOAGR_R_SET_SION_LLWD_THRESH_THRESH(val,
 	    MILAN_IOAGR_R_SION_LLWD_THRESH_VAL);
-	milan_ioagr_write32(iodie, ioms, MILAN_IOAGR_R_SMN_SION_LLWD_THRESH,
-	    val);
+	milan_ioagr_write32(ioms, MILAN_IOAGR_R_SMN_SION_LLWD_THRESH, val);
 
 	/*
 	 * Finally, the SDPMUX variant, which is surprisingly consistent
@@ -3887,79 +3883,76 @@ milan_fabric_init_arbitration_ioms(milan_fabric_t *fabric, milan_soc_t *soc,
 	for (uint_t i = 0; i < MILAN_SDPMUX_R_SION_MAX_ENTS; i++) {
 		uint32_t regoff = MILAN_SDPMUX_R_SION_SHIFT(i);
 
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S0_CLIREQ_BURST_LOW,
 		    MILAN_SDPMUX_R_SION_CLIREQ_BURST_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S0_CLIREQ_BURST_HI,
 		    MILAN_SDPMUX_R_SION_CLIREQ_BURST_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S1_CLIREQ_BURST_LOW,
 		    MILAN_SDPMUX_R_SION_CLIREQ_BURST_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S1_CLIREQ_BURST_HI,
 		    MILAN_SDPMUX_R_SION_CLIREQ_BURST_VAL);
 
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S0_RDRSP_BURST_LOW,
 		    MILAN_SDPMUX_R_SION_RDRSP_BURST_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S0_RDRSP_BURST_HI,
 		    MILAN_SDPMUX_R_SION_RDRSP_BURST_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S1_RDRSP_BURST_LOW,
 		    MILAN_SDPMUX_R_SION_RDRSP_BURST_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S1_RDRSP_BURST_HI,
 		    MILAN_SDPMUX_R_SION_RDRSP_BURST_VAL);
 
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S0_CLIREQ_TIME_LOW,
 		    MILAN_SDPMUX_R_SION_CLIREQ_TIME_VAL);
-		milan_sdpmux_write32(iodie, ioms, regoff +
+		milan_sdpmux_write32(ioms, regoff +
 		    MILAN_SDPMUX_R_SMN_SION_S0_CLIREQ_TIME_HI,
 		    MILAN_SDPMUX_R_SION_CLIREQ_TIME_VAL);
 	}
 
-	val = milan_sdpmux_read32(iodie, ioms,
-	    MILAN_SDPMUX_R_SMN_SION_LLWD_THRESH);
+	val = milan_sdpmux_read32(ioms, MILAN_SDPMUX_R_SMN_SION_LLWD_THRESH);
 	val = MILAN_SDPMUX_R_SET_SION_LLWD_THRESH_THRESH(val,
 	    MILAN_SDPMUX_R_SION_LLWD_THRESH_VAL);
-	milan_sdpmux_write32(iodie, ioms, MILAN_SDPMUX_R_SMN_SION_LLWD_THRESH,
-	    val);
+	milan_sdpmux_write32(ioms, MILAN_SDPMUX_R_SMN_SION_LLWD_THRESH, val);
 
 	/*
 	 * XXX We probably don't need this since we don't have USB. But until we
 	 * have things working and can experiment, hard to say. If someone were
 	 * to use the us, probably something we need to consider.
 	 */
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_USB_QOS_CNTL);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_USB_QOS_CNTL);
 	val = MILAN_IOHC_R_SET_USB_QOS_CNTL_UNID1_EN(val, 0x1);
 	val = MILAN_IOHC_R_SET_USB_QOS_CNTL_UNID1_PRI(val, 0x0);
 	val = MILAN_IOHC_R_SET_USB_QOS_CNTL_UNID1_ID(val, 0x30);
 	val = MILAN_IOHC_R_SET_USB_QOS_CNTL_UNID0_EN(val, 0x1);
 	val = MILAN_IOHC_R_SET_USB_QOS_CNTL_UNID0_PRI(val, 0x0);
 	val = MILAN_IOHC_R_SET_USB_QOS_CNTL_UNID0_ID(val, 0x2f);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_USB_QOS_CNTL, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_USB_QOS_CNTL, val);
 
 	return (0);
 }
 
 static int
-milan_fabric_init_arbitration_nbif(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_nbif_t *nbif, void *arg)
+milan_fabric_init_arbitration_nbif(milan_nbif_t *nbif, void *arg)
 {
 	uint32_t val;
 
-	milan_nbif_write32(iodie, nbif, MILAN_NBIF_R_SMN_GMI_WRR_WEIGHT2,
+	milan_nbif_write32(nbif, MILAN_NBIF_R_SMN_GMI_WRR_WEIGHT2,
 	    MILAN_NBIF_R_GMI_WRR_WEIGHT_VAL);
-	milan_nbif_write32(iodie, nbif, MILAN_NBIF_R_SMN_GMI_WRR_WEIGHT3,
+	milan_nbif_write32(nbif, MILAN_NBIF_R_SMN_GMI_WRR_WEIGHT3,
 	    MILAN_NBIF_R_GMI_WRR_WEIGHT_VAL);
 
-	val = milan_nbif_read32(iodie, nbif, MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0);
+	val = milan_nbif_read32(nbif, MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0);
 	val = MILAN_NBIF_R_SET_BIFC_MISC_CTRL0_PME_TURNOFF(val,
 	    MILAN_NBIF_R_BIFC_MISC_CTRL0_PME_TURNOFF_FW);
-	milan_nbif_write32(iodie, nbif, MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0, val);
+	milan_nbif_write32(nbif, MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0, val);
 
 	return (0);
 }
@@ -3972,33 +3965,28 @@ milan_fabric_init_arbitration_nbif(milan_fabric_t *fabric, milan_soc_t *soc,
  * not have an early wake up register.
  */
 static int
-milan_fabric_init_sdp_control(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_sdp_control(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_SDP_PORT_CONTROL);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_SDP_PORT_CONTROL);
 	val = MILAN_IOHC_R_SET_SDP_PORT_CONTROL_PORT_HYSTERESIS(val, 0xff);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_SDP_PORT_CONTROL, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_SDP_PORT_CONTROL, val);
 
-	val = milan_iohc_read32(iodie, ioms,
-	    MILAN_IOHC_R_SMN_SDP_EARLY_WAKE_UP);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_SDP_EARLY_WAKE_UP);
 	val = MILAN_IOHC_R_SET_SDP_EARLY_WAKE_UP_HOST_ENABLE(val, 0xffff);
 	val = MILAN_IOHC_R_SET_SDP_EARLY_WAKE_UP_DMA_ENABLE(val, 0x1);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_SDP_EARLY_WAKE_UP,
-	    val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_SDP_EARLY_WAKE_UP, val);
 
-	val = milan_ioagr_read32(iodie, ioms, MILAN_IOAGR_R_SMN_EARLY_WAKE_UP);
+	val = milan_ioagr_read32(ioms, MILAN_IOAGR_R_SMN_EARLY_WAKE_UP);
 	val = MILAN_IOAGR_R_SET_EARLY_WAKE_UP_DMA_ENABLE(val, 0x1);
-	milan_ioagr_write32(iodie, ioms, MILAN_IOAGR_R_SMN_EARLY_WAKE_UP, val);
+	milan_ioagr_write32(ioms, MILAN_IOAGR_R_SMN_EARLY_WAKE_UP, val);
 
-	val = milan_sdpmux_read32(iodie, ioms,
-	    MILAN_SDPMUX_R_SMN_SDP_PORT_CONTROL);
+	val = milan_sdpmux_read32(ioms, MILAN_SDPMUX_R_SMN_SDP_PORT_CONTROL);
 	val = MILAN_SDPMUX_R_SET_SDP_PORT_CONTROL_HOST_ENABLE(val, 0xffff);
 	val = MILAN_SDPMUX_R_SET_SDP_PORT_CONTROL_DMA_ENABLE(val, 0x1);
 	val = MILAN_SDPMUX_R_SET_SDP_PORT_CONTROL_PORT_HYSTERESIS(val, 0xff);
-	milan_sdpmux_write32(iodie, ioms, MILAN_SDPMUX_R_SMN_SDP_PORT_CONTROL,
-	    val);
+	milan_sdpmux_write32(ioms, MILAN_SDPMUX_R_SMN_SDP_PORT_CONTROL, val);
 
 	return (0);
 }
@@ -4012,19 +4000,16 @@ milan_fabric_init_sdp_control(milan_fabric_t *fabric, milan_soc_t *soc,
  * actually be on IOMS 3.
  */
 static int
-milan_fabric_init_nbif_syshub_dma(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_nbif_t *nbif, void *arg)
+milan_fabric_init_nbif_syshub_dma(milan_nbif_t *nbif, void *arg)
 {
 	uint32_t val;
 
-	if (nbif->mn_nbifno > 0 && ioms->mio_num > 1) {
+	if (nbif->mn_nbifno > 0 && nbif->mn_ioms->mio_num > 1) {
 		return (0);
 	}
-	val = milan_nbif_alt_read32(iodie, nbif,
-	    MILAN_NBIF_R_SMN_SYSHUB_BGEN_BYPASS);
+	val = milan_nbif_alt_read32(nbif, MILAN_NBIF_R_SMN_SYSHUB_BGEN_BYPASS);
 	val = MILAN_NBIF_R_SET_SYSHUB_BGEN_BYPASS_DMA_SW0(val, 1);
-	milan_nbif_alt_write32(iodie, nbif, MILAN_NBIF_R_SMN_SYSHUB_BGEN_BYPASS,
-	    val);
+	milan_nbif_alt_write32(nbif, MILAN_NBIF_R_SMN_SYSHUB_BGEN_BYPASS, val);
 	return (0);
 }
 
@@ -4040,8 +4025,7 @@ milan_fabric_init_nbif_syshub_dma(milan_fabric_t *fabric, milan_soc_t *soc,
  * has the FCH.
  */
 static int
-milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
@@ -4049,7 +4033,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 
 	for (uint_t i = 0; i < ARRAY_SIZE(milan_ioapic_routes); i++) {
 		uint32_t reg = MILAN_IOAPIC_R_SMN_ROUTE + i * 4;
-		uint32_t route = milan_ioapic_read32(iodie, ioms, reg);
+		uint32_t route = milan_ioapic_read32(ioms, reg);
 
 		route = MILAN_IOAPIC_R_SET_ROUTE_BRIDGE_MAP(route,
 		    milan_ioapic_routes[i].mii_map);
@@ -4058,7 +4042,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 		route = MILAN_IOAPIC_R_SET_ROUTE_INTX_GROUP(route,
 		    milan_ioapic_routes[i].mii_group);
 
-		milan_ioapic_write32(iodie, ioms, reg, route);
+		milan_ioapic_write32(ioms, reg, route);
 	}
 
 	/*
@@ -4067,16 +4051,16 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * enabled with reset addresses, we instead lock them. XXX Should we
 	 * lock primary?
 	 */
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(val,
 		    bitx64(MILAN_PHYSADDR_IOHC_IOAPIC, 47, 32));
 	} else {
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_HI_ADDR(val, 0);
 	}
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_HI, val);
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_ADDR(val,
 		    bitx64(MILAN_PHYSADDR_IOHC_IOAPIC, 31, 8));
@@ -4087,7 +4071,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_LOCK(val, 1);
 		val = MILAN_IOHC_R_SET_IOAPIC_ADDR_LO_EN(val, 0);
 	}
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_IOAPIC_ADDR_LO, val);
 
 	/*
 	 * Every IOAPIC requires that we enable 8-bit addressing and that it be
@@ -4095,8 +4079,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * is the secondary bit which determines whether or not this IOAPIC is
 	 * subordinate to another.
 	 */
-	val = milan_ioapic_read32(iodie, ioms,
-	    MILAN_IOAPIC_R_SMN_FEATURES);
+	val = milan_ioapic_read32(ioms, MILAN_IOAPIC_R_SMN_FEATURES);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = MILAN_IOAPIC_R_SET_FEATURES_SECONDARY(val, 0);
 	} else {
@@ -4104,7 +4087,7 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
 	}
 	val = MILAN_IOAPIC_R_SET_FEATURES_FCH(val, 1);
 	val = MILAN_IOAPIC_R_SET_FEATURES_ID_EXT(val, 1);
-	milan_ioapic_write32(iodie, ioms, MILAN_IOAPIC_R_SMN_FEATURES, val);
+	milan_ioapic_write32(ioms, MILAN_IOAPIC_R_SMN_FEATURES, val);
 
 	return (0);
 }
@@ -4115,15 +4098,14 @@ milan_fabric_init_ioapic(milan_fabric_t *fabric, milan_soc_t *soc,
  * IOHC with its primary bus number and enable this.
  */
 static int
-milan_fabric_init_bus_num(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_bus_num(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 
-	val = milan_iohc_read32(iodie, ioms, MILAN_IOHC_R_SMN_BUS_NUM_CNTL);
+	val = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_BUS_NUM_CNTL);
 	val = MILAN_IOHC_R_SET_BUS_NUM_CNTL_EN(val, 1);
 	val = MILAN_IOHC_R_SET_BUS_NUM_CNTL_BUS(val, ioms->mio_pci_busno);
-	milan_iohc_write32(iodie, ioms, MILAN_IOHC_R_SMN_BUS_NUM_CNTL, val);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_BUS_NUM_CNTL, val);
 
 	return (0);
 }
@@ -4142,12 +4124,11 @@ milan_fabric_init_bus_num(milan_fabric_t *fabric, milan_soc_t *soc,
  * related to interrupts, enables, and cfg comps.
  */
 static int
-milan_fabric_init_nbif_dev_straps(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_nbif_t *nbif, void *arg)
+milan_fabric_init_nbif_dev_straps(milan_nbif_t *nbif, void *arg)
 {
 	uint32_t intr;
 
-	intr = milan_nbif_read32(iodie, nbif, MILAN_NBIF_R_SMN_INTR_LINE);
+	intr = milan_nbif_read32(nbif, MILAN_NBIF_R_SMN_INTR_LINE);
 	for (uint_t funcno = 0; funcno < nbif->mn_nfuncs; funcno++) {
 		uint32_t strap;
 		milan_nbif_func_t *func = &nbif->mn_funcs[funcno];
@@ -4162,7 +4143,7 @@ milan_fabric_init_nbif_dev_straps(milan_fabric_t *fabric, milan_soc_t *soc,
 			continue;
 		}
 
-		strap = milan_nbif_func_read32(iodie, func,
+		strap = milan_nbif_func_read32(func,
 		    MILAN_NBIF_R_SMN_FUNC_STRAP0);
 
 		if ((func->mne_flags & MILAN_NBIF_F_ENABLED) != 0) {
@@ -4185,11 +4166,11 @@ milan_fabric_init_nbif_dev_straps(milan_fabric_t *fabric, milan_soc_t *soc,
 			    func->mne_dev, func->mne_func, 0);
 		}
 
-		milan_nbif_func_write32(iodie, func,
+		milan_nbif_func_write32(func,
 		    MILAN_NBIF_R_SMN_FUNC_STRAP0, strap);
 	}
 
-	milan_nbif_write32(iodie, nbif, MILAN_NBIF_R_SMN_INTR_LINE, intr);
+	milan_nbif_write32(nbif, MILAN_NBIF_R_SMN_INTR_LINE, intr);
 
 	/*
 	 * Each nBIF has up to three devices on them, though not all of them
@@ -4202,9 +4183,9 @@ milan_fabric_init_nbif_dev_straps(milan_fabric_t *fabric, milan_soc_t *soc,
 		smn_addr = MILAN_SMN_NBIF_DEV_PORT_SHIFT(devno) +
 		    MILAN_NBIF_R_SMN_PORT_STRAP3;
 
-		val = milan_nbif_read32(iodie, nbif, smn_addr);
+		val = milan_nbif_read32(nbif, smn_addr);
 		val = MILAN_NBIF_R_SET_PORT_STRAP3_COMP_TO(val, 1);
-		milan_nbif_write32(iodie, nbif, smn_addr, val);
+		milan_nbif_write32(nbif, smn_addr, val);
 	}
 
 	return (0);
@@ -4218,8 +4199,7 @@ milan_fabric_init_nbif_dev_straps(milan_fabric_t *fabric, milan_soc_t *soc,
  * all been left enabled for now.
  */
 static int
-milan_fabric_init_nbif_bridge(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_nbif_bridge(milan_ioms_t *ioms, void *arg)
 {
 	uint32_t val;
 	uint32_t nbif1_base = MILAN_IOHC_R_SMN_BRIDGE_CNTL_NBIF +
@@ -4231,22 +4211,42 @@ milan_fabric_init_nbif_bridge(milan_fabric_t *fabric, milan_soc_t *soc,
 	    MILAN_IOHC_R_SMN_BRIDGE_CNTL_SB };
 
 	for (uint_t i = 0; i < ARRAY_SIZE(smn_addrs); i++) {
-		val = milan_iohc_read32(iodie, ioms, smn_addrs[i]);
+		val = milan_iohc_read32(ioms, smn_addrs[i]);
 		val = MILAN_IOHC_R_BRIDGE_CNTL_SET_CRS_ENABLE(val, 1);
-		milan_iohc_write32(iodie, ioms, smn_addrs[i], val);
+		milan_iohc_write32(ioms, smn_addrs[i], val);
 	}
 	return (0);
 }
 
 static int
-milan_dxio_init(milan_fabric_t *fabric, milan_soc_t *soc, milan_iodie_t *iodie,
-    void *arg)
+milan_dxio_init(milan_iodie_t *iodie, void *arg)
 {
+	milan_soc_t *soc = iodie->mi_soc;
+
 	/*
-	 * XXX There's a BMC in Ethanol. As a result when we're on that die we
-	 * need to issue the SM reload command. What that is reloading is hard
-	 * to say. This only exists on Socket 0 so don't do it on the other
-	 * socket.
+	 * XXX Ethanol-X has a BMC hanging off socket 0, so on that platform we
+	 * need to reload the state machine because it's already been used to do
+	 * what the ABL calls early link training.  Not doing this results in
+	 * this failure when we run dxio_load: DXIO Load Data Failed: Heap: 0x6,
+	 * PA: 0x7ff98000, Len: 0x13e, SMU 0x1, DXIO: 0x2
+	 *
+	 * There's a catch: the dependency here is specifically that this is
+	 * required on any socket where early link training has been done, which
+	 * is controlled by an APCB token -- it's not board-dependent, although
+	 * in practice the correct value for the token is permanently fixed for
+	 * each board.  If the SM reload is run on a socket other than the one
+	 * that has been marked for this use in the APCB, it will fail and at
+	 * present that will result in not doing the rest of DXIO setup and then
+	 * panicking in PCIe setup.
+	 *
+	 * Historically Gimlet's APCB was basically the same as Ethanol-X's,
+	 * which included doing (or trying, since there's nothing connected)
+	 * early link training.  That necessitated always running SM RELOAD on
+	 * socket 0.  That option is set incorrectly for Gimlet, though, which
+	 * means this should really depend on milan_board_type(); when it does,
+	 * there will be an APCB-unix flag day.  We probably want to see if we
+	 * can do better by figuring out whether this is needed on socket 0, 1,
+	 * or neither.
 	 */
 	if (soc->ms_socno == 0 && !milan_dxio_rpc_sm_reload(iodie)) {
 		return (1);
@@ -4328,37 +4328,19 @@ milan_dxio_init(milan_fabric_t *fabric, milan_soc_t *soc, milan_iodie_t *iodie,
 	return (0);
 }
 
-typedef enum {
-	GIMLET,
-	ETHANOL
-} milan_board_type_t;
-
-/*
- * Here is a temporary rough heuristic for determining what board we're on.
- */
-static milan_board_type_t
-milan_board_type(const milan_fabric_t *fabric)
-{
-	if (fabric->mf_nsocs == 2) {
-		return (ETHANOL);
-	} else {
-		return (GIMLET);
-	}
-}
-
 /*
  * Here we need to assemble data for the system we're actually on. XXX Right now
  * we're just assuming we're Ethanol-X and only leveraging ancillary data from
  * the PSP.
  */
 static int
-milan_dxio_plat_data(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_dxio_plat_data(milan_iodie_t *iodie, void *arg)
 {
 	ddi_dma_attr_t attr;
 	size_t engn_size;
 	pfn_t pfn;
 	milan_dxio_config_t *conf = &iodie->mi_dxio_conf;
+	milan_soc_t *soc = iodie->mi_soc;
 	const zen_dxio_platform_t *source_data;
 	zen_dxio_anc_data_t *anc;
 	const void *phy_override;
@@ -4369,7 +4351,7 @@ milan_dxio_plat_data(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * XXX Figure out how to best not hardcode Ethanol. Realistically
 	 * probably an SP boot property.
 	 */
-	if (milan_board_type(fabric) == ETHANOL) {
+	if (milan_board_type(soc->ms_fabric) == MBT_ETHANOL) {
 		if (soc->ms_socno == 0) {
 			source_data = &ethanolx_engine_s0;
 		} else {
@@ -4446,8 +4428,7 @@ milan_dxio_plat_data(milan_fabric_t *fabric, milan_soc_t *soc,
 }
 
 static int
-milan_dxio_load_data(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_dxio_load_data(milan_iodie_t *iodie, void *arg)
 {
 	milan_dxio_config_t *conf = &iodie->mi_dxio_conf;
 
@@ -4488,8 +4469,7 @@ milan_dxio_load_data(milan_fabric_t *fabric, milan_soc_t *soc,
 }
 
 static int
-milan_dxio_more_conf(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_dxio_more_conf(milan_iodie_t *iodie, void *arg)
 {
 	/*
 	 * Note, here we might use milan_dxio_rpc_conf_training() if we want to
@@ -4545,7 +4525,7 @@ milan_dxio_map_engines(milan_fabric_t *fabric, milan_iodie_t *iodie)
 			continue;
 
 
-		port = milan_fabric_find_port_by_lanes(fabric, iodie,
+		port = milan_fabric_find_port_by_lanes(iodie,
 		    en->zde_start_lane, en->zde_end_lane);
 		if (port == NULL) {
 			cmn_err(CE_WARN, "failed to map engine %u [%u, %u] to "
@@ -4761,9 +4741,11 @@ static const milan_pcie_strap_setting_t milan_pcie_bridge_settings[] = {
 };
 
 static void
-milan_fabric_write_pcie_strap(milan_iodie_t *iodie, milan_ioms_t *ioms,
-    milan_pcie_port_t *port, uint32_t reg, uint32_t data)
+milan_fabric_write_pcie_strap(milan_pcie_port_t *port,
+    uint32_t reg, uint32_t data)
 {
+	milan_iodie_t *iodie = port->mpp_ioms->mio_iodie;
+
 	mutex_enter(&iodie->mi_pcie_strap_lock);
 	milan_smn_write32(iodie,
 	    MILAN_SMN_MAKE_ADDR(port->mpp_strap_smn_addr,
@@ -4788,36 +4770,36 @@ milan_fabric_write_pcie_strap(milan_iodie_t *iodie, milan_ioms_t *ioms,
  * whether they are used, though this may be changed if it proves problematic.
  */
 static int
-milan_fabric_init_pcie_straps(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    void *arg)
+milan_fabric_init_pcie_straps(milan_pcie_port_t *port, void *arg)
 {
+	const milan_fabric_t *fabric =
+	    port->mpp_ioms->mio_iodie->mi_soc->ms_fabric;
 	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_strap_enable); i++) {
-		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		milan_fabric_write_pcie_strap(port,
 		    milan_pcie_strap_enable[i], 0x1);
 	}
 	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_strap_disable); i++) {
-		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		milan_fabric_write_pcie_strap(port,
 		    milan_pcie_strap_disable[i], 0x0);
 	}
 	for (uint_t i = 0; i < ARRAY_SIZE(milan_pcie_strap_settings); i++) {
 		const milan_pcie_strap_setting_t *strap =
 		    &milan_pcie_strap_settings[i];
 
-		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		milan_fabric_write_pcie_strap(port,
 		    strap->strap_reg, strap->strap_data);
 	}
 
 	/* Handle Special case for DLF which needs to be set on non WAFL */
 	if (port->mpp_portno != MILAN_IOMS_WAFL_PCIE_PORT) {
-		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		milan_fabric_write_pcie_strap(port,
 		    MILAN_STRAP_PCIE_DLF_EN, 1);
 	}
 
 	/* Handle board specific straps */
 	const milan_pcie_strap_setting_t *board_list;
 	int array_size;
-	if (milan_board_type(fabric) == ETHANOL) {
+	if (milan_board_type(fabric) == MBT_ETHANOL) {
 		board_list = milan_pcie_strap_ethanol_settings;
 		array_size = ARRAY_SIZE(milan_pcie_strap_ethanol_settings);
 	} else {
@@ -4828,7 +4810,7 @@ milan_fabric_init_pcie_straps(milan_fabric_t *fabric, milan_soc_t *soc,
 		const milan_pcie_strap_setting_t *strap =
 		    &board_list[i];
 
-		milan_fabric_write_pcie_strap(iodie, ioms, port,
+		milan_fabric_write_pcie_strap(port,
 		    strap->strap_reg, strap->strap_data);
 	}
 
@@ -4837,7 +4819,7 @@ milan_fabric_init_pcie_straps(milan_fabric_t *fabric, milan_soc_t *soc,
 		const milan_pcie_strap_setting_t *strap =
 		    &milan_pcie_bridge_settings[i];
 		for (uint_t j = 0; j < port->mpp_nbridges; j++) {
-			milan_fabric_write_pcie_strap(iodie, ioms, port,
+			milan_fabric_write_pcie_strap(port,
 			    strap->strap_reg +
 			    (j * MILAN_STRAP_PCIE_NUM_PER_BRIDGE),
 			    strap->strap_data);
@@ -4852,9 +4834,11 @@ milan_fabric_init_pcie_straps(milan_fabric_t *fabric, milan_soc_t *soc,
  * wanted to do.
  */
 static int
-milan_dxio_state_machine(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_dxio_state_machine(milan_iodie_t *iodie, void *arg)
 {
+	milan_soc_t *soc = iodie->mi_soc;
+	milan_fabric_t *fabric = soc->ms_fabric;
+
 	if (!milan_dxio_rpc_sm_start(iodie)) {
 		return (1);
 	}
@@ -4980,8 +4964,7 @@ done:
  * merge that is likely not to happen anytime soon.
  */
 static int
-milan_fabric_init_memlists(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_fabric_init_memlists(milan_ioms_t *ioms, void *arg)
 {
 	ioms_memlists_t *imp = &ioms->mio_memlists;
 	void *page = kmem_zalloc(MMU_PAGESIZE, KM_SLEEP);
@@ -5068,8 +5051,7 @@ typedef struct milan_route_io {
 } milan_route_io_t;
 
 static int
-milan_io_ports_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_io_ports_allocate(milan_ioms_t *ioms, void *arg)
 {
 	int ret;
 	milan_route_io_t *mri = arg;
@@ -5080,7 +5062,7 @@ milan_io_ports_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * has a base of zero so we can cover the legacy I/O ports.
 	 */
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0 &&
-	    iodie->mi_node_id == 0) {
+	    ioms->mio_iodie->mi_node_id == 0) {
 		mri->mri_bases[mri->mri_cur] = 0;
 	} else {
 		mri->mri_bases[mri->mri_cur] = mri->mri_next_base;
@@ -5115,8 +5097,7 @@ milan_io_ports_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
  * for a given entry.
  */
 static int
-milan_io_ports_assign(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_io_ports_assign(milan_iodie_t *iodie, void *arg)
 {
 	milan_route_io_t *mri = arg;
 
@@ -5205,8 +5186,7 @@ typedef struct milan_route_mmio {
  * the limitations of PCI-PCI bridges (64-bit memory has to be prefetch).
  */
 static int
-milan_mmio_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, void *arg)
+milan_mmio_allocate(milan_ioms_t *ioms, void *arg)
 {
 	int ret;
 	milan_route_mmio_t *mrm = arg;
@@ -5218,7 +5198,7 @@ milan_mmio_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * region is as close to the subtractive compat region as possible.
 	 */
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0 &&
-	    iodie->mi_node_id == 0) {
+	    ioms->mio_iodie->mi_node_id == 0) {
 		mrm->mrm_bases[mrm->mrm_cur] = mrm->mrm_fch_base;
 		mrm->mrm_limits[mrm->mrm_cur] = mrm->mrm_fch_base;
 		mrm->mrm_limits[mrm->mrm_cur] += mrm->mrm_fch_chunks *
@@ -5266,8 +5246,7 @@ milan_mmio_allocate(milan_fabric_t *fabric, milan_soc_t *soc,
  * bits.
  */
 static int
-milan_mmio_assign(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, void *arg)
+milan_mmio_assign(milan_iodie_t *iodie, void *arg)
 {
 	milan_route_mmio_t *mrm = arg;
 
@@ -5445,12 +5424,12 @@ milan_fabric_pci_subsume(uint32_t bus, pci_prd_rsrc_t rsrc)
  *     the link goes down.
  */
 static int
-milan_fabric_init_bridges(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    milan_pcie_bridge_t *bridge, void *arg)
+milan_fabric_init_bridges(milan_pcie_bridge_t *bridge, void *arg)
 {
 	uint32_t val;
 	boolean_t hide;
+	milan_pcie_port_t *port = bridge->mpb_port;
+	milan_ioms_t *ioms = port->mpp_ioms;
 
 	/*
 	 * XXX We need to determine whether or not this bridge should be
@@ -5474,8 +5453,7 @@ milan_fabric_init_bridges(milan_fabric_t *fabric, milan_soc_t *soc,
 		bridge->mpb_flags |= MILAN_PCIE_BRIDGE_F_HIDDEN;
 	}
 
-	val = milan_iohc_pcie_read32(iodie, bridge,
-	    MILAN_IOHC_R_SMN_BRIDGE_CNTL_PCIE);
+	val = milan_iohc_pcie_read32(bridge, MILAN_IOHC_R_SMN_BRIDGE_CNTL_PCIE);
 	val = MILAN_IOHC_R_BRIDGE_CNTL_SET_CRS_ENABLE(val, 1);
 	if (hide) {
 		val = MILAN_IOHC_R_BRIDGE_CNTL_SET_BRIDGE_DISABLE(val, 1);
@@ -5486,18 +5464,15 @@ milan_fabric_init_bridges(milan_fabric_t *fabric, milan_soc_t *soc,
 		val = MILAN_IOHC_R_BRIDGE_CNTL_SET_DISABLE_BUS_MASTER(val, 0);
 		val = MILAN_IOHC_R_BRIDGE_CNTL_SET_DISABLE_CFG(val, 0);
 	}
-	milan_iohc_pcie_write32(iodie, bridge,
-	    MILAN_IOHC_R_SMN_BRIDGE_CNTL_PCIE, val);
+	milan_iohc_pcie_write32(bridge, MILAN_IOHC_R_SMN_BRIDGE_CNTL_PCIE, val);
 
-	val = milan_bridge_port_read32(iodie, bridge,
-	    MILAN_PCIE_PORT_R_SMN_TX_CNTL);
+	val = milan_bridge_port_read32(bridge, MILAN_PCIE_PORT_R_SMN_TX_CNTL);
 	val = MILAN_PCIE_PORT_R_SET_TX_CNTL_TLP_FLUSH_DOWN_DIS(val, 0);
-	milan_bridge_port_write32(iodie, bridge, MILAN_PCIE_PORT_R_SMN_TX_CNTL,
-	    val);
+	milan_bridge_port_write32(bridge, MILAN_PCIE_PORT_R_SMN_TX_CNTL, val);
 
 	/*
 	 * Software expects to see the PCIe slot implemented bit when a slot
-	 * actually exists. or us, this is basically anything that actually is
+	 * actually exists. For us, this is basically anything that actually is
 	 * considered MAPPED. Set that now on the bridge.
 	 */
 	if ((bridge->mpb_flags & MILAN_PCIE_BRIDGE_F_MAPPED) != 0) {
@@ -5520,28 +5495,23 @@ milan_fabric_init_bridges(milan_fabric_t *fabric, milan_soc_t *soc,
  * hidden or not) is able to properly generate an all 1s response.
  */
 static int
-milan_fabric_init_pcie_ports(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    void *arg)
+milan_fabric_init_pcie_ports(milan_pcie_port_t *port, void *arg)
 {
+	milan_ioms_t *ioms = port->mpp_ioms;
 	uint32_t val;
 
-	val = milan_pcie_core_read32(iodie, port,
-	    MILAN_PCIE_CORE_R_SMN_CI_CNTL);
+	val = milan_pcie_core_read32(port, MILAN_PCIE_CORE_R_SMN_CI_CNTL);
 	val = MILAN_PCIE_CORE_R_SET_CI_CNTL_LINK_DOWN_CTO_EN(val, 1);
 	val = MILAN_PCIE_CORE_R_SET_CI_CNTL_IGN_LINK_DOWN_CTO_ERR(val, 1);
-	milan_pcie_core_write32(iodie, port, MILAN_PCIE_CORE_R_SMN_CI_CNTL,
-	    val);
+	milan_pcie_core_write32(port, MILAN_PCIE_CORE_R_SMN_CI_CNTL, val);
 
 	/*
 	 * Program the unit ID for this device's SDP port.
 	 */
-	val = milan_pcie_core_read32(iodie, port,
-	    MILAN_PICE_CORE_R_SMN_SDP_CTRL);
+	val = milan_pcie_core_read32(port, MILAN_PICE_CORE_R_SMN_SDP_CTRL);
 	val = MILAN_PCIE_CORE_R_SET_SDP_CTRL_PORT_ID(val, port->mpp_sdp_port);
 	val = MILAN_PCIE_CORE_R_SET_SDP_CTRL_UNIT_ID(val, port->mpp_sdp_unit);
-	milan_pcie_core_write32(iodie, port, MILAN_PICE_CORE_R_SMN_SDP_CTRL,
-	    val);
+	milan_pcie_core_write32(port, MILAN_PICE_CORE_R_SMN_SDP_CTRL, val);
 
 	/*
 	 * The IOMMUL1 does not have an instance for the on-the side WAFL lanes.
@@ -5551,10 +5521,10 @@ milan_fabric_init_pcie_ports(milan_fabric_t *fabric, milan_soc_t *soc,
 	if (port->mpp_portno >= MILAN_IOMS_MAX_PCIE_BRIDGES)
 		return (0);
 
-	val = milan_iommul1_read32(iodie, ioms, port->mpp_portno,
+	val = milan_iommul1_read32(ioms, port->mpp_portno,
 	    MILAN_IOMMUL1_R_SMN_L1_CTL1);
 	val = MILAN_IOMMUL1_R_SET_L1_CTL1_ORDERING(val, 1);
-	milan_iommul1_write32(iodie, ioms, port->mpp_portno,
+	milan_iommul1_write32(ioms, port->mpp_portno,
 	    MILAN_IOMMUL1_R_SMN_L1_CTL1, val);
 
 	return (0);
@@ -5566,12 +5536,11 @@ typedef struct {
 } pci_bus_counter_t;
 
 static int
-milan_fabric_hack_bridges_cb(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    milan_pcie_bridge_t *bridge, void *arg)
+milan_fabric_hack_bridges_cb(milan_pcie_bridge_t *bridge, void *arg)
 {
 	uint8_t bus, secbus;
 	pci_bus_counter_t *pbc = arg;
+	milan_ioms_t *ioms = bridge->mpb_port->mpp_ioms;
 
 	bus = ioms->mio_pci_busno;
 	if (pbc->pbc_ioms != ioms) {
@@ -5646,7 +5615,7 @@ milan_smu_hotplug_data_init(milan_fabric_t *fabric)
 	pfn = hat_getpfnum(kas.a_hat, (caddr_t)hp->mh_table);
 	hp->mh_pa = mmu_ptob((uint64_t)pfn);
 
-	if (milan_board_type(fabric) == ETHANOL) {
+	if (milan_board_type(fabric) == MBT_ETHANOL) {
 		entry = ethanolx_hotplug_ents;
 	} else {
 		entry = gimlet_hotplug_ents;
@@ -5699,12 +5668,13 @@ milan_smu_hotplug_data_init(milan_fabric_t *fabric)
  * use our hacky static versions for a moment.
  */
 static uint32_t
-milan_hotplug_bridge_features(milan_fabric_t *fabric,
-    milan_pcie_bridge_t *bridge)
+milan_hotplug_bridge_features(milan_pcie_bridge_t *bridge)
 {
 	uint32_t feats;
+	milan_fabric_t *fabric =
+	    bridge->mpb_port->mpp_ioms->mio_iodie->mi_soc->ms_fabric;
 
-	if (milan_board_type(fabric) == ETHANOL) {
+	if (milan_board_type(fabric) == MBT_ETHANOL) {
 		if (bridge->mpb_hp_type == SMU_HP_ENTERPRISE_SSD) {
 			return (ethanolx_pcie_slot_cap_entssd);
 		} else {
@@ -5796,12 +5766,11 @@ milan_hotplug_bridge_features(milan_fabric_t *fabric,
  *   o Making sure that power faults work.
  */
 static int
-milan_hotplug_bridge_init(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    milan_pcie_bridge_t *bridge, void *arg)
+milan_hotplug_bridge_init(milan_pcie_bridge_t *bridge, void *arg)
 {
 	uint32_t val;
 	uint32_t slot_mask;
+	milan_ioms_t *ioms = bridge->mpb_port->mpp_ioms;
 
 	/*
 	 * Skip over all non-hotplug slots and the simple presence mode. Though
@@ -5817,40 +5786,34 @@ milan_hotplug_bridge_init(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * Set the hotplug slot information in the PCIe IP, presumably so that
 	 * it'll do something useful for the SMU.
 	 */
-	val = milan_bridge_port_read32(iodie, bridge,
-	    MILAN_PCIE_PORT_R_SMN_HP_CNTL);
+	val = milan_bridge_port_read32(bridge, MILAN_PCIE_PORT_R_SMN_HP_CNTL);
 	val = MILAN_PCIE_PORT_R_SET_HP_CNTL_SLOT(val, bridge->mpb_hp_slotno);
 	val = MILAN_PCIE_PORT_R_SET_HP_CNTL_ACTIVE(val, 1);
-	milan_bridge_port_write32(iodie, bridge, MILAN_PCIE_PORT_R_SMN_HP_CNTL,
-	    val);
+	milan_bridge_port_write32(bridge, MILAN_PCIE_PORT_R_SMN_HP_CNTL, val);
 
 	/*
 	 * This register is apparently set to ensure that we don't remain in the
 	 * detect state machine state.
 	 */
-	val = milan_bridge_port_read32(iodie, bridge,
-	    MILAN_PCIE_PORT_R_SMN_LC_CNTL5);
+	val = milan_bridge_port_read32(bridge, MILAN_PCIE_PORT_R_SMN_LC_CNTL5);
 	val = MILAN_PCIE_PORT_R_SET_LC_CNTL5_WAIT_DETECT(val, 0);
-	milan_bridge_port_write32(iodie, bridge,
-	    MILAN_PCIE_PORT_R_SMN_LC_CNTL5, val);
+	milan_bridge_port_write32(bridge, MILAN_PCIE_PORT_R_SMN_LC_CNTL5, val);
 
 	/*
 	 * This ensures the port can't enter loopback mode.
 	 */
-	val = milan_bridge_port_read32(iodie, bridge,
+	val = milan_bridge_port_read32(bridge,
 	    MILAN_PCIE_PORT_R_SMN_TRAIN_CNTL);
 	val = MILAN_PCIE_PORT_R_SET_TRAIN_CNTL_TRAIN_DIS(val, 1);
-	milan_bridge_port_write32(iodie, bridge,
+	milan_bridge_port_write32(bridge,
 	    MILAN_PCIE_PORT_R_SMN_TRAIN_CNTL, val);
 
 	/*
 	 * Make sure that power faults can actually work (in theory).
 	 */
-	val = milan_bridge_port_read32(iodie, bridge,
-	    MILAN_PCIE_PORT_R_SMN_PORT_CNTL);
+	val = milan_bridge_port_read32(bridge, MILAN_PCIE_PORT_R_SMN_PORT_CNTL);
 	val = MILAN_PCIE_PORT_R_SET_PORT_CNTL_PWRFLT_EN(val, 1);
-	milan_bridge_port_write32(iodie, bridge,
-	    MILAN_PCIE_PORT_R_SMN_PORT_CNTL, val);
+	milan_bridge_port_write32(bridge, MILAN_PCIE_PORT_R_SMN_PORT_CNTL, val);
 
 	/*
 	 * Go through and set up the slot capabilities register. In our case
@@ -5872,7 +5835,7 @@ milan_hotplug_bridge_init(milan_fabric_t *fabric, milan_soc_t *soc,
 	    PCIE_SLOTCAP_PHY_SLOT_NUM_SHIFT);
 	val |= bridge->mpb_hp_slotno << PCIE_SLOTCAP_PHY_SLOT_NUM_SHIFT;
 	val &= ~slot_mask;
-	val |= milan_hotplug_bridge_features(fabric, bridge);
+	val |= milan_hotplug_bridge_features(bridge);
 	pci_putl_func(ioms->mio_pci_busno, bridge->mpb_device,
 	    bridge->mpb_func, MILAN_BRIDGE_R_PCI_SLOT_CAP, val);
 
@@ -5888,9 +5851,7 @@ milan_hotplug_bridge_init(milan_fabric_t *fabric, milan_soc_t *soc,
  * XXX SMN_NBIO0PCIE0_SWRST_CONTROL_6_A
  */
 static int
-milan_hotplug_port_init(milan_fabric_t *fabric, milan_soc_t *soc,
-    milan_iodie_t *iodie, milan_ioms_t *ioms, milan_pcie_port_t *port,
-    void *arg)
+milan_hotplug_port_init(milan_pcie_port_t *port, void *arg)
 {
 	uint32_t val;
 
@@ -5905,13 +5866,12 @@ milan_hotplug_port_init(milan_fabric_t *fabric, milan_soc_t *soc,
 	 * While there are reserved bits in this register, it appears that
 	 * reserved bits are ignored and always set to zero.
 	 */
-	milan_pcie_core_write32(iodie, port, MILAN_PCIE_CORE_R_SMN_SWRST_CNTL6,
-	    0);
+	milan_pcie_core_write32(port, MILAN_PCIE_CORE_R_SMN_SWRST_CNTL6, 0);
 
-	val = milan_pcie_core_read32(iodie, port, MILAN_PCIE_CORE_R_SMN_PRES);
+	val = milan_pcie_core_read32(port, MILAN_PCIE_CORE_R_SMN_PRES);
 	val = MILAN_PCIE_CORE_R_SET_PRES_MODE(val,
 	    MILAN_PCIE_CORE_R_PRES_MODE_OR);
-	milan_pcie_core_write32(iodie, port, MILAN_PCIE_CORE_R_SMN_PRES, val);
+	milan_pcie_core_write32(port, MILAN_PCIE_CORE_R_SMN_PRES, val);
 
 	return (0);
 }
