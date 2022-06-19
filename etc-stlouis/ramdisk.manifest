@@ -240,12 +240,12 @@ s etc/security/audit/localhost/files=../../../../var/audit
 f etc/security/audit_class 0644 root sys
 f etc/security/audit_event 0644 root sys
 f etc/security/audit_warn 0740 root sys
-f etc/security/auth_attr 0644 root sys
+h etc/security/auth_attr=etc/security/auth_attr.d/SUNWcs
 d etc/security/auth_attr.d 0755 root sys
 f etc/security/auth_attr.d/SUNWcs 0644 root sys
 f etc/security/crypt.conf 0644 root sys
 f etc/security/device_policy 0644 root sys
-f etc/security/exec_attr 0644 root sys
+h etc/security/exec_attr=etc/security/exec_attr.d/SUNWcs
 d etc/security/exec_attr.d 0755 root sys
 f etc/security/exec_attr.d/SUNWcs 0644 root sys
 f etc/security/extra_privs 0644 root sys
@@ -257,7 +257,7 @@ f etc/security/lib/sr_clean 0555 root sys
 f etc/security/lib/st_clean 0555 root sys
 f etc/security/policy.conf 0644 root sys
 f etc/security/priv_names 0644 root sys
-f etc/security/prof_attr 0644 root sys
+h etc/security/prof_attr=etc/security/prof_attr.d/SUNWcs
 d etc/security/prof_attr.d 0755 root sys
 f etc/security/prof_attr.d/SUNWcs 0644 root sys
 s etc/services=inet/services
@@ -287,7 +287,7 @@ f etc/syslog.conf 0644 root sys
 f etc/system 0644 root sys
 s etc/termcap=../usr/share/lib/termcap
 f etc/ttydefs 0644 root sys
-f etc/user_attr 0644 root sys
+h etc/user_attr=etc/user_attr.d/SUNWcs
 d etc/user_attr.d 0755 root sys
 f etc/user_attr.d/SUNWcs 0644 root sys
 f etc/vfstab 0644 root sys
@@ -500,9 +500,9 @@ h kernel/socketmod/amd64/tcp=kernel/drv/amd64/tcp
 h kernel/socketmod/amd64/udp=kernel/drv/amd64/udp
 d kernel/strmod 0755 root sys
 d kernel/strmod/amd64 0755 root sys
-f kernel/strmod/amd64/arp 0755 root sys
+h kernel/strmod/amd64/arp=kernel/drv/amd64/arp
 h kernel/strmod/amd64/icmp=kernel/drv/amd64/icmp
-f kernel/strmod/amd64/ip 0755 root sys
+h kernel/strmod/amd64/ip=kernel/drv/amd64/ip
 f kernel/strmod/amd64/ldterm 0755 root sys
 f kernel/strmod/amd64/pipemod 0755 root sys
 f kernel/strmod/amd64/ptem 0755 root sys
