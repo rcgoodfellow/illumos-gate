@@ -161,6 +161,9 @@ extern const bt_discovery_t bt_discovery_stub;
 #endif
 extern const bt_prop_t * const bt_fallback_props;
 
+extern void eb_set_tunables(void);
+extern void genunix_set_tunables(void);
+
 #ifdef	__cplusplus
 }
 #endif

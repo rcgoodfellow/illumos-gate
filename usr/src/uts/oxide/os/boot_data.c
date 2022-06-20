@@ -27,6 +27,8 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/boot_data.h>
+#include <sys/apic_common.h>
+#include <sys/modctl.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -170,6 +172,24 @@ static const bt_prop_t bootargs_prop = {
 };
 
 const bt_prop_t * const bt_fallback_props = &bootargs_prop;
+
+extern void
+eb_set_tunables(void)
+{
+	/*
+	 * We always want to enter the debugger if present or panic otherwise.
+	 */
+	nmi_action = NMI_ACTION_KMDB;
+}
+
+extern void
+genunix_set_tunables(void)
+{
+	/*
+	 * XXX Temporary for bringup: don't automatically unload modules.
+	 */
+	moddebug |= MODDEBUG_NOAUTOUNLOAD;
+}
 
 #ifdef	__cplusplus
 }

@@ -15,7 +15,8 @@
 
 #include <sys/types.h>
 #include <sys/debug.h>
-#include <milan/milan_ccx.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/ccx_impl.h>
 #include "milan_apob.h"
 
 /*

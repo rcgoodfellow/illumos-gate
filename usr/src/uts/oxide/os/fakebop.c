@@ -70,9 +70,9 @@
 #include <sys/dw_apb_uart.h>
 #include <sys/uart.h>
 #include <sys/memlist_impl.h>
+#include <sys/io/milan/ccx.h>
 
 #include <milan/milan_apob.h>
-#include <milan/milan_ccx.h>
 #include <milan/milan_physaddrs.h>
 
 /*
@@ -659,6 +659,8 @@ _start(const bt_discovery_t *btdp)
 	DBG_MSG("\n\n*** Entered illumos in _start()\n");
 	DBG(btdp);
 	DBG(btdp->btd_prop_list);
+
+	eb_set_tunables();
 
 	/*
 	 * Fill in the bootops vector; all of this can now work.

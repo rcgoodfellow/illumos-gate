@@ -26,7 +26,7 @@
  * the PCIe vendor id strap is 16 units wide.
  */
 
-#include <milan/milan_fabric.h>
+#include <sys/io/milan/fabric.h>
 
 #ifdef __cplusplus
 extern "C" {

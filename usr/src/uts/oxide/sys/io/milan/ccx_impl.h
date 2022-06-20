@@ -10,19 +10,24 @@
  */
 
 /*
- * Copyright 2022 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Co.
  */
 
-#ifndef _MILAN_MILAN_CCX_H
-#define	_MILAN_MILAN_CCX_H
+#ifndef _SYS_IO_MILAN_CCX_IMPL_H
+#define	_SYS_IO_MILAN_CCX_IMPL_H
 
 /*
- * Misc. functions that are required to initialize the Milan core complexes.
+ * Structure and register definitions for the resources contained on the
+ * core-complex dies (CCDs), including the core complexes (CCXs) themselves and
+ * the cores and constituent compute threads they contain.
  */
 
-#include <sys/types.h>
-#include <sys/stdint.h>
 #include <sys/apic.h>
+#include <sys/bitext.h>
+#include <sys/stdint.h>
+#include <sys/types.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/fabric.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,33 +70,31 @@ extern "C" {
 #define	MILAN_MAX_CORES_PER_CCX		8
 #define	MILAN_MAX_THREADS_PER_CORE	2
 
-struct milan_iodie;
-
-typedef struct milan_thread {
+struct milan_thread {
 	uint8_t			mt_threadno;
 	apicid_t		mt_apicid;
-	struct milan_core	*mt_core;
-} milan_thread_t;
+	milan_core_t		*mt_core;
+};
 
-typedef struct milan_core {
+struct milan_core {
 	uint8_t			mc_logical_coreno;
 	uint8_t			mc_physical_coreno;
 	uint8_t			mc_nthreads;
 	uint32_t		mc_scfctp_smn_base;
 	milan_thread_t		mc_threads[MILAN_MAX_THREADS_PER_CORE];
-	struct milan_ccx	*mc_ccx;
-} milan_core_t;
+	milan_ccx_t		*mc_ccx;
+};
 
-typedef struct milan_ccx {
+struct milan_ccx {
 	uint8_t			mcx_logical_cxno;
 	uint8_t			mcx_physical_cxno;
 	uint8_t			mcx_ncores;
 	uint32_t		mcx_scfctp_smn_base;
 	milan_core_t		mcx_cores[MILAN_MAX_CORES_PER_CCX];
-	struct milan_ccd	*mcx_ccd;
-} milan_ccx_t;
+	milan_ccd_t		*mcx_ccd;
+};
 
-typedef struct milan_ccd {
+struct milan_ccd {
 	uint8_t			mcd_logical_dieno;
 	uint8_t			mcd_physical_dieno;
 	uint8_t			mcd_ccm_fabric_id;
@@ -99,16 +102,14 @@ typedef struct milan_ccd {
 	uint32_t		mcd_smupwr_smn_base;
 	uint8_t			mcd_nccxs;
 	milan_ccx_t		mcd_ccxs[MILAN_MAX_CCXS_PER_CCD];
-	struct milan_iodie	*mcd_iodie;
-} milan_ccd_t;
+	milan_iodie_t		*mcd_iodie;
+};
 
-extern void milan_ccx_mmio_init(uint64_t, boolean_t);
-extern void milan_ccx_physmem_init(void);
-extern boolean_t milan_ccx_start_thread(const milan_thread_t *);
-extern void milan_ccx_set_brandstr(void);
+extern size_t milan_fabric_thread_get_brandstr(const milan_thread_t *,
+    char *, size_t);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _MILAN_MILAN_CCX_H */
+#endif /* _SYS_IO_MILAN_CCX_IMPL_H */

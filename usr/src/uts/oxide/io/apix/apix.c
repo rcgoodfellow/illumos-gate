@@ -80,6 +80,8 @@
 #include <sys/mach_intr.h>
 #include <sys/apix.h>
 #include <sys/apix_irm_impl.h>
+#include <sys/io/milan/fabric.h>
+#include <sys/io/milan/iohc.h>
 
 static int apix_probe();
 static void apix_init();
@@ -531,6 +533,22 @@ apix_init_intr()
 	apic_reg_ops->apic_write_task_reg(0);
 }
 
+static int
+ioms_enable_nmi_cb(milan_ioms_t *ioms, void *arg __unused)
+{
+	uint32_t v;
+
+	if ((milan_ioms_flags(ioms) & MILAN_IOMS_F_HAS_FCH) != 0) {
+		v = MILAN_IOHC_R_PIN_CNTL_SET_MODE_NMI(0);
+		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_PIN_CNTL, v);
+	}
+
+	v = MILAN_IOHC_R_MISC_RAS_CTL_SET_NMI_SYNCFLOOD_EN(0, 1);
+	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_MISC_RAS_CTL, v);
+
+	return (0);
+}
+
 static void
 apix_picinit(void)
 {
@@ -582,6 +600,13 @@ apix_picinit(void)
 	if (!psm_add_nmintr(0, apic_nmi_intr,
 	    "apix NMI handler", (caddr_t)NULL))
 		cmn_err(CE_WARN, "apix: Unable to add nmi handler");
+
+	/*
+	 * Enable the NMI functionality in the IOHC to allow external devices
+	 * (i.e., the SP) to signal an NMI via the dedicated NMI_SYNCFLOOD_L
+	 * pin.
+	 */
+	(void) milan_walk_ioms(ioms_enable_nmi_cb, NULL);
 
 	apix_init_intr();
 

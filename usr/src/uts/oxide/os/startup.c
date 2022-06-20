@@ -130,10 +130,8 @@
 #include <sys/tsc.h>
 #include <sys/clock.h>
 #include <sys/boot_data.h>
-
 #include <sys/memlist_impl.h>
-
-#include <milan/milan_fabric.h>
+#include <sys/io/milan/fabric.h>
 
 extern void mem_config_init(void);
 

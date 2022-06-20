@@ -97,10 +97,10 @@
  *    perhaps it's better for us to combine these.
  */
 
-#include <milan/milan_dxio_data.h>
 #include <sys/stddef.h>
 #include <sys/debug.h>
 #include <sys/pcie.h>
+#include <sys/io/milan/dxio_impl.h>
 
 CTASSERT(sizeof (zen_dxio_link_cap_t) == 0x8);
 CTASSERT(sizeof (zen_dxio_config_base_t) == 0x18);

@@ -66,7 +66,9 @@
 #include <sys/bootvfs.h>
 #include <sys/tsc.h>
 #include <sys/smt.h>
-#include <milan/milan_fabric.h>
+#include <sys/boot_data.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/fabric.h>
 #include <milan/milan_apob.h>
 
 /*
@@ -111,6 +113,8 @@ mlsetup(struct regs *rp)
 	extern char t0stack[];
 
 	ASSERT_STACK_ALIGNED();
+
+	genunix_set_tunables();
 
 	/*
 	 * initialize cpu_self

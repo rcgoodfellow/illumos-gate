@@ -19,8 +19,9 @@
  */
 
 #include <milan/milan_physaddrs.h>
-#include <milan/milan_fabric.h>
-#include <milan/milan_ccx.h>
+#include <sys/io/milan/fabric.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/ccx_impl.h>
 #include <sys/boot_physmem.h>
 #include <sys/x86_archext.h>
 
@@ -115,4 +116,10 @@ milan_ccx_set_brandstr(void)
 
 		wrmsr(MSR_AMD_PROC_NAME_STRING0 + n, sv);
 	}
+}
+
+apicid_t
+milan_thread_apicid(const milan_thread_t *thread)
+{
+	return (thread->mt_apicid);
 }

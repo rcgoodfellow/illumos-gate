@@ -47,8 +47,8 @@
 #include <sys/pcie.h>
 #include <sys/pci_cfgacc.h>
 #include <sys/machsystm.h>
+#include <sys/io/milan/ccx.h>
 
-#include <milan/milan_ccx.h>
 #include <milan/milan_physaddrs.h>
 
 /*

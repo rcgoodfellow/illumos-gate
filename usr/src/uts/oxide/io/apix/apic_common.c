@@ -76,9 +76,9 @@
 #include <sys/apic_common.h>
 #include <sys/apic_timer.h>
 #include <sys/tsc.h>
-
-#include <milan/milan_ccx.h>
-#include <milan/milan_fabric.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/fabric.h>
+#include <sys/io/milan/iohc.h>
 
 static void	apic_record_ioapic_rdt(void *intrmap_private,
 		    ioapic_rdt_t *irdt);
@@ -676,6 +676,27 @@ gethrtime_again:
 	return (temp);
 }
 
+static int
+apic_iohc_nmi_eoi(milan_ioms_t *ioms, void *arg __unused)
+{
+	uint32_t v;
+
+	v = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_FCTL2);
+	v = MILAN_IOHC_R_FCTL2_GET_NMI(v);
+	if (v != 0) {
+		/*
+		 * We have no ability to handle the other bits here, as
+		 * those conditions may not have resulted in an NMI.  Clear only
+		 * the bit whose condition we have handled.
+		 */
+		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_FCTL2, v);
+		v = MILAN_IOHC_R_INTR_EOI_SET_NMI(0);
+		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_INTR_EOI, v);
+	}
+
+	return (0);
+}
+
 /* apic NMI handler */
 uint_t
 apic_nmi_intr(caddr_t arg __unused, caddr_t arg1 __unused)
@@ -729,6 +750,14 @@ apic_nmi_intr(caddr_t arg __unused, caddr_t arg1 __unused)
 		debug_enter("NMI received: entering kmdb\n");
 		break;
 	}
+
+	/*
+	 * We must check whether this NMI may have originated from the IOHC in
+	 * response to an external assertion of NMI_SYNCFLOOD_L.  If so, we must
+	 * clear the indicator flag and signal EOI to the IOHC in order to
+	 * receive subsequent such NMIs.
+	 */
+	(void) milan_walk_ioms(apic_iohc_nmi_eoi, NULL);
 
 	lock_clear(&apic_nmi_lock);
 	return (DDI_INTR_CLAIMED);

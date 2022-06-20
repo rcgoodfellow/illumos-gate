@@ -24,11 +24,13 @@
  */
 /*
  * Copyright 2019, Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef _SYS_APIC_COMMON_H
 #define	_SYS_APIC_COMMON_H
 
+#include <sys/apic.h>
 #include <sys/psm_types.h>
 #include <sys/avintr.h>
 #include <sys/privregs.h>

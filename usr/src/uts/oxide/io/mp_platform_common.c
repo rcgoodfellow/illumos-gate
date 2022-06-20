@@ -75,9 +75,8 @@
 #include <sys/hpet.h>
 #include <sys/clock.h>
 #include <sys/io/huashan/pmio.h>
-
-#include <milan/milan_ccx.h>
-#include <milan/milan_fabric.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/fabric.h>
 #include <milan/milan_physaddrs.h>
 
 /*
@@ -264,7 +263,7 @@ apic_enumerate_one(milan_thread_t *mtp, void *arg)
 	uint32_t *idxp = arg;
 	apic_cpus_info_t *acip = &apic_cpus[*idxp];
 
-	acip->aci_local_id = mtp->mt_apicid;
+	acip->aci_local_id = milan_thread_apicid(mtp);
 	acip->aci_processor_id = acip->aci_local_id;
 	acip->aci_local_ver = 0;
 	acip->aci_status = 0;

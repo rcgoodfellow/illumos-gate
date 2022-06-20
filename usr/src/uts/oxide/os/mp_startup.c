@@ -145,8 +145,9 @@
 #include <sys/hma.h>
 #include <sys/cpu_module.h>
 #include <sys/ontrap.h>
+#include <sys/io/milan/ccx.h>
+#include <sys/io/milan/fabric.h>
 
-#include <milan/milan_fabric.h>
 #include <milan/milan_physaddrs.h>
 
 struct cpu	cpus[1] __aligned(MMU_PAGESIZE);
