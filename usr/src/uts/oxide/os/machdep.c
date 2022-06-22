@@ -137,13 +137,6 @@ extern void audit_enterprom(int);
 extern void audit_exitprom(int);
 
 /*
- * Tunable to enable apix PSM; if set to 0, pcplusmp PSM will be used.
- */
-int	apix_enable = 1;
-
-int	apic_nvidia_io_max = 0;	/* no. of NVIDIA i/o apics */
-
-/*
  * Occassionally the kernel knows better whether to power-off or reboot.
  */
 int force_shutdown_method = AD_UNKNOWN;

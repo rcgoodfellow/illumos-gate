@@ -49,12 +49,11 @@ extern "C" {
 
 /* Methods for multiple IOAPIC */
 enum apic_ioapic_method_type {
-	APIC_MUL_IOAPIC_NONE,		/* use to disable pcplusmp fallback */
+	APIC_MUL_IOAPIC_NONE,
 	APIC_MUL_IOAPIC_MASK,		/* Set RT Entry Mask bit before EOI */
 	APIC_MUL_IOAPIC_DEOI,		/* Directed EOI */
 	APIC_MUL_IOAPIC_IOXAPIC,	/* IOxAPIC */
-	APIC_MUL_IOAPIC_IIR,		/* IOMMU interrup remapping */
-	APIC_MUL_IOAPIC_PCPLUSMP	/* Fall back to old pcplusmp */
+	APIC_MUL_IOAPIC_IIR		/* IOMMU interrup remapping */
 };
 
 #define	APIX_IS_DIRECTED_EOI(type)	\
@@ -62,7 +61,6 @@ enum apic_ioapic_method_type {
 #define	APIX_IS_MASK_RDT(type)	\
 	((type) == APIC_MUL_IOAPIC_NONE || (type) == APIC_MUL_IOAPIC_MASK)
 
-extern int	apix_enable;
 extern int	apix_loaded(void);
 extern enum apic_ioapic_method_type apix_mul_ioapic_method;
 
@@ -84,7 +82,6 @@ extern uchar_t	apic_io_vectbase[MAX_IO_APIC];
 extern uchar_t	apic_io_vectend[MAX_IO_APIC];
 extern uchar_t	apic_io_ver[MAX_IO_APIC];
 extern int	apic_io_max;
-extern int	apic_nvidia_io_max;
 extern int apic_setspl_delay;		/* apic_setspl - delay enable	*/
 extern int apic_clkvect;
 

@@ -153,6 +153,7 @@ CTASSERT_COMPACT(rm_idt_lim, rm_idt_base);
 CTASSERT_COMPACT(rm_gdt_lim, rm_gdt_base);
 CTASSERT_COMPACT(rm_temp_gdt_lim, rm_temp_gdt_base);
 CTASSERT_COMPACT(rm_temp_idt_lim, rm_temp_idt_base);
+#undef	CTASSERT_COMPACT
 
 /*
  * cpu tables put within a single structure two of the tables which need to be

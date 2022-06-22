@@ -76,6 +76,7 @@
 #include <sys/apic_common.h>
 #include <sys/apic_timer.h>
 #include <sys/tsc.h>
+#include <sys/smm.h>
 #include <sys/io/milan/ccx.h>
 #include <sys/io/milan/fabric.h>
 #include <sys/io/milan/iohc.h>
@@ -85,7 +86,8 @@ static void	apic_record_ioapic_rdt(void *intrmap_private,
 static void	apic_record_msi(void *intrmap_private, msi_regs_t *mregs);
 
 /*
- * Common routines between pcplusmp & apix (taken from apic.c).
+ * Common routines between pcplusmp & apix (taken from apic.c).  The intent was
+ * and perhaps still is to deduplicate and share this with i86pc.
  */
 
 int	apic_clkinit(int);
@@ -99,7 +101,7 @@ processorid_t	apic_get_next_processorid(processorid_t);
 
 hrtime_t apic_gettime();
 
-enum apic_ioapic_method_type apix_mul_ioapic_method = APIC_MUL_IOAPIC_PCPLUSMP;
+enum apic_ioapic_method_type apix_mul_ioapic_method = APIC_MUL_IOAPIC_NONE;
 
 /* Now the ones for Dynamic Interrupt distribution */
 int	apic_enable_dynamic_migration = 0;
@@ -223,32 +225,27 @@ static uint_t	apic_shutdown_processors;
 int
 apic_ioapic_method_probe()
 {
-	if (apix_enable == 0)
-		return (PSM_SUCCESS);
-
 	/*
 	 * Set IOAPIC EOI handling method. The priority from low to high is:
 	 *	1. IOxAPIC: with EOI register
 	 *	2. IOMMU interrupt mapping
 	 *	3. Mask-Before-EOI method for systems without boot
-	 *	interrupt routing, such as systems with only one IOAPIC;
-	 *	NVIDIA CK8-04/MCP55 systems; systems with bridge solution
-	 *	which disables the boot interrupt routing already.
+	 *	interrupt routing, such as systems with only one IOAPIC
 	 *	4. Directed EOI
 	 */
 	if (apic_io_ver[0] >= 0x20)
 		apix_mul_ioapic_method = APIC_MUL_IOAPIC_IOXAPIC;
-	if ((apic_io_max == 1) || (apic_nvidia_io_max == apic_io_max))
+	if (apic_io_max == 1)
 		apix_mul_ioapic_method = APIC_MUL_IOAPIC_MASK;
 	if (apic_directed_EOI_supported())
 		apix_mul_ioapic_method = APIC_MUL_IOAPIC_DEOI;
 
-	/* fall back to pcplusmp */
-	if (apix_mul_ioapic_method == APIC_MUL_IOAPIC_PCPLUSMP) {
-		/* make sure apix is after pcplusmp in /etc/mach */
-		apix_enable = 0; /* go ahead with pcplusmp install next */
+	/*
+	 * All supported machines will pass one of the previous checks, so we're
+	 * going to fail here and then our caller will eventually panic.
+	 */
+	if (apix_mul_ioapic_method == APIC_MUL_IOAPIC_NONE)
 		return (PSM_FAILURE);
-	}
 
 	return (PSM_SUCCESS);
 }
@@ -289,7 +286,7 @@ apic_error_intr()
 	if (error) {
 #if	DEBUG
 		if (apic_debug)
-			debug_enter("pcplusmp: APIC Error interrupt received");
+			debug_enter("APIC Error interrupt received");
 #endif /* DEBUG */
 		if (apic_panic_on_apic_error)
 			cmn_err(CE_PANIC,
@@ -702,6 +699,7 @@ uint_t
 apic_nmi_intr(caddr_t arg __unused, caddr_t arg1 __unused)
 {
 	nmi_action_t action = nmi_action;
+	boolean_t is_smi;
 
 	if (apic_shutdown_processors) {
 		apic_disable_local_apic();
@@ -715,20 +713,27 @@ apic_nmi_intr(caddr_t arg __unused, caddr_t arg1 __unused)
 	apic_num_nmis++;
 
 	/*
-	 * "nmi_action" always over-rides the older way of doing this, unless we
-	 * can't actually drop into kmdb when requested.
+	 * The SMI handler (see ml/smintr.s) issues a self-IPI with DM=NMI after
+	 * saving the SMM state.  We then end up here as we're going to panic;
+	 * see the block comment at the top of that file for details.  Here we
+	 * check whether an SMI has been handled by this or another CPU; it is
+	 * possible that many CPUs took SMIs and we are the first to arrive.  If
+	 * any CPU has taken an SMI, we must panic regardless of whether we
+	 * would ordinarily ignore an NMI.
 	 */
-	if (action == NMI_ACTION_KMDB && !psm_debugger())
-		action = NMI_ACTION_UNSET;
+	is_smi = smm_check_nmi();
 
-	if (action == NMI_ACTION_UNSET) {
-		if (apic_kmdb_on_nmi && psm_debugger())
-			action = NMI_ACTION_KMDB;
-		else if (apic_panic_on_nmi)
-			action = NMI_ACTION_PANIC;
-		else
-			action = NMI_ACTION_IGNORE;
-	}
+	if (action == NMI_ACTION_UNSET)
+		action = NMI_ACTION_KMDB;
+
+	if (action == NMI_ACTION_KMDB && !psm_debugger())
+		action = NMI_ACTION_PANIC;
+
+	/*
+	 * We never ignore SMIs.
+	 */
+	if (action == NMI_ACTION_IGNORE && is_smi)
+		action = NMI_ACTION_PANIC;
 
 	switch (action) {
 	case NMI_ACTION_IGNORE:
@@ -742,12 +747,15 @@ apic_nmi_intr(caddr_t arg __unused, caddr_t arg1 __unused)
 	case NMI_ACTION_PANIC:
 		/* Keep panic from entering kmdb. */
 		nopanicdebug = 1;
-		panic("NMI received\n");
+		panic("%s received\n", is_smi ? "SMI" : "NMI");
 		break;
 
 	case NMI_ACTION_KMDB:
 	default:
-		debug_enter("NMI received: entering kmdb\n");
+		if (is_smi)
+			debug_enter("SMI received: entering kmdb\n");
+		else
+			debug_enter("NMI received: entering kmdb\n");
 		break;
 	}
 
@@ -1080,7 +1088,7 @@ apic_shutdown(int cmd __unused, int fcn __unused)
 #endif /* DEBUG */
 	apic_shutdown_processors = 1;
 	apic_reg_ops->apic_write(APIC_INT_CMD1,
-	    AV_NMI | AV_LEVEL | AV_SH_ALL_EXCSELF);
+	    AV_NMI | AV_ASSERT | AV_SH_ALL_EXCSELF);
 
 	ioapic_disable_redirection();
 	apic_disable_local_apic();
@@ -1165,7 +1173,7 @@ ioapic_write_eoi(int ioapic_ix, uint32_t value)
  * apic_get_next_bind_cpu(), since that will cause all interrupts to be
  * bound to CPU1 at boot time.  During boot, only CPU0 is online with
  * interrupts enabled when apic_get_next_bind_cpu() and apic_find_cpu()
- * are called.  However, the pcplusmp driver assumes that there will be
+ * are called.  However, the apix driver assumes that there will be
  * boot_ncpus CPUs configured eventually so it tries to distribute all
  * interrupts among CPU0 - CPU[boot_ncpus - 1].  Thus to prevent all
  * interrupts being targetted at CPU1, we need to use a dedicated static
@@ -1201,22 +1209,21 @@ apic_intrmap_init(int apic_mode)
 	/*
 	 * Intel Software Developer's Manual 3A, 10.12.7:
 	 *
-	 * Routing of device interrupts to local APIC units operating in
-	 * x2APIC mode requires use of the interrupt-remapping architecture
-	 * specified in the Intel Virtualization Technology for Directed
-	 * I/O, Revision 1.3.  Because of this, BIOS must enumerate support
-	 * for and software must enable this interrupt remapping with
-	 * Extended Interrupt Mode Enabled before it enabling x2APIC mode in
-	 * the local APIC units.
-	 *
+	 * Routing of device interrupts to local APIC units operating in x2APIC
+	 * mode requires use of the interrupt-remapping architecture specified
+	 * in the Intel Virtualization Technology for Directed I/O, Revision
+	 * 1.3.
 	 *
 	 * In other words, to use the APIC in x2APIC mode, we need interrupt
-	 * remapping.  Since we don't start up the IOMMU by default, we
-	 * won't be able to do any interrupt remapping and therefore have to
-	 * use the APIC in traditional 'local APIC' mode with memory mapped
-	 * I/O.
+	 * remapping, but this requirement is meaningful only when we have APIC
+	 * IDs greater than 254.  If we do, then we must start up the IOMMU so
+	 * we can do interrupt remapping before we enable x2APIC mode.
+	 *
+	 * XXX For now, the only way to end up with 256 CPUs is to have a 2S
+	 * machine with dual 64c processors and SMT enabled.  That is nominally
+	 * supported on Ethanol-X, but never on Gimlet.  This will need to be
+	 * reworked to support such configurations.
 	 */
-
 	if (psm_vt_ops != NULL) {
 		if (((apic_intrmap_ops_t *)psm_vt_ops)->
 		    apic_intrmap_init(apic_mode) == DDI_SUCCESS) {

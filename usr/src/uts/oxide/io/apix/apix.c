@@ -80,6 +80,7 @@
 #include <sys/mach_intr.h>
 #include <sys/apix.h>
 #include <sys/apix_irm_impl.h>
+#include <sys/smm.h>
 #include <sys/io/milan/fabric.h>
 #include <sys/io/milan/iohc.h>
 
@@ -184,8 +185,6 @@ static struct	psm_info apix_psm_info = {
 
 static void *apix_hdlp;
 
-static int apix_is_enabled = 0;
-
 /*
  * apix_lock is used for cpu selection and vector re-binding
  */
@@ -247,38 +246,19 @@ _info(struct modinfo *modinfop)
 static int
 apix_probe()
 {
-	int rval;
-
-	if (apix_enable == 0)
-		return (PSM_FAILURE);
-
 	/*
-	 * FIXME Temporarily disable apix module on Xen HVM platform due to
-	 * known hang during boot (see #3605).
-	 *
-	 * Please remove when/if the issue is resolved.
+	 * apic_probe_common() is responsible for enabling x2APIC mode and
+	 * updating the ops vectors to match.  It's not necessary for us to do
+	 * that here, nor do we care what the current state is: all supported
+	 * processors have x2APIC support.  This differs substantially from
+	 * i86pc, where non-x2APIC processors are supported and let firmware
+	 * decide whether x2APIC mode should be enabled if available.
 	 */
-	if (get_hwenv() & HW_XEN_HVM)
-		return (PSM_FAILURE);
-
-	if (apic_local_mode() == LOCAL_X2APIC) {
-		/* x2APIC mode activated by BIOS, switch ops */
-		apic_mode = LOCAL_X2APIC;
-		apic_change_ops();
-	}
-
-	rval = apic_probe_common(apix_psm_info.p_mach_idstring);
-	if (rval == PSM_SUCCESS)
-		apix_is_enabled = 1;
-	else
-		apix_is_enabled = 0;
-	return (rval);
+	return (apic_probe_common(apix_psm_info.p_mach_idstring));
 }
 
 /*
- * Initialize the data structures needed by pcplusmpx module.
- * Specifically, the data structures used by addspl() and delspl()
- * routines.
+ * Initialize the data structures used by addspl() and delspl() routines.
  */
 static void
 apix_softinit()
@@ -484,16 +464,12 @@ apix_init_intr()
 	}
 
 	if (nlvt >= 6) {
-		/* Only mask TM intr if the BIOS apparently doesn't use it */
-
-		uint32_t lvtval;
-
-		lvtval = apic_reg_ops->apic_read(APIC_THERM_VECT);
-		if (((lvtval & AV_MASK) == AV_MASK) ||
-		    ((lvtval & AV_DELIV_MODE) != AV_SMI)) {
-			apic_reg_ops->apic_write(APIC_THERM_VECT,
-			    AV_MASK|APIC_RESV_IRQ);
-		}
+		/*
+		 * Mask the thermal interrupt vector since we don't currently
+		 * use it.
+		 */
+		apic_reg_ops->apic_write(APIC_THERM_VECT,
+		    AV_MASK | APIC_RESV_IRQ);
 	}
 
 	/* Enable error interrupt */
@@ -552,9 +528,6 @@ ioms_enable_nmi_cb(milan_ioms_t *ioms, void *arg __unused)
 static void
 apix_picinit(void)
 {
-	int i, j;
-	uint_t isr;
-
 	APIC_VERBOSE(INIT, (CE_CONT, "apix: psm_picinit\n"));
 
 	/*
@@ -564,26 +537,6 @@ apix_picinit(void)
 	apic_intrmap_init(apic_mode);
 	if (apic_vt_ops == psm_vt_ops)
 		apix_mul_ioapic_method = APIC_MUL_IOAPIC_IIR;
-
-	/*
-	 * On UniSys Model 6520, the BIOS leaves vector 0x20 isr
-	 * bit on without clearing it with EOI.  Since softint
-	 * uses vector 0x20 to interrupt itself, so softint will
-	 * not work on this machine.  In order to fix this problem
-	 * a check is made to verify all the isr bits are clear.
-	 * If not, EOIs are issued to clear the bits.
-	 */
-	for (i = 7; i >= 1; i--) {
-		isr = apic_reg_ops->apic_read(APIC_ISR_REG + (i * 4));
-		if (isr != 0)
-			for (j = 0; ((j < 32) && (isr != 0)); j++)
-				if (isr & (1 << j)) {
-					apic_reg_ops->apic_write(
-					    APIC_EOI_REG, 0);
-					isr &= ~(1 << j);
-					apic_error |= APIC_ERR_BOOT_EOI;
-				}
-	}
 
 	/* set a flag so we know we have run apic_picinit() */
 	apic_picinit_called = 1;
@@ -1020,6 +973,7 @@ apix_post_cpu_start()
 
 	splx(ipltospl(LOCK_LEVEL));
 	apix_init_intr();
+	smm_install_handler();
 
 	/*
 	 * since some systems don't enable the internal cache on the non-boot
@@ -2440,9 +2394,13 @@ apic_switch_ipi_callback(boolean_t enter)
 	intr_restore(iflag);
 }
 
-/* stub function */
+/*
+ * Generic code expects apix to have this stub function; this module can't be
+ * unloaded unless we failed to probe, in which case we're going to panic
+ * anyway without ever sniffing userland.
+ */
 int
 apix_loaded(void)
 {
-	return (apix_is_enabled);
+	return (1);
 }

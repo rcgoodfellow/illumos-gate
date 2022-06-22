@@ -131,6 +131,7 @@
 #include <sys/clock.h>
 #include <sys/boot_data.h>
 #include <sys/memlist_impl.h>
+#include <sys/smm.h>
 #include <sys/io/milan/fabric.h>
 
 extern void mem_config_init(void);
@@ -640,6 +641,8 @@ startup(void)
 	 * fabric. This includes the SMU, DXIO, NBIO, etc.
 	 */
 	milan_fabric_init();
+	if (smm_init() != 0)
+		cmn_err(CE_WARN, "SMI handler initialisation failed");
 
 	startup_smap();
 	startup_modules();
@@ -1858,6 +1861,9 @@ startup_end(void)
 	PRM_POINT("Enabling interrupts");
 	(*picinitf)();
 	sti();
+
+	PRM_POINT("Installing SMI handler");
+	smm_install_handler();
 
 	(void) add_avsoftintr((void *)&softlevel1_hdl, 1, softlevel1,
 	    "softlevel1", NULL, NULL); /* XXX to be moved later */

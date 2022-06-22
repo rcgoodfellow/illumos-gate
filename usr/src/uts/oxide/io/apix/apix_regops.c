@@ -62,7 +62,6 @@ static void local_x2apic_write_int_cmd(uint32_t cpu_id, uint32_t cmd1);
  *	1			1	APIC is enabled in X2APIC mode
  * -----------------------------------------------------------
  */
-int	x2apic_enable = 1;
 
 /* X2APIC : Uses RDMSR/WRMSR instructions to access APIC registers */
 static apic_reg_ops_t x2apic_regs_ops = {
@@ -123,10 +122,12 @@ local_x2apic_write_int_cmd(uint32_t cpu_id, uint32_t cmd1)
 int
 apic_detect_x2apic(void)
 {
-	if (x2apic_enable == 0)
-		return (0);
+	if (!is_x86_feature(x86_featureset, X86FSET_X2APIC)) {
+		panic("x2APIC support is mandatory for this kernel but was "
+		    "not found via CPUID\n");
+	}
 
-	return (is_x86_feature(x86_featureset, X86FSET_X2APIC));
+	return (1);
 }
 
 void

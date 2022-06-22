@@ -32,6 +32,12 @@
 #ifndef _SYS_APIC_H
 #define	_SYS_APIC_H
 
+#ifdef	__cplusplus
+extern "C" {
+#endif
+
+#ifndef	_ASM
+
 #include <sys/psm_types.h>
 #include <sys/avintr.h>
 #include <sys/pci.h>
@@ -39,9 +45,7 @@
 #include <sys/acpi/acpi.h>	/* XXX needed by following */
 #include <sys/acpica.h>		/* XXX iflag_t */
 
-#ifdef	__cplusplus
-extern "C" {
-#endif
+#endif	/* !_ASM */
 
 #define	APIC_APIX_NAME		"apix"
 
@@ -102,6 +106,8 @@ extern "C" {
 /* IPL for performance counter interrupts */
 #define	APIC_PCINT_IPL		0xe
 #define	APIC_LVT_MASK		0x10000		/* Mask bit (16) in LVT */
+
+#ifndef	_ASM
 
 /* Initial Count register */
 #define	APIC_INIT_COUNT		0xe0
@@ -210,6 +216,8 @@ typedef enum apic_mode {
 #define	X2APIC_WRITE(reg, v) \
 	wrmsr((REG_X2APIC_BASE_MSR + (reg >> 2)), v)
 
+#endif	/* !_ASM */
+
 #define	MAX_IO_APIC		32	/* maximum # of IOAPICs supported */
 
 /*
@@ -250,7 +258,6 @@ typedef enum apic_mode {
 #define	AV_LDEST	0x800
 
 /* IO & Local APIC Bit Definitions */
-#define	RDT_VECTOR(x)	((uchar_t)((x) & 0xFF))
 #define	AV_PENDING	0x1000
 #define	AV_ACTIVE_LOW	0x2000		/* only for integrated APIC */
 #define	AV_REMOTE_IRR   0x4000		/* IOAPIC RDT-specific */
@@ -267,6 +274,10 @@ typedef enum apic_mode {
 /* spurious interrupt vector register					*/
 #define	AV_UNIT_ENABLE	0x100
 #define	AV_FOCUS_DISABLE	0x200
+
+#ifndef	_ASM
+
+#define	RDT_VECTOR(x)	((uchar_t)((x) & 0xFF))
 
 #define	APIC_MAXVAL	0xffffffffUL
 #define	APIC_TIME_MIN	0x5000
@@ -693,6 +704,8 @@ extern int apic_directed_EOI_supported(void);
 extern void apic_common_send_pir_ipi(processorid_t);
 
 extern apic_intrmap_ops_t *apic_vt_ops;
+
+#endif	/* !_ASM */
 
 #ifdef	__cplusplus
 }

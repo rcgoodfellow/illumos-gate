@@ -22,6 +22,7 @@
  * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <mdb/mdb_modapi.h>
@@ -50,7 +51,6 @@
 
 /* apix only */
 static apix_impl_t *d_apixs[NCPU];
-static int use_apix = 0;
 
 static int
 ttrace_ttr_size_check(void)
@@ -574,19 +574,12 @@ ttrace(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		dcmd.ttd_cpu = addr;
 	}
 
-	if (mdb_readvar(&use_apix, "apix_enable") == -1) {
-		mdb_warn("failed to read apix_enable");
-		use_apix = 0;
+	if (mdb_readvar(&d_apixs, "apixs") == -1) {
+		mdb_warn("\nfailed to read apixs.");
+		return (DCMD_ERR);
 	}
-
-	if (use_apix) {
-		if (mdb_readvar(&d_apixs, "apixs") == -1) {
-			mdb_warn("\nfailed to read apixs.");
-			return (DCMD_ERR);
-		}
-		/* change to apix ttrace interrupt handler */
-		ttrace_hdlr[4].t_hdlr = ttrace_apix_interrupt;
-	}
+	/* change to apix ttrace interrupt handler */
+	ttrace_hdlr[4].t_hdlr = ttrace_apix_interrupt;
 
 	if (mdb_walk("ttrace", (mdb_walk_cb_t)ttrace_walk, &dcmd) == -1) {
 		mdb_warn("couldn't walk 'ttrace'");

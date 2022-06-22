@@ -62,6 +62,7 @@
 #include <sys/dtrace.h>
 #include <sys/brand.h>
 #include <sys/comm_page.h>
+#include <sys/smm.h>
 
 proc		PROCSIZE
 	p_link
@@ -427,3 +428,33 @@ zone
 	zone_brand_data
 
 comm_page_s	COMM_PAGE_S_SIZE
+
+amd64_smm_state	AMD64_SMM_STATE_SIZE
+
+smm_handler	SMM_HANDLER_SIZE
+	smh_scratch
+	smh_ksmmpa
+	smh_gdt_lim
+	smh_idt_lim
+
+ksmm
+	ksmm_valid
+	ksmm_nsmi
+	ksmm_state_save
+	ksmm_msr_smi_io_trap_0
+	ksmm_msr_smi_io_trap_1
+	ksmm_msr_smi_io_trap_2
+	ksmm_msr_smi_io_trap_3
+	ksmm_msr_smi_io_trap_ctl
+	ksmm_msr_pfeh_cfg
+	ksmm_msr_pfeh_cloak_cfg
+	ksmm_msr_pfeh_def_int
+	ksmm_smi_event_status
+	ksmm_smi_capt_data
+	ksmm_smi_capt_valid
+	ksmm_smi_status_0
+	ksmm_smi_status_1
+	ksmm_smi_status_2
+	ksmm_smi_status_3
+	ksmm_smi_status_4
+	ksmm_smi_trig_0
