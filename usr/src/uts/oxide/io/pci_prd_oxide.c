@@ -22,7 +22,7 @@
 #include <sys/plat/pci_prd.h>
 #include <sys/modctl.h>
 #include <sys/pci.h>
-#include <milan/milan_fabric.h>
+#include <sys/io/milan/fabric.h>
 
 /*
  * We always just tell the system to scan all PCI buses.
