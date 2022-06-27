@@ -574,6 +574,9 @@ s lib/amd64/libzfs_core.so.1=../../usr/lib/amd64/libzfs_core.so.1
 f lib/amd64/nss_dns.so.1 0755 root bin
 f lib/amd64/nss_files.so.1 0755 root bin
 d lib/fm 0755 root bin
+s lib/fm/64=amd64
+d lib/fm/amd64 0755 root bin
+f lib/fm/amd64/libfmevent.so.1 0755 root bin
 f lib/fm/libfmevent.so.1 0755 root bin
 d lib/fs 0755 root sys
 d lib/fs/dev 0755 root sys

@@ -75,6 +75,7 @@ CORE_OBJS +=			\
 	kdi_idthdl.o		\
 	kdi_asm.o		\
 	lgrpplat.o		\
+	locore.o		\
 	mach_kdi.o		\
 	mach_sysconfig.o	\
 	machdep.o		\
@@ -122,11 +123,11 @@ MILAN_OBJS +=			\
 CORE_OBJS += $(SMBIOS_OBJS) $(MILAN_OBJS)
 
 #
-#	locore.o is special. It must be the first file relocated so that it
-#	it is relocated just where its name implies.
+# locore.o used to be special because on other architectures that's where
+# execution starts.  On the oxide architecture, execution starts at the ELF
+# entry point regardless of its location in the binary.
 #
 SPECIAL_OBJS +=			\
-	locore.o		\
 	fast_trap_asm.o		\
 	interrupt.o		\
 	syscall_asm_amd64.o	\
