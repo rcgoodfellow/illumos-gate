@@ -2470,6 +2470,7 @@ pcicfg_get_pf_mem(pcicfg_phdl_t *entry, uint32_t length, uint64_t *ans)
 		    length, ddi_get_name(entry->dip));
 }
 
+#ifdef __sparc
 static int
 pcicfg_sum_resources(dev_info_t *dip, void *hdl)
 {
@@ -2602,6 +2603,7 @@ pcicfg_sum_resources(dev_info_t *dip, void *hdl)
 		return (DDI_WALK_CONTINUE);
 	}
 }
+#endif /* __sparc */
 
 static int
 pcicfg_free_bridge_resources(dev_info_t *dip)
