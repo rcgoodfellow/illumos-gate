@@ -26,6 +26,7 @@
 # Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
 # Copyright 2019 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2021 Jason King
 #
 
 include ../Makefile.master
@@ -53,6 +54,7 @@ COMMON_SUBDIRS=		\
 	codesign	\
 	cscope-fast	\
 	env		\
+	find_elf	\
 	findunref	\
 	lintdump	\
 	make		\
@@ -108,6 +110,7 @@ ROOTDIRS=					\
 	$(ROOTONBLD)				\
 	$(ROOTONBLD)/bin			\
 	$(ROOTONBLD)/bin/$(MACH)		\
+	$(ROOTONBLD)/bin/$(MACH64)		\
 	$(ROOTONBLD)/lib			\
 	$(ROOTONBLD)/lib/$(MACH)		\
 	$(ROOTONBLD)/lib/$(MACH)/64		\
