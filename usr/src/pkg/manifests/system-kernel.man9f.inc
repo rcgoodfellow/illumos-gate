@@ -15,6 +15,7 @@
 # Copyright 2020-2021 Tintri by DDN, Inc. All rights reserved.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
 # Copyright 2019 Joyent, Inc.
+# Copyright 2022 RackTop Systems, Inc.
 # Copyright 2022 Oxide Computer Company
 #
 
@@ -818,12 +819,14 @@ link path=usr/share/man/man9f/mac_prop_info_set_perm.9f target=mac_prop_info.9f
 link path=usr/share/man/man9f/mac_prop_info_set_range_uint32.9f \
     target=mac_prop_info.9f
 file path=usr/share/man/man9f/mac_register.9f
+link path=usr/share/man/man9f/mac_ring_rx.9f target=mac_rx.9f
 file path=usr/share/man/man9f/mac_rx.9f
 file path=usr/share/man/man9f/mac_transceiver_info.9f
 link path=usr/share/man/man9f/mac_transceiver_info_set_present.9f \
     target=mac_transceiver_info.9f
 link path=usr/share/man/man9f/mac_transceiver_info_set_usable.9f \
     target=mac_transceiver_info.9f
+link path=usr/share/man/man9f/mac_tx_ring_update.9f target=mac_tx_update.9f
 file path=usr/share/man/man9f/mac_tx_update.9f
 link path=usr/share/man/man9f/mac_unregister.9f target=mac_register.9f
 file path=usr/share/man/man9f/makecom.9f
@@ -1201,6 +1204,8 @@ link path=usr/share/man/man9f/scsi_hba_pkt_free.9f target=scsi_hba_pkt_alloc.9f
 file path=usr/share/man/man9f/scsi_hba_probe.9f
 file path=usr/share/man/man9f/scsi_hba_tgtmap_create.9f
 link path=usr/share/man/man9f/scsi_hba_tgtmap_destroy.9f \
+    target=scsi_hba_tgtmap_create.9f
+link path=usr/share/man/man9f/scsi_hba_tgtmap_scan_luns.9f \
     target=scsi_hba_tgtmap_create.9f
 link path=usr/share/man/man9f/scsi_hba_tgtmap_set_add.9f \
     target=scsi_hba_tgtmap_create.9f
