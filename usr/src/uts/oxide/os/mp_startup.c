@@ -1446,6 +1446,7 @@ start_cpu(processorid_t who)
 	cpu_t *cp;
 	int error = 0;
 	cpuset_t tempset;
+	hrtime_t spin = 2 * drv_hztousec(1) * (NANOSEC / MICROSEC), start;
 
 	ASSERT(who != 0);
 
@@ -1477,10 +1478,30 @@ start_cpu(processorid_t who)
 		return (error);
 	}
 
+	start = gethrtime();
+
 	mutex_exit(&cpu_lock);
 	tempset = cpu_ready_set;
 	while (!CPU_IN_SET(tempset, who)) {
-		drv_usecwait(1);
+		/*
+		 * We have kicked our CPU and now we want to wait for it to
+		 * become ready. Because the act of bringing a CPU online can
+		 * require interrupt threads to clear out on all CPUs (viz.
+		 * apix_wait_till_seen()), we must not spin arbitrarily here:
+		 * it's regrettably easy for interrupt threads to become
+		 * blocked on threads to whom they don't will priority (e.g.,
+		 * via cv_wait(9F)) and especially when the system doesn't
+		 * have many CPUs (i.e., early in boot), depriving the system
+		 * of the CPU that it needs to make forward progress could
+		 * result in livelock. We therefore spin the equivalent of
+		 * two ticks, and then block for a tick at a time thereafter.
+		 */
+		if (gethrtime() - start < spin) {
+			drv_usecwait(1);
+		} else {
+			delay(1);
+		}
+
 		tempset = *((volatile cpuset_t *)&cpu_ready_set);
 	}
 	mutex_enter(&cpu_lock);
