@@ -59,6 +59,7 @@
 #include <sys/io/milan/nbif_impl.h>
 #include <sys/io/milan/pcie.h>
 #include <sys/io/milan/pcie_impl.h>
+#include <sys/io/milan/smu_impl.h>
 
 #include <asm/bitmap.h>
 
@@ -74,80 +75,6 @@
  * this consolidated, hence this wacky include path.
  */
 #include <io/amdzen/amdzen.h>
-
-/*
- * SMN addresses to reach the SMU for RPCs.
- */
-#define	MILAN_SMU_SMN_RPC_REQ	0x3b10530
-#define	MILAN_SMU_SMN_RPC_RESP	0x3b1057c
-#define	MILAN_SMU_SMN_RPC_ARG0	0x3b109c4
-#define	MILAN_SMU_SMN_RPC_ARG1	0x3b109c8
-#define	MILAN_SMU_SMN_RPC_ARG2	0x3b109cc
-#define	MILAN_SMU_SMN_RPC_ARG3	0x3b109d0
-#define	MILAN_SMU_SMN_RPC_ARG4	0x3b109d4
-#define	MILAN_SMU_SMN_RPC_ARG5	0x3b109d8
-
-/*
- * SMU RPC Response codes
- */
-#define	MILAN_SMU_RPC_NOTDONE	0x00
-#define	MILAN_SMU_RPC_OK	0x01
-#define	MILAN_SMU_RPC_EBUSY	0xfc
-#define	MILAN_SMU_RPC_EPREREQ	0xfd
-#define	MILAN_SMU_RPC_EUNKNOWN	0xfe
-#define	MILAN_SMU_RPC_ERROR	0xff
-
-/*
- * SMU RPC Operation Codes. Note, these are tied to firmware and therefore may
- * not be portable between Rome, Milan, or other processors.
- */
-#define	MILAN_SMU_OP_TEST		0x01
-#define	MILAN_SMU_OP_GET_VERSION	0x02
-#define	MILAN_SMU_OP_GET_VERSION_MAJOR(x)	bitx32(x, 23, 16)
-#define	MILAN_SMU_OP_GET_VERSION_MINOR(x)	bitx32(x, 15, 8)
-#define	MILAN_SMU_OP_GET_VERSION_PATCH(x)	bitx32(x, 7, 0)
-#define	MILAN_SMU_OP_ENABLE_FEATURE	0x03
-#define	MILAN_SMU_OP_DISABLE_FEATURE	0x04
-#define	MILAN_SMU_OP_HAVE_AN_ADDRESS	0x05
-#define	MILAN_SMU_OP_TOOLS_ADDRESS	0x06
-#define	MILAN_SMU_OP_DEBUG_ADDRESS	0x07
-#define	MILAN_SMU_OP_DXIO		0x08
-#define	MILAN_SMU_OP_DC_BOOT_CALIB	0x0c
-#define	MILAN_SMU_OP_GET_BRAND_STRING	0x0d
-#define	MILAN_SMU_OP_TX_PP_TABLE	0x10
-#define	MILAN_SMU_OP_TX_PCIE_HP_TABLE	0x12
-#define	MILAN_SMU_OP_START_HOTPLUG	0x18
-#define	MILAN_SMU_OP_START_HOTPLUG_POLL		0x10
-#define	MILAN_SMU_OP_START_HOTPLUG_FWFIRST	0x20
-#define	MILAN_SMU_OP_START_HOTPLUG_RESET	0x40
-#define	MILAN_SMU_OP_I2C_SWITCH_ADDR	0x1a
-#define	MILAN_SMU_OP_SET_HOPTLUG_FLAGS	0x1d
-#define	MILAN_SMU_OP_SET_POWER_GATE	0x2a
-#define	MILAN_SMU_OP_MAX_ALL_CORES_FREQ	0x2b
-#define	MILAN_SMU_OP_SET_NBIO_LCLK	0x34
-#define	MILAN_SMU_OP_SET_L3_CREDIT_MODE	0x35
-#define	MILAN_SMU_OP_FLL_BOOT_CALIB	0x37
-#define	MILAN_SMU_OP_DC_SOC_BOOT_CALIB	0x38
-#define	MILAN_SMU_OP_HSMP_PAY_ATTN	0x41
-#define	MILAN_SMU_OP_SET_APML_FLOOD	0x42
-#define	MILAN_SMU_OP_FDD_BOOT_CALIB	0x43
-#define	MILAN_SMU_OP_VDDCR_CPU_LIMIT	0x44
-#define	MILAN_SMU_OP_SET_EDC_TRACK	0x45
-#define	MILAN_SMU_OP_SET_DF_IRRITATOR	0x46
-
-/*
- * A structure that can be used to pass around a SMU RPC request.
- */
-typedef struct milan_smu_rpc {
-	uint32_t	msr_req;
-	uint32_t	msr_resp;
-	uint32_t	msr_arg0;
-	uint32_t	msr_arg1;
-	uint32_t	msr_arg2;
-	uint32_t	msr_arg3;
-	uint32_t	msr_arg4;
-	uint32_t	msr_arg5;
-} milan_smu_rpc_t;
 
 /*
  * This is a structure that we can use internally to pass around a DXIO RPC
@@ -1276,6 +1203,623 @@ milan_fabric_ioms_nbif_init(milan_ioms_t *ioms)
 	}
 }
 
+static boolean_t
+milan_smu_version_at_least(const milan_iodie_t *iodie,
+    const uint8_t major, const uint8_t minor, const uint8_t patch)
+{
+	return (iodie->mi_smu_fw[0] > major ||
+	    (iodie->mi_smu_fw[0] == major && iodie->mi_smu_fw[1] > minor) ||
+	    (iodie->mi_smu_fw[0] == major && iodie->mi_smu_fw[1] == minor &&
+	    iodie->mi_smu_fw[2] >= patch));
+}
+
+/*
+ * Create DMA attributes that are appropriate for the SMU. In particular, we
+ * know experimentally that there is usually a 32-bit length register for DMA
+ * and generally a 64-bit address register. There aren't many other bits that we
+ * actually know here, as such, we generally end up making some assumptions out
+ * of paranoia in an attempt at safety. In particular, we assume and ask for
+ * page alignment here.
+ *
+ * XXX Remove 32-bit addr_hi constraint.
+ */
+static void
+milan_smu_dma_attr(ddi_dma_attr_t *attr)
+{
+	bzero(attr, sizeof (attr));
+	attr->dma_attr_version = DMA_ATTR_V0;
+	attr->dma_attr_addr_lo = 0;
+	attr->dma_attr_addr_hi = UINT32_MAX;
+	attr->dma_attr_count_max = UINT32_MAX;
+	attr->dma_attr_align = MMU_PAGESIZE;
+	attr->dma_attr_minxfer = 1;
+	attr->dma_attr_maxxfer = UINT32_MAX;
+	attr->dma_attr_seg = UINT32_MAX;
+	attr->dma_attr_sgllen = 1;
+	attr->dma_attr_granular = 1;
+	attr->dma_attr_flags = 0;
+}
+
+static void
+milan_smu_rpc(milan_iodie_t *iodie, milan_smu_rpc_t *rpc)
+{
+	uint32_t resp;
+
+	mutex_enter(&iodie->mi_smu_lock);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_RESP, MILAN_SMU_RPC_NOTDONE);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG0, rpc->msr_arg0);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG1, rpc->msr_arg1);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG2, rpc->msr_arg2);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG3, rpc->msr_arg3);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG4, rpc->msr_arg4);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG5, rpc->msr_arg5);
+	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_REQ, rpc->msr_req);
+
+	/*
+	 * XXX Infinite spins are bad, but we don't even have drv_usecwait yet.
+	 * When we add a timeout this should then return an int.
+	 */
+	for (;;) {
+		resp = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_RESP);
+		if (resp != MILAN_SMU_RPC_NOTDONE) {
+			break;
+		}
+	}
+
+	rpc->msr_resp = resp;
+	if (rpc->msr_resp == MILAN_SMU_RPC_OK) {
+		rpc->msr_arg0 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG0);
+		rpc->msr_arg1 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG1);
+		rpc->msr_arg2 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG2);
+		rpc->msr_arg3 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG3);
+		rpc->msr_arg4 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG4);
+		rpc->msr_arg5 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG5);
+	}
+	mutex_exit(&iodie->mi_smu_lock);
+}
+
+static boolean_t
+milan_smu_rpc_get_version(milan_iodie_t *iodie, uint8_t *major, uint8_t *minor,
+    uint8_t *patch)
+{
+	milan_smu_rpc_t rpc = { 0 };
+
+	rpc.msr_req = MILAN_SMU_OP_GET_VERSION;
+	milan_smu_rpc(iodie, &rpc);
+	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
+		return (B_FALSE);
+	}
+
+	*major = MILAN_SMU_OP_GET_VERSION_MAJOR(rpc.msr_arg0);
+	*minor = MILAN_SMU_OP_GET_VERSION_MINOR(rpc.msr_arg0);
+	*patch = MILAN_SMU_OP_GET_VERSION_PATCH(rpc.msr_arg0);
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_smu_rpc_i2c_switch(milan_iodie_t *iodie, uint32_t addr)
+{
+	milan_smu_rpc_t rpc = { 0 };
+
+	rpc.msr_req = MILAN_SMU_OP_I2C_SWITCH_ADDR;
+	rpc.msr_arg0 = addr;
+	milan_smu_rpc(iodie, &rpc);
+
+	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
+		cmn_err(CE_WARN, "SMU Set i2c address RPC Failed: addr: 0x%x, "
+		    "SMU 0x%x", addr, rpc.msr_resp);
+	}
+
+	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
+}
+
+static boolean_t
+milan_smu_rpc_give_address(milan_iodie_t *iodie, milan_smu_addr_kind_t kind,
+    uint64_t addr)
+{
+	milan_smu_rpc_t rpc = { 0 };
+
+	switch (kind) {
+	case MSAK_GENERIC:
+		rpc.msr_req = MILAN_SMU_OP_HAVE_AN_ADDRESS;
+		break;
+	case MSAK_HOTPLUG:
+		/*
+		 * For a long time, hotplug table addresses were provided to the
+		 * SMU in the same manner as any others; however, in recent
+		 * versions there is a separate RPC for that.
+		 */
+		rpc.msr_req = milan_smu_version_at_least(iodie, 45, 90, 0) ?
+		    MILAN_SMU_OP_HAVE_A_HP_ADDRESS :
+		    MILAN_SMU_OP_HAVE_AN_ADDRESS;
+		break;
+	default:
+		panic("invalid SMU address kind %d", (int)kind);
+	}
+	rpc.msr_arg0 = bitx64(addr, 31, 0);
+	rpc.msr_arg1 = bitx64(addr, 63, 32);
+	milan_smu_rpc(iodie, &rpc);
+
+	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
+		cmn_err(CE_WARN, "SMU Have an Address RPC Failed: addr: 0x%lx, "
+		    "SMU req 0x%x resp 0x%x", addr, rpc.msr_req, rpc.msr_resp);
+	}
+
+	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
+
+}
+
+static boolean_t
+milan_smu_rpc_send_hotplug_table(milan_iodie_t *iodie)
+{
+	milan_smu_rpc_t rpc = { 0 };
+
+	rpc.msr_req = MILAN_SMU_OP_TX_PCIE_HP_TABLE;
+	milan_smu_rpc(iodie, &rpc);
+
+	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
+		cmn_err(CE_WARN, "SMU TX Hotplug Table Failed: SMU 0x%x",
+		    rpc.msr_resp);
+	}
+
+	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
+}
+
+static boolean_t
+milan_smu_rpc_hotplug_flags(milan_iodie_t *iodie, uint32_t flags)
+{
+	milan_smu_rpc_t rpc = { 0 };
+
+	rpc.msr_req = MILAN_SMU_OP_SET_HOPTLUG_FLAGS;
+	rpc.msr_arg0 = flags;
+	milan_smu_rpc(iodie, &rpc);
+
+	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
+		cmn_err(CE_WARN, "SMU Set Hotplug Flags failed: SMU 0x%x",
+		    rpc.msr_resp);
+	}
+
+	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
+}
+static boolean_t
+milan_smu_rpc_start_hotplug(milan_iodie_t *iodie, boolean_t one_based,
+    uint8_t flags)
+{
+	milan_smu_rpc_t rpc = { 0 };
+
+	rpc.msr_req = MILAN_SMU_OP_START_HOTPLUG;
+	if (one_based) {
+		rpc.msr_arg0 = 1;
+	}
+	rpc.msr_arg0 |= flags;
+	milan_smu_rpc(iodie, &rpc);
+
+	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
+		cmn_err(CE_WARN, "SMU Start Yer Hotplug Failed: SMU 0x%x",
+		    rpc.msr_resp);
+	}
+
+	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
+}
+
+/*
+ * buf and len semantics here match those of snprintf
+ */
+static boolean_t
+milan_smu_rpc_read_brand_string(milan_iodie_t *iodie, char *buf, size_t len)
+{
+	milan_smu_rpc_t rpc = { 0 };
+	uint_t off;
+
+	len = MIN(len, CPUID_BRANDSTR_STRLEN + 1);
+	buf[len - 1] = '\0';
+	rpc.msr_req = MILAN_SMU_OP_GET_BRAND_STRING;
+
+	for (off = 0; off * 4 < len - 1; off++) {
+		rpc.msr_arg0 = off;
+		milan_smu_rpc(iodie, &rpc);
+
+		if (rpc.msr_resp != MILAN_SMU_RPC_OK)
+			return (B_FALSE);
+
+		bcopy(&rpc.msr_arg0, buf + off * 4, len - off * 4);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_version_at_least(const milan_iodie_t *iodie,
+    const uint32_t major, const uint32_t minor)
+{
+	return (iodie->mi_dxio_fw[0] > major ||
+	    (iodie->mi_dxio_fw[0] == major && iodie->mi_dxio_fw[1] >= minor));
+}
+
+static void
+milan_dxio_rpc(milan_iodie_t *iodie, milan_dxio_rpc_t *dxio_rpc)
+{
+	milan_smu_rpc_t smu_rpc = { 0 };
+
+	smu_rpc.msr_req = MILAN_SMU_OP_DXIO;
+	smu_rpc.msr_arg0 = dxio_rpc->mdr_req;
+	smu_rpc.msr_arg1 = dxio_rpc->mdr_engine;
+	smu_rpc.msr_arg2 = dxio_rpc->mdr_arg0;
+	smu_rpc.msr_arg3 = dxio_rpc->mdr_arg1;
+	smu_rpc.msr_arg4 = dxio_rpc->mdr_arg2;
+	smu_rpc.msr_arg5 = dxio_rpc->mdr_arg3;
+
+	milan_smu_rpc(iodie, &smu_rpc);
+
+	dxio_rpc->mdr_smu_resp = smu_rpc.msr_resp;
+	if (smu_rpc.msr_resp == MILAN_SMU_RPC_OK) {
+		dxio_rpc->mdr_dxio_resp = smu_rpc.msr_arg0;
+		dxio_rpc->mdr_engine = smu_rpc.msr_arg1;
+		dxio_rpc->mdr_arg0 = smu_rpc.msr_arg2;
+		dxio_rpc->mdr_arg1 = smu_rpc.msr_arg3;
+		dxio_rpc->mdr_arg2 = smu_rpc.msr_arg4;
+		dxio_rpc->mdr_arg3 = smu_rpc.msr_arg5;
+	}
+}
+
+static boolean_t
+milan_dxio_rpc_get_version(milan_iodie_t *iodie, uint32_t *major,
+    uint32_t *minor)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_GET_VERSION;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO Get Version RPC Failed: SMU 0x%x, "
+		    "DXIO: 0x%x", rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	*major = rpc.mdr_arg0;
+	*minor = rpc.mdr_arg1;
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_init(milan_iodie_t *iodie)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_INIT;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO Init RPC Failed: SMU 0x%x, DXIO: 0x%x",
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_set_var(milan_iodie_t *iodie, uint32_t var, uint32_t val)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_SET_VARIABLE;
+	rpc.mdr_engine = var;
+	rpc.mdr_arg0 = val;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
+	    rpc.mdr_dxio_resp == MILAN_DXIO_RPC_MBOX_IDLE)) {
+		cmn_err(CE_WARN, "DXIO Set Variable Failed: Var: 0x%x, "
+		    "Val: 0x%x, SMU 0x%x, DXIO: 0x%x", var, val,
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_pcie_poweroff_config(milan_iodie_t *iodie, uint8_t delay,
+    boolean_t disable_prep)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_SET_VARIABLE;
+	rpc.mdr_engine = MILAN_DXIO_VAR_PCIE_POWER_OFF_DELAY;
+	rpc.mdr_arg0 = delay;
+	rpc.mdr_arg1 = disable_prep ? 1 : 0;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
+	    rpc.mdr_dxio_resp == MILAN_DXIO_RPC_MBOX_IDLE)) {
+		cmn_err(CE_WARN, "DXIO Set PCIe Power Off Config Failed: "
+		    "Delay: 0x%x, Disable Prep: 0x%x, SMU 0x%x, DXIO: 0x%x",
+		    delay, disable_prep, rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_clock_gating(milan_iodie_t *iodie, uint8_t mask, uint8_t val)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	/*
+	 * The mask and val are only allowed to be 7-bit values.
+	 */
+	VERIFY0(mask & 0x80);
+	VERIFY0(val & 0x80);
+	rpc.mdr_req = MILAN_DXIO_OP_SET_RUNTIME_PROP;
+	rpc.mdr_engine = MILAN_DXIO_ENGINE_PCIE;
+	rpc.mdr_arg0 = MILAN_DXIO_RT_CONF_CLOCK_GATE;
+	rpc.mdr_arg1 = mask;
+	rpc.mdr_arg2 = val;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO Clock Gating Failed: SMU 0x%x, "
+		    "DXIO: 0x%x", rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+/*
+ * Currently there are no capabilities defined, which makes it hard for us to
+ * know the exact command layout here. The only thing we know is safe is that
+ * it's all zeros, though it probably otherwise will look like
+ * MILAN_DXIO_OP_LOAD_DATA.
+ */
+static boolean_t
+milan_dxio_rpc_load_caps(milan_iodie_t *iodie)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_LOAD_CAPS;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO Load Caps Failed: SMU 0x%x, DXIO: 0x%x",
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_load_data(milan_iodie_t *iodie, uint32_t type,
+    uint64_t phys_addr, uint32_t len, uint32_t mystery)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_LOAD_DATA;
+	rpc.mdr_engine = (uint32_t)(phys_addr >> 32);
+	rpc.mdr_arg0 = phys_addr & 0xffffffff;
+	rpc.mdr_arg1 = len / 4;
+	rpc.mdr_arg2 = mystery;
+	rpc.mdr_arg3 = type;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO Load Data Failed: Heap: 0x%x, PA: "
+		    "0x%lx, Len: 0x%x, SMU 0x%x, DXIO: 0x%x", type, phys_addr,
+		    len, rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_conf_training(milan_iodie_t *iodie, uint32_t reset_time,
+    uint32_t rx_poll, uint32_t l0_poll)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_SET_RUNTIME_PROP;
+	rpc.mdr_engine = MILAN_DXIO_ENGINE_PCIE;
+	rpc.mdr_arg0 = MILAN_DXIO_RT_CONF_PCIE_TRAIN;
+	rpc.mdr_arg1 = reset_time;
+	rpc.mdr_arg2 = rx_poll;
+	rpc.mdr_arg3 = l0_poll;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK)) {
+		cmn_err(CE_WARN, "DXIO Conf. PCIe Training RPC Failed: "
+		    "SMU 0x%x, DXIO: 0x%x", rpc.mdr_smu_resp,
+		    rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+/*
+ * This is a hodgepodge RPC that is used to set various rt configuration
+ * properties.
+ */
+static boolean_t
+milan_dxio_rpc_misc_rt_conf(milan_iodie_t *iodie, uint32_t code,
+    boolean_t state)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_SET_RUNTIME_PROP;
+	rpc.mdr_engine = MILAN_DXIO_ENGINE_NONE;
+	rpc.mdr_arg0 = MILAN_DXIO_RT_SET_CONF;
+	rpc.mdr_arg1 = code;
+	rpc.mdr_arg2 = state ? 1 : 0;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK)) {
+		cmn_err(CE_WARN, "DXIO Set Misc. rt conf failed: Code: 0x%x, "
+		    "Val: 0x%x, SMU 0x%x, DXIO: 0x%x", code, state,
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_sm_start(milan_iodie_t *iodie)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_START_SM;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO SM Start RPC Failed: SMU 0x%x, "
+		    "DXIO: 0x%x",
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_sm_resume(milan_iodie_t *iodie)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_RESUME_SM;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO SM Start RPC Failed: SMU 0x%x, "
+		    "DXIO: 0x%x",
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static boolean_t
+milan_dxio_rpc_sm_reload(milan_iodie_t *iodie)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_RELOAD_SM;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO SM Reload RPC Failed: SMU 0x%x, "
+		    "DXIO: 0x%x",
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+
+static boolean_t
+milan_dxio_rpc_sm_getstate(milan_iodie_t *iodie, milan_dxio_reply_t *smp)
+{
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_GET_SM_STATE;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO SM Start RPC Failed: SMU 0x%x, "
+		    "DXIO: 0x%x",
+		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	smp->mds_type = bitx64(rpc.mdr_engine, 7, 0);
+	smp->mds_nargs = bitx64(rpc.mdr_engine, 16, 8);
+	smp->mds_arg0 = rpc.mdr_arg0;
+	smp->mds_arg1 = rpc.mdr_arg1;
+	smp->mds_arg2 = rpc.mdr_arg2;
+	smp->mds_arg3 = rpc.mdr_arg3;
+
+	return (B_TRUE);
+}
+
+/*
+ * Retrieve the current engine data from DXIO.
+ */
+static boolean_t
+milan_dxio_rpc_retrieve_engine(milan_iodie_t *iodie)
+{
+	milan_dxio_config_t *conf = &iodie->mi_dxio_conf;
+	milan_dxio_rpc_t rpc = { 0 };
+
+	rpc.mdr_req = MILAN_DXIO_OP_GET_ENGINE_CFG;
+	rpc.mdr_engine = (uint32_t)(conf->mdc_pa >> 32);
+	rpc.mdr_arg0 = conf->mdc_pa & 0xffffffff;
+	rpc.mdr_arg1 = conf->mdc_alloc_len / 4;
+
+	milan_dxio_rpc(iodie, &rpc);
+	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
+	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
+		cmn_err(CE_WARN, "DXIO Retrieve Engine Failed: SMU 0x%x, "
+		    "DXIO: 0x%x", rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
+		return (B_FALSE);
+	}
+
+	return (B_TRUE);
+}
+
+static int
+milan_dump_versions(milan_iodie_t *iodie, void *arg)
+{
+	uint8_t maj, min, patch;
+	uint32_t dxmaj, dxmin;
+	milan_soc_t *soc = iodie->mi_soc;
+
+	if (milan_smu_rpc_get_version(iodie, &maj, &min, &patch)) {
+		cmn_err(CE_NOTE, "Socket %u SMU Version: %u.%u.%u",
+		    soc->ms_socno, maj, min, patch);
+		iodie->mi_smu_fw[0] = maj;
+		iodie->mi_smu_fw[1] = min;
+		iodie->mi_smu_fw[2] = patch;
+	} else {
+		cmn_err(CE_NOTE, "Socket %u: failed to read SMU version",
+		    soc->ms_socno);
+	}
+
+	if (milan_dxio_rpc_get_version(iodie, &dxmaj, &dxmin)) {
+		cmn_err(CE_NOTE, "Socket %u DXIO Version: %u.%u",
+		    soc->ms_socno, dxmaj, dxmin);
+		iodie->mi_dxio_fw[0] = dxmaj;
+		iodie->mi_dxio_fw[1] = dxmin;
+	} else {
+		cmn_err(CE_NOTE, "Socket %u: failed to read DXIO version",
+		    soc->ms_socno);
+	}
+
+	return (0);
+}
+
 static void
 milan_ccx_init_core(milan_ccx_t *ccx, uint8_t lidx, uint8_t pidx)
 {
@@ -1677,6 +2221,14 @@ milan_fabric_topo_init(void)
 			milan_fabric_ioms_nbif_init(ioms);
 		}
 
+		/*
+		 * In order to guarantee that we can safely perform SMU and DXIO
+		 * functions once we have returned (and when we go to read the
+		 * brand string for the CCXs even before then), we go through
+		 * now and capture firmware versions.
+		 */
+		VERIFY0(milan_dump_versions(iodie, NULL));
+
 		milan_ccx_init_soc(soc);
 		if (!milan_smu_rpc_read_brand_string(iodie, soc->ms_brandstr,
 		    sizeof (soc->ms_brandstr))) {
@@ -1690,588 +2242,6 @@ milan_fabric_topo_init(void)
 		nthreads = NCPU;
 	}
 	boot_max_ncpus = max_ncpus = boot_ncpus = nthreads;
-}
-
-/*
- * Create DMA attributes that are appropriate for the SMU. In particular, we
- * know experimentally that there is usually a 32-bit length register for DMA
- * and generally a 64-bit address register. There aren't many other bits that we
- * actually know here, as such, we generally end up making some assumptions out
- * of paranoia in an attempt at safety. In particular, we assume and ask for
- * page alignment here.
- *
- * XXX Remove 32-bit addr_hi constraint.
- */
-static void
-milan_smu_dma_attr(ddi_dma_attr_t *attr)
-{
-	bzero(attr, sizeof (attr));
-	attr->dma_attr_version = DMA_ATTR_V0;
-	attr->dma_attr_addr_lo = 0;
-	attr->dma_attr_addr_hi = UINT32_MAX;
-	attr->dma_attr_count_max = UINT32_MAX;
-	attr->dma_attr_align = MMU_PAGESIZE;
-	attr->dma_attr_minxfer = 1;
-	attr->dma_attr_maxxfer = UINT32_MAX;
-	attr->dma_attr_seg = UINT32_MAX;
-	attr->dma_attr_sgllen = 1;
-	attr->dma_attr_granular = 1;
-	attr->dma_attr_flags = 0;
-}
-
-static void
-milan_smu_rpc(milan_iodie_t *iodie, milan_smu_rpc_t *rpc)
-{
-	uint32_t resp;
-
-	mutex_enter(&iodie->mi_smu_lock);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_RESP, MILAN_SMU_RPC_NOTDONE);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG0, rpc->msr_arg0);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG1, rpc->msr_arg1);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG2, rpc->msr_arg2);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG3, rpc->msr_arg3);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG4, rpc->msr_arg4);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG5, rpc->msr_arg5);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_REQ, rpc->msr_req);
-
-	/*
-	 * XXX Infinite spins are bad, but we don't even have drv_usecwait yet.
-	 * When we add a timeout this should then return an int.
-	 */
-	for (;;) {
-		resp = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_RESP);
-		if (resp != MILAN_SMU_RPC_NOTDONE) {
-			break;
-		}
-	}
-
-	rpc->msr_resp = resp;
-	if (rpc->msr_resp == MILAN_SMU_RPC_OK) {
-		rpc->msr_arg0 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG0);
-		rpc->msr_arg1 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG1);
-		rpc->msr_arg2 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG2);
-		rpc->msr_arg3 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG3);
-		rpc->msr_arg4 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG4);
-		rpc->msr_arg5 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG5);
-	}
-	mutex_exit(&iodie->mi_smu_lock);
-}
-
-static boolean_t
-milan_smu_rpc_get_version(milan_iodie_t *iodie, uint8_t *major, uint8_t *minor,
-    uint8_t *patch)
-{
-	milan_smu_rpc_t rpc = { 0 };
-
-	rpc.msr_req = MILAN_SMU_OP_GET_VERSION;
-	milan_smu_rpc(iodie, &rpc);
-	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
-		return (B_FALSE);
-	}
-
-	*major = MILAN_SMU_OP_GET_VERSION_MAJOR(rpc.msr_arg0);
-	*minor = MILAN_SMU_OP_GET_VERSION_MINOR(rpc.msr_arg0);
-	*patch = MILAN_SMU_OP_GET_VERSION_PATCH(rpc.msr_arg0);
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_smu_rpc_i2c_switch(milan_iodie_t *iodie, uint32_t addr)
-{
-	milan_smu_rpc_t rpc = { 0 };
-
-	rpc.msr_req = MILAN_SMU_OP_I2C_SWITCH_ADDR;
-	rpc.msr_arg0 = addr;
-	milan_smu_rpc(iodie, &rpc);
-
-	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
-		cmn_err(CE_WARN, "SMU Set i2c address RPC Failed: addr: 0x%x, "
-		    "SMU 0x%x", addr, rpc.msr_resp);
-	}
-
-	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
-}
-
-static boolean_t
-milan_smu_rpc_give_address(milan_iodie_t *iodie, uint64_t addr)
-{
-	milan_smu_rpc_t rpc = { 0 };
-
-	rpc.msr_req = MILAN_SMU_OP_HAVE_AN_ADDRESS;
-	rpc.msr_arg0 = bitx64(addr, 31, 0);
-	rpc.msr_arg1 = bitx64(addr, 63, 32);
-	milan_smu_rpc(iodie, &rpc);
-
-	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
-		cmn_err(CE_WARN, "SMU Have an Address RPC Failed: addr: 0x%lx, "
-		    "SMU 0x%x", addr, rpc.msr_resp);
-	}
-
-	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
-
-}
-
-static boolean_t
-milan_smu_rpc_send_hotplug_table(milan_iodie_t *iodie)
-{
-	milan_smu_rpc_t rpc = { 0 };
-
-	rpc.msr_req = MILAN_SMU_OP_TX_PCIE_HP_TABLE;
-	milan_smu_rpc(iodie, &rpc);
-
-	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
-		cmn_err(CE_WARN, "SMU TX Hotplug Table Failed: SMU 0x%x",
-		    rpc.msr_resp);
-	}
-
-	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
-}
-
-static boolean_t
-milan_smu_rpc_hotplug_flags(milan_iodie_t *iodie, uint32_t flags)
-{
-	milan_smu_rpc_t rpc = { 0 };
-
-	rpc.msr_req = MILAN_SMU_OP_SET_HOPTLUG_FLAGS;
-	rpc.msr_arg0 = flags;
-	milan_smu_rpc(iodie, &rpc);
-
-	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
-		cmn_err(CE_WARN, "SMU Set Hotplug Flags failed: SMU 0x%x",
-		    rpc.msr_resp);
-	}
-
-	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
-}
-static boolean_t
-milan_smu_rpc_start_hotplug(milan_iodie_t *iodie, boolean_t one_based,
-    uint8_t flags)
-{
-	milan_smu_rpc_t rpc = { 0 };
-
-	rpc.msr_req = MILAN_SMU_OP_START_HOTPLUG;
-	if (one_based) {
-		rpc.msr_arg0 = 1;
-	}
-	rpc.msr_arg0 |= flags;
-	milan_smu_rpc(iodie, &rpc);
-
-	if (rpc.msr_resp != MILAN_SMU_RPC_OK) {
-		cmn_err(CE_WARN, "SMU Start Yer Hotplug Failed: SMU 0x%x",
-		    rpc.msr_resp);
-	}
-
-	return (rpc.msr_resp == MILAN_SMU_RPC_OK);
-}
-
-/*
- * buf and len semantics here match those of snprintf
- */
-static boolean_t
-milan_smu_rpc_read_brand_string(milan_iodie_t *iodie, char *buf, size_t len)
-{
-	milan_smu_rpc_t rpc = { 0 };
-	uint_t off;
-
-	len = MIN(len, CPUID_BRANDSTR_STRLEN + 1);
-	buf[len - 1] = '\0';
-	rpc.msr_req = MILAN_SMU_OP_GET_BRAND_STRING;
-
-	for (off = 0; off * 4 < len - 1; off++) {
-		rpc.msr_arg0 = off;
-		milan_smu_rpc(iodie, &rpc);
-
-		if (rpc.msr_resp != MILAN_SMU_RPC_OK)
-			return (B_FALSE);
-
-		bcopy(&rpc.msr_arg0, buf + off * 4, len - off * 4);
-	}
-
-	return (B_TRUE);
-}
-
-static void
-milan_dxio_rpc(milan_iodie_t *iodie, milan_dxio_rpc_t *dxio_rpc)
-{
-	milan_smu_rpc_t smu_rpc = { 0 };
-
-	smu_rpc.msr_req = MILAN_SMU_OP_DXIO;
-	smu_rpc.msr_arg0 = dxio_rpc->mdr_req;
-	smu_rpc.msr_arg1 = dxio_rpc->mdr_engine;
-	smu_rpc.msr_arg2 = dxio_rpc->mdr_arg0;
-	smu_rpc.msr_arg3 = dxio_rpc->mdr_arg1;
-	smu_rpc.msr_arg4 = dxio_rpc->mdr_arg2;
-	smu_rpc.msr_arg5 = dxio_rpc->mdr_arg3;
-
-	milan_smu_rpc(iodie, &smu_rpc);
-
-	dxio_rpc->mdr_smu_resp = smu_rpc.msr_resp;
-	if (smu_rpc.msr_resp == MILAN_SMU_RPC_OK) {
-		dxio_rpc->mdr_dxio_resp = smu_rpc.msr_arg0;
-		dxio_rpc->mdr_engine = smu_rpc.msr_arg1;
-		dxio_rpc->mdr_arg0 = smu_rpc.msr_arg2;
-		dxio_rpc->mdr_arg1 = smu_rpc.msr_arg3;
-		dxio_rpc->mdr_arg2 = smu_rpc.msr_arg4;
-		dxio_rpc->mdr_arg3 = smu_rpc.msr_arg5;
-	}
-}
-
-static boolean_t
-milan_dxio_rpc_get_version(milan_iodie_t *iodie, uint32_t *major,
-    uint32_t *minor)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_GET_VERSION;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO Get Version RPC Failed: SMU 0x%x, "
-		    "DXIO: 0x%x", rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	*major = rpc.mdr_arg0;
-	*minor = rpc.mdr_arg1;
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_init(milan_iodie_t *iodie)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_INIT;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO Init RPC Failed: SMU 0x%x, DXIO: 0x%x",
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_set_var(milan_iodie_t *iodie, uint32_t var, uint32_t val)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_SET_VARIABLE;
-	rpc.mdr_engine = var;
-	rpc.mdr_arg0 = val;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
-	    rpc.mdr_dxio_resp == MILAN_DXIO_RPC_MBOX_IDLE)) {
-		cmn_err(CE_WARN, "DXIO Set Variable Failed: Var: 0x%x, "
-		    "Val: 0x%x, SMU 0x%x, DXIO: 0x%x", var, val,
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_pcie_poweroff_config(milan_iodie_t *iodie, uint8_t delay,
-    boolean_t disable_prep)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_SET_VARIABLE;
-	rpc.mdr_engine = MILAN_DXIO_VAR_PCIE_POWER_OFF_DELAY;
-	rpc.mdr_arg0 = delay;
-	rpc.mdr_arg1 = disable_prep ? 1 : 0;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
-	    rpc.mdr_dxio_resp == MILAN_DXIO_RPC_MBOX_IDLE)) {
-		cmn_err(CE_WARN, "DXIO Set PCIe Power Off Config Failed: "
-		    "Delay: 0x%x, Disable Prep: 0x%x, SMU 0x%x, DXIO: 0x%x",
-		    delay, disable_prep, rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_clock_gating(milan_iodie_t *iodie, uint8_t mask, uint8_t val)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	/*
-	 * The mask and val are only allowed to be 7-bit values.
-	 */
-	VERIFY0(mask & 0x80);
-	VERIFY0(val & 0x80);
-	rpc.mdr_req = MILAN_DXIO_OP_SET_RUNTIME_PROP;
-	rpc.mdr_engine = MILAN_DXIO_ENGINE_PCIE;
-	rpc.mdr_arg0 = MILAN_DXIO_RT_CONF_CLOCK_GATE;
-	rpc.mdr_arg1 = mask;
-	rpc.mdr_arg2 = val;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO Clock Gating Failed: SMU 0x%x, "
-		    "DXIO: 0x%x", rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-/*
- * Currently there are no capabilities defined, which makes it hard for us to
- * know the exact command layout here. The only thing we know is safe is that
- * it's all zeros, though it probably otherwise will look like
- * MILAN_DXIO_OP_LOAD_DATA.
- */
-static boolean_t
-milan_dxio_rpc_load_caps(milan_iodie_t *iodie)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_LOAD_CAPS;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO Load Caps Failed: SMU 0x%x, DXIO: 0x%x",
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_load_data(milan_iodie_t *iodie, uint32_t type,
-    uint64_t phys_addr, uint32_t len, uint32_t mystery)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_LOAD_DATA;
-	rpc.mdr_engine = (uint32_t)(phys_addr >> 32);
-	rpc.mdr_arg0 = phys_addr & 0xffffffff;
-	rpc.mdr_arg1 = len / 4;
-	rpc.mdr_arg2 = mystery;
-	rpc.mdr_arg3 = type;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO Load Data Failed: Heap: 0x%x, PA: "
-		    "0x%lx, Len: 0x%x, SMU 0x%x, DXIO: 0x%x", type, phys_addr,
-		    len, rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_conf_training(milan_iodie_t *iodie, uint32_t reset_time,
-    uint32_t rx_poll, uint32_t l0_poll)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_SET_RUNTIME_PROP;
-	rpc.mdr_engine = MILAN_DXIO_ENGINE_PCIE;
-	rpc.mdr_arg0 = MILAN_DXIO_RT_CONF_PCIE_TRAIN;
-	rpc.mdr_arg1 = reset_time;
-	rpc.mdr_arg2 = rx_poll;
-	rpc.mdr_arg3 = l0_poll;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK)) {
-		cmn_err(CE_WARN, "DXIO Conf. PCIe Training RPC Failed: "
-		    "SMU 0x%x, DXIO: 0x%x", rpc.mdr_smu_resp,
-		    rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-/*
- * This is a hodgepodge RPC that is used to set various rt configuration
- * properties.
- */
-static boolean_t
-milan_dxio_rpc_misc_rt_conf(milan_iodie_t *iodie, uint32_t code,
-    boolean_t state)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_SET_RUNTIME_PROP;
-	rpc.mdr_engine = MILAN_DXIO_ENGINE_NONE;
-	rpc.mdr_arg0 = MILAN_DXIO_RT_SET_CONF;
-	rpc.mdr_arg1 = code;
-	rpc.mdr_arg2 = state ? 1 : 0;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    !(rpc.mdr_dxio_resp == MILAN_DXIO_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK)) {
-		cmn_err(CE_WARN, "DXIO Set Misc. rt conf failed: Code: 0x%x, "
-		    "Val: 0x%x, SMU 0x%x, DXIO: 0x%x", code, state,
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_sm_start(milan_iodie_t *iodie)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_START_SM;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO SM Start RPC Failed: SMU 0x%x, "
-		    "DXIO: 0x%x",
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_sm_resume(milan_iodie_t *iodie)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_RESUME_SM;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO SM Start RPC Failed: SMU 0x%x, "
-		    "DXIO: 0x%x",
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static boolean_t
-milan_dxio_rpc_sm_reload(milan_iodie_t *iodie)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_RELOAD_SM;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO SM Reload RPC Failed: SMU 0x%x, "
-		    "DXIO: 0x%x",
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-
-static boolean_t
-milan_dxio_rpc_sm_getstate(milan_iodie_t *iodie, milan_dxio_reply_t *smp)
-{
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_GET_SM_STATE;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO SM Start RPC Failed: SMU 0x%x, "
-		    "DXIO: 0x%x",
-		    rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	smp->mds_type = bitx64(rpc.mdr_engine, 7, 0);
-	smp->mds_nargs = bitx64(rpc.mdr_engine, 16, 8);
-	smp->mds_arg0 = rpc.mdr_arg0;
-	smp->mds_arg1 = rpc.mdr_arg1;
-	smp->mds_arg2 = rpc.mdr_arg2;
-	smp->mds_arg3 = rpc.mdr_arg3;
-
-	return (B_TRUE);
-}
-
-/*
- * Retrieve the current engine data from DXIO.
- */
-static boolean_t
-milan_dxio_rpc_retrieve_engine(milan_iodie_t *iodie)
-{
-	milan_dxio_config_t *conf = &iodie->mi_dxio_conf;
-	milan_dxio_rpc_t rpc = { 0 };
-
-	rpc.mdr_req = MILAN_DXIO_OP_GET_ENGINE_CFG;
-	rpc.mdr_engine = (uint32_t)(conf->mdc_pa >> 32);
-	rpc.mdr_arg0 = conf->mdc_pa & 0xffffffff;
-	rpc.mdr_arg1 = conf->mdc_alloc_len / 4;
-
-	milan_dxio_rpc(iodie, &rpc);
-	if (rpc.mdr_smu_resp != MILAN_SMU_RPC_OK ||
-	    rpc.mdr_dxio_resp != MILAN_DXIO_RPC_OK) {
-		cmn_err(CE_WARN, "DXIO Retrieve Engine Failed: SMU 0x%x, "
-		    "DXIO: 0x%x", rpc.mdr_smu_resp, rpc.mdr_dxio_resp);
-		return (B_FALSE);
-	}
-
-	return (B_TRUE);
-}
-
-static int
-milan_dump_versions(milan_iodie_t *iodie, void *arg)
-{
-	uint8_t maj, min, patch;
-	uint32_t dxmaj, dxmin;
-	milan_soc_t *soc = iodie->mi_soc;
-
-	if (milan_smu_rpc_get_version(iodie, &maj, &min, &patch)) {
-		cmn_err(CE_NOTE, "Socket %u SMU Version: %u.%u.%u",
-		    soc->ms_socno, maj, min, patch);
-		iodie->mi_smu_fw[0] = maj;
-		iodie->mi_smu_fw[1] = min;
-		iodie->mi_smu_fw[2] = patch;
-	} else {
-		cmn_err(CE_NOTE, "Socket %u: failed to read SMU version",
-		    soc->ms_socno);
-	}
-
-	if (milan_dxio_rpc_get_version(iodie, &dxmaj, &dxmin)) {
-		cmn_err(CE_NOTE, "Socket %u DXIO Version: %u.%u",
-		    soc->ms_socno, dxmaj, dxmin);
-		iodie->mi_dxio_fw[0] = dxmaj;
-		iodie->mi_dxio_fw[1] = dxmin;
-	} else {
-		cmn_err(CE_NOTE, "Socket %u: failed to read DXIO version",
-		    soc->ms_socno);
-	}
-
-	return (0);
 }
 
 /*
@@ -2982,15 +2952,13 @@ milan_dxio_init(milan_iodie_t *iodie, void *arg)
 	 * This seems to configure behavior when the link is going down and
 	 * power off. We explicitly ask for no delay. The latter argument is
 	 * about disabling another command (which we don't use), but to keep
-	 * firmware in its expected path we don't set that.
-	 *
-	 * XXX Not in 1.0.0.1
+	 * firmware in its expected path we don't set that.  Older DXIO firmware
+	 * doesn't support this so we skip it there.
 	 */
-#if 0
-	if (!milan_dxio_rpc_pcie_poweroff_config(iodie, 0, B_FALSE)) {
+	if (milan_dxio_version_at_least(iodie, 45, 682) &&
+	    !milan_dxio_rpc_pcie_poweroff_config(iodie, 0, B_FALSE)) {
 		return (1);
 	}
-#endif
 
 	/*
 	 * Next we set a couple of variables that are required for us to
@@ -4654,7 +4622,7 @@ milan_hotplug_init(milan_fabric_t *fabric)
 		}
 	}
 
-	if (!milan_smu_rpc_give_address(iodie, hp->mh_pa)) {
+	if (!milan_smu_rpc_give_address(iodie, MSAK_HOTPLUG, hp->mh_pa)) {
 		return (B_FALSE);
 	}
 
@@ -4808,13 +4776,9 @@ milan_fabric_init(void)
 	milan_fabric_walk_ioms(fabric, milan_fabric_init_nbif_bridge, NULL);
 
 	/*
-	 * Go ahead and begin everything with DXIO and the SMU. In particular,
-	 * we go through now and capture versions before we go through and do
-	 * DXIO initialisation so we can use these. Currently we do all of our
-	 * initial DXIO training for PCIe before we enable features that have to
-	 * do with the SMU. XXX Cargo Culting.
+	 * Currently we do all of our initial DXIO training for PCIe before we
+	 * enable features that have to do with the SMU. XXX Cargo Culting.
 	 */
-	(void) milan_fabric_walk_iodie(fabric, milan_dump_versions, NULL);
 
 	/*
 	 * It's time to begin the dxio initialization process. We do this in a
