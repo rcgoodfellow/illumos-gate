@@ -123,3 +123,8 @@ milan_thread_apicid(const milan_thread_t *thread)
 {
 	return (thread->mt_apicid);
 }
+
+void
+milan_ccx_init(void)
+{
+}

@@ -780,7 +780,7 @@ startup_init()
 	/*
 	 * Complete the extraction of cpuid data
 	 */
-	cpuid_pass2(CPU);
+	cpuid_execpass(CPU, CPUID_PASS_EXTENDED, NULL);
 
 	(void) check_boot_version(BOP_GETVERSION(bootops));
 
@@ -1960,7 +1960,7 @@ startup_vm(void)
 	/*
 	 * Mangle the brand string etc.
 	 */
-	cpuid_pass3(CPU);
+	cpuid_execpass(CPU, CPUID_PASS_DYNAMIC, NULL);
 
 	/*
 	 * Create the device arena for toxic (to dtrace/kmdb) mappings.

@@ -222,13 +222,18 @@ mlsetup(struct regs *rp)
 #endif
 
 	/*
+	 * i86pc doesn't require anything in between cpuid passes 0 and 1; we
+	 * assume that a BIOS has already set up any necessary cpuid feature
+	 * bits, so we run both passes together here.
+	 *
 	 * The x86_featureset is initialized here based on the capabilities
 	 * of the boot CPU.  Note that if we choose to support CPUs that have
 	 * different feature sets (at which point we would almost certainly
 	 * want to set the feature bits to correspond to the feature
 	 * minimum) this value may be altered.
 	 */
-	cpuid_pass1(cpu[0], x86_featureset);
+	cpuid_execpass(cpu[0], CPUID_PASS_IDENT, x86_featureset);
+	cpuid_execpass(cpu[0], CPUID_PASS_BASIC, x86_featureset);
 
 #if !defined(__xpv)
 	if ((get_hwenv() & HW_XEN_HVM) != 0)

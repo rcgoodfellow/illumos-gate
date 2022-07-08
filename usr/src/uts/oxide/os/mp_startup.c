@@ -221,8 +221,8 @@ init_cpu_info(struct cpu *cp)
 	 * If called for the BSP, cp is equal to current CPU.
 	 * For non-BSPs, cpuid info of cp is not ready yet, so use cpuid info
 	 * of current CPU as default values for cpu_idstr and cpu_brandstr.
-	 * They will be corrected in mp_startup() after cpuid_pass1() has been
-	 * invoked on target CPU.
+	 * They will be corrected in mp_startup() after CPUID_PASS_DYNAMIC has
+	 * been invoked on target CPU.
 	 */
 	(void) cpuid_getidstr(CPU, cp->cpu_idstr, CPU_IDSTRLEN);
 	(void) cpuid_getbrandstr(CPU, cp->cpu_brandstr, CPU_IDSTRLEN);
@@ -1657,9 +1657,11 @@ mp_startup(void)
 	 * many things use gethrtime/pc_gethrestime, including
 	 * interrupts, cmn_err, etc.
 	 */
-	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
 	milan_ccx_set_brandstr();
-	cpuid_pass1(cp, new_x86_featureset);
+	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
+	cpuid_execpass(cp, CPUID_PASS_IDENT, new_x86_featureset);
+	milan_ccx_init();
+	cpuid_execpass(cp, CPUID_PASS_BASIC, new_x86_featureset);
 
 	/*
 	 * XXX Move this stuff somewhere suitable.  In principle, ap_mlsetup()
@@ -1763,13 +1765,13 @@ mp_startup(void)
 		xsave_setup_msr(cp);
 	}
 
-	cpuid_pass2(cp);
-	cpuid_pass3(cp);
-	cpuid_pass4(cp, NULL);
+	cpuid_execpass(cp, CPUID_PASS_EXTENDED, NULL);
+	cpuid_execpass(cp, CPUID_PASS_DYNAMIC, NULL);
+	cpuid_execpass(cp, CPUID_PASS_RESOLVE, NULL);
 
 	/*
 	 * Correct cpu_idstr and cpu_brandstr on target CPU after
-	 * cpuid_pass1() is done.
+	 * CPUID_PASS_DYNAMIC is done.
 	 */
 	(void) cpuid_getidstr(cp, cp->cpu_idstr, CPU_IDSTRLEN);
 	(void) cpuid_getbrandstr(cp, cp->cpu_brandstr, CPU_IDSTRLEN);

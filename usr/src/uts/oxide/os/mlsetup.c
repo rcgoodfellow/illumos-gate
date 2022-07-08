@@ -251,42 +251,52 @@ mlsetup(struct regs *rp)
 	CPU->cpu_pri = 12;		/* initial PIL for the boot CPU */
 
 	/*
-	 * lgrp_init() and possibly cpuid_pass1() need PCI config
-	 * space access
+	 * PCI config space access is required for fabric setup.
 	 */
 	pcie_cfgspace_init();
 
 	/*
-	 * with PCIe up and running, set up our data structures for tracking the
-	 * Milan topology so we can use the at later parts of the build.  We
-	 * need to probe out the CCXs before we can set mcpu_hwthread, and we
-	 * need mcpu_hwthread to set up brand strings for cpuid.
+	 * With PCIe up and running and our basic identity known, set up our
+	 * data structures for tracking the Milan topology so we can use the at
+	 * later parts of the build.  We need to probe out the CCXs before we
+	 * can set mcpu_hwthread, and we need mcpu_hwthread to set up brand
+	 * strings for cpuid pass 0.
 	 */
 	milan_fabric_topo_init();
 	CPU->cpu_m.mcpu_hwthread =
 	    milan_fabric_find_thread_by_cpuid(CPU->cpu_id);
-	milan_ccx_set_brandstr();
 
+	/*
+	 * Figure out what kind of CPU this is via pass 0.  We need this before
+	 * pass 1 so that we can perform CCX setup properly; this is also the
+	 * end of the line for any unsupported CPU that has somehow gotten this
+	 * far.  determine_platform() does very little on the oxide arch but
+	 * needs to be run before pass 0 also.
+	 */
 	determine_platform();
+	milan_ccx_set_brandstr();
+	cpuid_execpass(cpu[0], CPUID_PASS_IDENT, x86_featureset);
+
+	/*
+	 * Now go through and set up the BSP's thread-, core-, and CCX-specific
+	 * registers.  This includes registers that control what cpuid returns
+	 * so it must be done before pass 1.  This will be run on APs later on.
+	 */
+	milan_ccx_init();
 
 	/*
 	 * The x86_featureset is initialized here based on the capabilities
 	 * of the boot CPU.  Note that if we choose to support CPUs that have
 	 * different feature sets (at which point we would almost certainly
-	 * want to set the feature bits to correspond to the feature
-	 * minimum) this value may be altered.
+	 * want to set the feature bits to correspond to the feature minimum)
+	 * this value may be altered.
 	 */
-	cpuid_pass1(cpu[0], x86_featureset);
+	cpuid_execpass(cpu[0], CPUID_PASS_BASIC, x86_featureset);
 
 	/*
 	 * Patch the tsc_read routine with appropriate set of instructions,
 	 * depending on the processor family and architecure, to read the
 	 * time-stamp counter while ensuring no out-of-order execution.
-	 * Patch it while the kernel text is still writable.
-	 *
-	 * XXX But (a) kernel text isn't writable because our loader honours
-	 * the ELF permissions flags, and (b) we support only processors that
-	 * have rdtscp, though it is *not* architectural.  Hmm!
 	 */
 	if (is_x86_feature(x86_featureset, X86FSET_TSCP)) {
 		patch_tsc_read(TSC_TSCP);

@@ -55,6 +55,7 @@ extern void milan_ccx_mmio_init(uint64_t, boolean_t);
 extern void milan_ccx_physmem_init(void);
 extern boolean_t milan_ccx_start_thread(const milan_thread_t *);
 extern void milan_ccx_set_brandstr(void);
+extern void milan_ccx_init(void);
 
 /* Walker callback function types */
 typedef int (*milan_thread_cb_f)(milan_thread_t *, void *);
