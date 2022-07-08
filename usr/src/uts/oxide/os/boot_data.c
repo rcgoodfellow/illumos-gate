@@ -29,6 +29,7 @@
 #include <sys/boot_data.h>
 #include <sys/apic_common.h>
 #include <sys/modctl.h>
+#include <sys/x86_archext.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -189,6 +190,11 @@ genunix_set_tunables(void)
 	 * XXX Temporary for bringup: don't automatically unload modules.
 	 */
 	moddebug |= MODDEBUG_NOAUTOUNLOAD;
+
+	/*
+	 * We don't support running in a virtual environment.
+	 */
+	enable_platform_detection = 0;
 }
 
 #ifdef	__cplusplus

@@ -1235,8 +1235,6 @@ extern uint_t x86_clflush_size;
 
 extern uint_t pentiumpro_bug4046376;
 
-extern const char CyrixInstead[];
-
 /*
  * These functions are all used to perform various side-channel mitigations.
  * Please see uts/i86pc/os/cpuid.c for more information.
@@ -1415,6 +1413,8 @@ extern void xsave_setup_msr(struct cpu *);
 #if !defined(__xpv)
 extern void reset_gdtr_limit(void);
 #endif
+
+extern int enable_platform_detection;
 
 /*
  * Hypervisor signatures

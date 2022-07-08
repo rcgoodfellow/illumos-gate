@@ -27,6 +27,7 @@
  * Copyright (c) 2015 by Delphix. All rights reserved.
  * Copyright 2020 Oxide Computer Company
  * Copyright (c) 2020 Carlos Neira <cneirabustos@gmail.com>
+ * Copyright 2022 Oxide Computer Co.
  */
 /*
  * Copyright (c) 2010, Intel Corporation.
@@ -3090,16 +3091,11 @@ setx86isalist(void)
 		}
 		/*FALLTHROUGH*/
 	case X86_VENDOR_Cyrix:
-		/*
-		 * The Cyrix 6x86 does not have any Pentium features
-		 * accessible while not at privilege level 0.
-		 */
-		if (is_x86_feature(x86_featureset, X86FSET_CPUID)) {
-			(void) strcat(tp, "pentium");
-			(void) strcat(tp,
-			    is_x86_feature(x86_featureset, X86FSET_MMX) ?
-			    "+mmx pentium " : " ");
-		}
+		ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
+		(void) strcat(tp, "pentium");
+		(void) strcat(tp,
+		    is_x86_feature(x86_featureset, X86FSET_MMX) ?
+		    "+mmx pentium " : " ");
 		break;
 	default:
 		break;

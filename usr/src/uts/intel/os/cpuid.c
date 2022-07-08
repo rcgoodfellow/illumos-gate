@@ -199,12 +199,10 @@
  * ------------
  *
  * As part of performing feature detection, we break this into several different
- * passes. The passes are as follows:
- *
- *	Pass 0		This is a primordial pass done in locore.s to deal with
- *			Cyrix CPUs that don't support cpuid. The reality is that
- *			we likely don't run on them any more, but there is still
- *			logic for handling them.
+ * passes. There used to be a pass 0 that was done from assembly in locore.s to
+ * support processors that have a missing or broken cpuid instruction (notably
+ * certain Cyrix processors) but those were all 32-bit processors which are no
+ * longer supported. The passes now are as follows:
  *
  *	Pass 1		This is the primary pass and is responsible for doing a
  *			large number of different things:
@@ -265,10 +263,9 @@
  *			rescan are security related features today. See
  *			cpuid_pass_ucode().
  *
- * All of the passes (except pass 0) are run on all CPUs. However, for the most
- * part we only care about what the boot CPU says about this information and use
- * the other CPUs as a rough guide to sanity check that we have the same feature
- * set.
+ * All of the passes are run on all CPUs. However, for the most part we only
+ * care about what the boot CPU says about this information and use the other
+ * CPUs as a rough guide to sanity check that we have the same feature set.
  *
  * We do not support running multiple logical CPUs with disjoint, let alone
  * different, feature sets.
@@ -2490,7 +2487,7 @@ cpuid_amd_get_coreid(cpu_t *cpu)
  *     synthesize this case by using cpu->cpu_id.  This scheme does not,
  *     however, guarantee that sibling cores of a chip will have sequential
  *     coreids starting at a multiple of the number of cores per chip - that is
- *     usually the case, but if the ACPI MADT table is presented in a different
+ *     usually the case, but if the APIC IDs have been set up in a different
  *     order then we need to perform a few more gymnastics for the pkgcoreid.
  *
  *  2. In families 0x15 and 16x (Bulldozer and co.) the cores came in groups
@@ -3382,6 +3379,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			cpu->cpu_m.mcpu_cpi = &cpuid_info0;
 	}
 
+	/*
+	 * We don't run on any processor that doesn't have cpuid, and could not
+	 * possibly have arrived here.
+	 */
 	add_x86_feature(featureset, X86FSET_CPUID);
 
 	cpi = cpu->cpu_m.mcpu_cpi;
@@ -4814,9 +4815,7 @@ intel_cpubrand(const struct cpuid_info *cpi)
 {
 	int i;
 
-	if (!is_x86_feature(x86_featureset, X86FSET_CPUID) ||
-	    cpi->cpi_maxeax < 1 || cpi->cpi_family < 5)
-		return ("i486");
+	ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
 
 	switch (cpi->cpi_family) {
 	case 5:
@@ -4948,9 +4947,7 @@ intel_cpubrand(const struct cpuid_info *cpi)
 static const char *
 amd_cpubrand(const struct cpuid_info *cpi)
 {
-	if (!is_x86_feature(x86_featureset, X86FSET_CPUID) ||
-	    cpi->cpi_maxeax < 1 || cpi->cpi_family < 5)
-		return ("i486 compatible");
+	ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
 
 	switch (cpi->cpi_family) {
 	case 5:
@@ -5018,10 +5015,7 @@ amd_cpubrand(const struct cpuid_info *cpi)
 static const char *
 cyrix_cpubrand(struct cpuid_info *cpi, uint_t type)
 {
-	if (!is_x86_feature(x86_featureset, X86FSET_CPUID) ||
-	    cpi->cpi_maxeax < 1 || cpi->cpi_family < 5 ||
-	    type == X86_TYPE_CYRIX_486)
-		return ("i486 compatible");
+	ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
 
 	switch (type) {
 	case X86_TYPE_CYRIX_6x86:
@@ -6957,9 +6951,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 			    "clock-frequency", (int)mul);
 	}
 
-	if (!is_x86_feature(x86_featureset, X86FSET_CPUID)) {
-		return;
-	}
+	ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
 
 	/* vendor-id */
 	(void) ndi_prop_update_string(DDI_DEV_T_NONE, cpu_devi,
@@ -7368,11 +7360,9 @@ cpuid_deep_cstates_supported(void)
 	struct cpuid_regs regs;
 
 	ASSERT(cpuid_checkpass(CPU, 1));
+	ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
 
 	cpi = CPU->cpu_m.mcpu_cpi;
-
-	if (!is_x86_feature(x86_featureset, X86FSET_CPUID))
-		return (0);
 
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
@@ -7380,7 +7370,7 @@ cpuid_deep_cstates_supported(void)
 			return (0);
 
 		/*
-		 * TSC run at a constant rate in all ACPI C-states?
+		 * Does TSC run at a constant rate in all C-states?
 		 */
 		regs.cp_eax = 0x80000007;
 		(void) __cpuid_insn(&regs);
@@ -7513,9 +7503,9 @@ cpuid_iepb_supported(struct cpu *cp)
 	struct cpuid_regs regs;
 
 	ASSERT(cpuid_checkpass(cp, 1));
+	ASSERT(is_x86_feature(x86_featureset, X86FSET_CPUID));
 
-	if (!(is_x86_feature(x86_featureset, X86FSET_CPUID)) ||
-	    !(is_x86_feature(x86_featureset, X86FSET_MSR))) {
+	if (!(is_x86_feature(x86_featureset, X86FSET_MSR))) {
 		return (0);
 	}
 

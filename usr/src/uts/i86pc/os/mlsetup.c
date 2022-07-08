@@ -222,10 +222,6 @@ mlsetup(struct regs *rp)
 #endif
 
 	/*
-	 * The first lightweight pass (pass0) through the cpuid data
-	 * was done in locore before mlsetup was called.  Do the next
-	 * pass in C code.
-	 *
 	 * The x86_featureset is initialized here based on the capabilities
 	 * of the boot CPU.  Note that if we choose to support CPUs that have
 	 * different feature sets (at which point we would almost certainly

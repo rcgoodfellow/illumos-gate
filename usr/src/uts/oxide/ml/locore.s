@@ -42,7 +42,6 @@
 #include <sys/privregs.h>
 #include <sys/psw.h>
 #include <sys/reboot.h>
-#include <sys/x86_archext.h>
 #include <sys/machparam.h>
 
 #include <sys/segments.h>
@@ -168,11 +167,6 @@
 	orq	$_CONST(CR0_WP|CR0_AM), %rax
 	andq	$_BITNOT(CR0_WT|CR0_CE), %rax
 	movq	%rax, %cr0
-
-	/*
-	 * (We just assert this works by virtue of being here)
-	 */
-	btsl	$X86FSET_CPUID, x86_featureset(%rip)
 
 	/*
 	 * mlsetup() gets called with a struct regs as argument, while
