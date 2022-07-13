@@ -114,7 +114,7 @@ struct cmi_hdl_ops {
 	uint_t (*cmio_strandid)(cmi_hdl_impl_t *);
 	uint_t (*cmio_procnodes_per_pkg)(cmi_hdl_impl_t *);
 	uint_t (*cmio_strand_apicid)(cmi_hdl_impl_t *);
-	uint32_t (*cmio_chiprev)(cmi_hdl_impl_t *);
+	x86_chiprev_t (*cmio_chiprev)(cmi_hdl_impl_t *);
 	const char *(*cmio_chiprevstr)(cmi_hdl_impl_t *);
 	uint32_t (*cmio_getsockettype)(cmi_hdl_impl_t *);
 	const char *(*cmio_getsocketstr)(cmi_hdl_impl_t *);
@@ -656,7 +656,7 @@ ntv_smb_bboard(cmi_hdl_impl_t *hdl)
 	return (hdl->cmih_smb_bboard);
 }
 
-static uint32_t
+static x86_chiprev_t
 ntv_chiprev(cmi_hdl_impl_t *hdl)
 {
 	return (cpuid_getchiprev(HDLPRIV(hdl)));
@@ -1250,7 +1250,7 @@ CMI_HDL_OPFUNC(coreid, uint_t)
 CMI_HDL_OPFUNC(strandid, uint_t)
 CMI_HDL_OPFUNC(procnodes_per_pkg, uint_t)
 CMI_HDL_OPFUNC(strand_apicid, uint_t)
-CMI_HDL_OPFUNC(chiprev, uint32_t)
+CMI_HDL_OPFUNC(chiprev, x86_chiprev_t)
 CMI_HDL_OPFUNC(chiprevstr, const char *)
 CMI_HDL_OPFUNC(getsockettype, uint32_t)
 CMI_HDL_OPFUNC(getsocketstr, const char *)
