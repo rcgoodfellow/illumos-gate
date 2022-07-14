@@ -12,7 +12,7 @@ index 4342f8d6dd..630d4c629e 100644
  install1: mapfiles closedbins sgs
  
 diff --git a/usr/src/cmd/Makefile b/usr/src/cmd/Makefile
-index 4f496112e8..e3966f4378 100644
+index c510361f60..8a25f716d1 100644
 --- a/usr/src/cmd/Makefile
 +++ b/usr/src/cmd/Makefile
 @@ -233,7 +233,6 @@ COMMON_SUBDIRS=		\
@@ -117,10 +117,10 @@ index 7a30bdc609..dca444f35b 100644
  #include <zlib.h>
  #include "pnglite.h"
 diff --git a/usr/src/lib/Makefile b/usr/src/lib/Makefile
-index d1a33d262d..0a8c029045 100644
+index 5d7b9fb816..9d8b1d3546 100644
 --- a/usr/src/lib/Makefile
 +++ b/usr/src/lib/Makefile
-@@ -259,9 +259,6 @@ SUBDIRS +=				\
+@@ -258,9 +258,6 @@ SUBDIRS +=				\
  	pkcs11		\
  	policykit	\
  	print		\
@@ -130,7 +130,7 @@ index d1a33d262d..0a8c029045 100644
  	raidcfg_plugins	\
  	rpcsec_gss	\
  	sasl_plugins	\
-@@ -355,7 +352,6 @@ MSGSUBDIRS=		\
+@@ -354,7 +351,6 @@ MSGSUBDIRS=		\
  	madv		\
  	mpss		\
  	pam_modules	\
