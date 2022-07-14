@@ -168,8 +168,11 @@ int (*psm_cpu_get_devinfo)(cpu_t *, dev_info_t **) = NULL;
 ddi_irm_pool_t *apix_irm_pool_p = NULL;
 
 /*
- * True if the generic TSC code is our source of hrtime, rather than whatever
- * the PSM can provide.
+ * XXX This is used only by nominally machdep code.  Since it cannot be changed
+ * on this architecture -- we always have and use the TSC -- we could remove it
+ * and tidy the code nicely.  However, it's still here for now to leave us the
+ * flexibility to consolidate some of the consumers into generic code since the
+ * TSC has nothing to do with the machine architecture.
  */
 int tsc_gethrtime_enable = 1;
 int tsc_gethrtime_initted = 0;

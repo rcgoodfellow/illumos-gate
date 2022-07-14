@@ -274,13 +274,12 @@ mlsetup(struct regs *rp)
 
 	/*
 	 * Figure out what kind of CPU this is via pass 0.  We need this before
-	 * pass 1 so that we can perform CCX setup properly; this is also the
-	 * end of the line for any unsupported CPU that has somehow gotten this
-	 * far.  determine_platform() does very little on the oxide arch but
-	 * needs to be run before pass 0 also.
+	 * subsequent passes so that we can perform CCX setup properly; this is
+	 * also the end of the line for any unsupported CPU that has somehow
+	 * gotten this far.  determine_platform() does very little on the oxide
+	 * arch but needs to be run before pass 0 also.
 	 */
 	determine_platform();
-	milan_ccx_set_brandstr();
 	cpuid_execpass(cpu[0], CPUID_PASS_IDENT, NULL);
 
 	/*

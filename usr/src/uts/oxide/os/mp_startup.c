@@ -1651,13 +1651,7 @@ mp_startup(void)
 	uchar_t new_x86_featureset[BT_SIZEOFMAP(NUM_X86_FEATURES)];
 	extern void cpu_event_init_cpu(cpu_t *);
 
-	/*
-	 * We need to get TSC on this proc synced (i.e., any delta
-	 * from cpu0 accounted for) as soon as we can, because many
-	 * many things use gethrtime/pc_gethrestime, including
-	 * interrupts, cmn_err, etc.
-	 */
-	milan_ccx_set_brandstr();
+	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG, B_FALSE);
 	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
 	cpuid_execpass(cp, CPUID_PASS_PRELUDE, new_x86_featureset);
 	cpuid_execpass(cp, CPUID_PASS_IDENT, NULL);
@@ -1665,15 +1659,11 @@ mp_startup(void)
 	cpuid_execpass(cp, CPUID_PASS_BASIC, new_x86_featureset);
 
 	/*
-	 * XXX Move this stuff somewhere suitable.  In principle, ap_mlsetup()
-	 * is the right place, but that's currently part of the PSM subsystem
-	 * we took from i86pc.  It's less and less clear that PSM makes sense
-	 * for us, as it's mostly about interrupts.  On i86pc, the local APIC
-	 * mechanism is central to AP startup so this tie-in makes some sense.
-	 * That's not the case here.  This needs to be figured out properly.
+	 * We need to get TSC on this proc synced (i.e., any delta
+	 * from cpu0 accounted for) as soon as we can, because many
+	 * many things use gethrtime/pc_gethrestime, including
+	 * interrupts, cmn_err, etc.
 	 */
-	wrmsr(0xc00110e2, 0x00022afa00080018UL);
-	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG, B_FALSE);
 
 	/* Let the control CPU continue into tsc_sync_master() */
 	mp_startup_signal(&procset_slave, cp->cpu_id);
