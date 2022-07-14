@@ -851,17 +851,27 @@ f usr/bin/amd64/pwait 0555 root bin
 f usr/bin/amd64/sort 0555 root bin
 f usr/bin/amd64/truss 0555 root bin
 h usr/bin/awk=usr/bin/nawk
+h usr/bin/bg=usr/bin/alias
 f usr/bin/cat 0555 root bin
+h usr/bin/cd=usr/bin/alias
 f usr/bin/cp 0555 root bin
 f usr/bin/chgrp 0555 root bin
 f usr/bin/chmod 0555 root bin
 f usr/bin/chown 0555 root bin
+h usr/bin/cksum=usr/bin/alias
 f usr/bin/clear 0555 root bin
+h usr/bin/cmp=usr/bin/alias
+h usr/bin/comm=usr/bin/alias
+h usr/bin/command=usr/bin/alias
 f usr/bin/coreadm 0555 root bin
 h usr/bin/cut=usr/bin/alias
 f usr/bin/date 0555 root bin
 s usr/bin/df=../sbin/df
+h usr/bin/fc=usr/bin/alias
+h usr/bin/fg=usr/bin/alias
+h usr/bin/getopts=usr/bin/alias
 f usr/bin/grep 0555 root bin
+h usr/bin/hash=usr/bin/alias
 f usr/bin/head 0555 root bin
 f usr/bin/hostname 0555 root bin
 d usr/bin/i86 0755 root bin
@@ -869,6 +879,9 @@ f usr/bin/i86/ksh93 0555 root bin
 f usr/bin/i86/mdb 0555 root bin
 f usr/bin/isainfo 0555 root bin
 f usr/bin/isalist 0555 root bin
+h usr/bin/jobs=usr/bin/alias
+h usr/bin/join=usr/bin/alias
+h usr/bin/kill=usr/bin/alias
 h usr/bin/ksh=usr/lib/isaexec
 h usr/bin/ksh93=usr/lib/isaexec
 f usr/bin/kstat 0555 root bin
@@ -884,6 +897,7 @@ f usr/bin/mpstat 0555 root bin
 h usr/bin/mv=usr/bin/cp
 f usr/bin/nawk 0555 root bin
 h usr/bin/pargs=usr/lib/isaexec
+h usr/bin/paste=usr/bin/alias
 h usr/bin/pauxv=usr/lib/isaexec
 h usr/bin/pcred=usr/lib/isaexec
 h usr/bin/penv=usr/lib/isaexec
@@ -899,6 +913,7 @@ h usr/bin/ppgsz=usr/lib/isaexec
 h usr/bin/ppriv=usr/lib/isaexec
 h usr/bin/prctl=usr/lib/isaexec
 h usr/bin/preap=usr/lib/isaexec
+h usr/bin/print=usr/bin/alias
 h usr/bin/prstat=usr/lib/isaexec
 h usr/bin/prun=usr/lib/isaexec
 h usr/bin/psecflags=usr/lib/isaexec
@@ -909,6 +924,8 @@ h usr/bin/ptime=usr/lib/isaexec
 h usr/bin/ptree=usr/lib/isaexec
 h usr/bin/pwait=usr/lib/isaexec
 f usr/bin/ps 0555 root bin
+h usr/bin/read=usr/bin/alias
+h usr/bin/rev=usr/bin/alias
 f usr/bin/rm 0555 root bin
 f usr/bin/rmdir 0555 root bin
 f usr/bin/sed 0555 root bin
@@ -918,12 +935,22 @@ f usr/bin/scp 0555 root bin
 f usr/bin/ssh-keygen 0555 root bin
 f usr/bin/stty 0555 root bin
 f usr/bin/su 4555 root sys
+h usr/bin/sum=usr/bin/alias
 f usr/bin/svcprop 0555 root bin
 f usr/bin/svcs 0555 root bin
 f usr/bin/tar 0555 root bin
+h usr/bin/tee=usr/bin/alias
+h usr/bin/test=usr/bin/alias
 f usr/bin/tput 0555 root bin
 h usr/bin/truss=usr/lib/isaexec
+h usr/bin/type=usr/bin/alias
+h usr/bin/ulimit=usr/bin/alias
+h usr/bin/umask=usr/bin/alias
+h usr/bin/unalias=usr/bin/alias
 s usr/bin/uname=../../sbin/uname
+h usr/bin/uniq=usr/bin/alias
+h usr/bin/wait=usr/bin/alias
+h usr/bin/wc=usr/bin/alias
 s usr/bin/zonename=../../sbin/zonename
 d usr/ccs 0755 root sys
 d usr/ccs/bin 0755 root sys

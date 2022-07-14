@@ -661,31 +661,6 @@ kadb_uses_kernel()
  */
 
 /*
- * poll_port -- wait for a register to achieve a
- *		specific state.  Arguments are a mask of bits we care about,
- *		and two sub-masks.  To return normally, all the bits in the
- *		first sub-mask must be ON, all the bits in the second sub-
- *		mask must be OFF.  If about seconds pass without the register
- *		achieving the desired bit configuration, we return 1, else
- *		0.
- */
-int
-poll_port(ushort_t port, ushort_t mask, ushort_t onbits, ushort_t offbits)
-{
-	int i;
-	ushort_t maskval;
-
-	for (i = 500000; i; i--) {
-		maskval = inb(port) & mask;
-		if (((maskval & onbits) == onbits) &&
-		    ((maskval & offbits) == 0))
-			return (0);
-		drv_usecwait(10);
-	}
-	return (1);
-}
-
-/*
  * set_idle_cpu is called from idle() when a CPU becomes idle.
  */
 /*LINTED: static unused */
