@@ -46,9 +46,10 @@
 #include <sys/pci.h>
 #include <sys/pcie.h>
 #include <sys/pci_cfgacc.h>
+#include <sys/pci_cfgspace_impl.h>
 #include <sys/machsystm.h>
 #include <sys/io/milan/ccx.h>
-
+#include <sys/io/milan/fabric.h>
 #include <milan/milan_physaddrs.h>
 
 /*
@@ -71,14 +72,6 @@ void (*pci_putb_func)(int bus, int dev, int func, int reg, uint8_t val);
 void (*pci_putw_func)(int bus, int dev, int func, int reg, uint16_t val);
 void (*pci_putl_func)(int bus, int dev, int func, int reg, uint32_t val);
 extern void (*pci_cfgacc_acc_p)(pci_cfgacc_req_t *req);
-
-/*
- * This is the required size and alignment of PCIe extended configuration space.
- * This needs to be 256 MiB in size. This requires 1 MiB alignment; however,
- * because we use 2 MiB pages, we alway use the larger alignment.
- */
-#define	PCIE_CFGSPACE_SIZE	(1024 * 1024 * 256)
-#define	PCIE_CFGSPACE_ALIGN	(1024 * 1024 * 2)
 
 /*
  * Bit offsets for extended configuration space and corresponding masks. One
@@ -327,11 +320,13 @@ pcie_cfgspace_acc(pci_cfgacc_req_t *req)
 void
 pcie_cfgspace_init(void)
 {
+	uint64_t ecam_base = milan_fabric_ecam_base();
+
 	/*
 	 * This ensures that the boot CPU will be programmed with everything
 	 * needed to access PCIe configuration space.
 	 */
-	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG, B_TRUE);
+	milan_ccx_mmio_init(ecam_base, B_TRUE);
 
 	/*
 	 * This is a temporary VA range that we'll use during bootstrapping.
@@ -345,8 +340,7 @@ pcie_cfgspace_init(void)
 
 	for (uintptr_t offset = 0; offset < PCIE_CFGSPACE_SIZE;
 	    offset += PCIE_CFGSPACE_ALIGN) {
-		kbm_map(pcie_cfgspace_vaddr + offset,
-		    MILAN_PHYSADDR_PCIECFG + offset, 1,
+		kbm_map(pcie_cfgspace_vaddr + offset, ecam_base + offset, 1,
 		    PT_WRITABLE | PT_NOCACHE);
 	}
 
@@ -372,8 +366,9 @@ pcie_cfgspace_init(void)
 void
 pcie_cfgspace_remap(void)
 {
+	uint64_t ecam_base = milan_fabric_ecam_base();
 	void *new_va = device_arena_alloc(PCIE_CFGSPACE_SIZE, VM_SLEEP);
-	pfn_t pfn = mmu_btop(MILAN_PHYSADDR_PCIECFG);
+	pfn_t pfn = mmu_btop(ecam_base);
 
 	hat_devload(kas.a_hat, new_va, PCIE_CFGSPACE_SIZE, pfn,
 	    PROT_READ | PROT_WRITE | HAT_STRICTORDER,

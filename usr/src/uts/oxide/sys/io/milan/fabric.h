@@ -58,6 +58,11 @@ typedef enum milan_ioms_flag {
 extern void milan_fabric_topo_init(void);
 
 /*
+ * Retrieve the base physical address of the PCIe ECAM region.
+ */
+extern uint64_t milan_fabric_ecam_base(void);
+
+/*
  * This is the primary initialization point for the Milan Data Fabric,
  * Northbridges, PCIe, and related.
  */

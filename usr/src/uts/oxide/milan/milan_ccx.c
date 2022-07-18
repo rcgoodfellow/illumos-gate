@@ -71,8 +71,8 @@ milan_ccx_physmem_init(void)
 	 * be usable as MMIO space but regardless we need to not treat it as
 	 * RAM.
 	 */
-	eb_physmem_reserve_range(MILAN_PHYSADDR_MYSTERY_HOLE,
-	    MILAN_PHYSADDR_MYSTERY_HOLE_END - MILAN_PHYSADDR_MYSTERY_HOLE,
+	eb_physmem_reserve_range(MILAN_PHYSADDR_IOMMU_HOLE,
+	    MILAN_PHYSADDR_IOMMU_HOLE_END - MILAN_PHYSADDR_IOMMU_HOLE,
 	    EBPR_NOT_RAM);
 }
 

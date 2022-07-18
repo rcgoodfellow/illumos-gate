@@ -52,7 +52,14 @@ extern "C" {
  * |      MMIO to        |  and can then be assigned to each PCIe root complex.
  * |    be assigned      |  Starting address varies based on DRAM population.
  * |                     |
+ * +---------------------+ Upper MMIO Base + 0x1000_0000
+ * |                     |
+ * |       PCIe          |  Home of our classical memory mapped way of getting
+ * |     Extended        |  at PCIe since we no longer need to use I/O ports.
+ * | Configuration Space |  There is 1 MiB for each of 256 buses.
+ * |                     |
  * +---------------------+ MAX(Core::X86::Msr::TOM2, 0x100_0000_0000 -- 1 TiB)
+ *			   Upper MMIO Base
  *          ~~~~
  * +---------------------+ 0x100_0000_0000 -- 1 TiB
  * |                     |
@@ -122,15 +129,9 @@ extern "C" {
  * +---------------------+ 0xfec0_0000
  * |                     |
  * |      Free MMIO      |  This region of MMIO is assigned to the 'primary'
- * |  Assigned to FCH    |  FCH's IOMS.
+ * |  Assigned to FCH    |  FCH's IOMS contiguous with the fixed region above.
  * |        IOMS         |
- * +---------------------+ 0xf000_0000 -- 3.75 GiB
- * |                     |
- * |       PCIe          |  Home of our classical memory mapped way of getting
- * |     Extended        |  at PCIe since we no longer need to use I/O ports.
- * | Configuration Space |  There is 1 MiB for each of 256 buses.
- * |                     |
- * +---------------------+ 0xe000_0000 -- 3.5 GiB
+ * +- - - - - - - - - - -+ 0xe000_0000 -- 3.5 GiB
  * |                     |
  * |                     |
  * |      Available      |  This provides access to 32-bit addresses for PCI
@@ -138,20 +139,14 @@ extern "C" {
  * |                     |  all of the IOMSes except for the one containing the
  * |                     |  primary FCH.
  * |                     |
- * +---------------------+ Core::X86::Msr::TOM
+ * +---------------------+ Core::X86::Msr::TOM = 0x8000_0000 -- 2 GiB
  * |                     |
  * |        DRAM         | In general, this region is the lower part of DRAM.
- * |    from before      | XXX there are probably shenanigans that mean some of
- * |       64-bit        | this is MMIO
+ * |    from before      | On PCs, some of this is MMIO but we do not enable
+ * |       64-bit        | any of that.
  * |                     |
  * +---------------------+ 0x0000_0000 - 0
  */
-
-/*
- * This is the address where we have opted to put PCIe configuration space.
- */
-#define	MILAN_PHYSADDR_PCIECFG		0xe0000000
-#define	MILAN_PHYSADDR_PCIECFG_END	0xf0000000
 
 /*
  * This address represents the beginning of a compatibility MMIO range. This
@@ -159,17 +154,24 @@ extern "C" {
  * program an address range into the DF that overlaps this we will lose access
  * to these compatibility devices which generally speaking contain the FCH.
  */
-#define	MILAN_PHYSADDR_COMPAT_MMIO	0xfec00000
+#define	MILAN_PHYSADDR_COMPAT_MMIO	0xfec00000UL
+#define	MILAN_COMPAT_MMIO_SIZE		0x01400000UL
+#define	MILAN_PHYSADDR_MMIO32_END	0x100000000UL
 
-
-#define	MILAN_PHYSADDR_MYSTERY_HOLE 0xfd00000000
-#define	MILAN_PHYSADDR_MYSTERY_HOLE_END 0x10000000000
+/*
+ * This 12 GiB range below 1 TiB can't be accessed as DRAM and is not supposed
+ * to be used for MMIO in general, although it may be used for the 64 MiB flash
+ * aperture from the SPI controller.  The exact reason for this hole is not well
+ * documented but it is known to be an artefact of the IOMMU implementation.
+ */
+#define	MILAN_PHYSADDR_IOMMU_HOLE	0xfd00000000UL
+#define	MILAN_PHYSADDR_IOMMU_HOLE_END	0x10000000000UL
 
 /*
  * This is the final address that we can use for MMIO. Beyond this is an
  * explicitly reserved area that we're not supposed to touch.
  */
-#define	MILAN_PHYSADDR_MMIO_END	0xfffd00000000
+#define	MILAN_PHYSADDR_MMIO_END		0xfffd00000000UL
 
 /*
  * These are the MMIO Addresses for the IOAPICs.  One of them is in the FCH
@@ -179,8 +181,8 @@ extern "C" {
  * address is fairly arbitrary; AGESA on Ethanol-X puts it here by default; we
  * may wish to change it to something else.
  */
-#define	MILAN_PHYSADDR_FCH_IOAPIC	0xfec00000
-#define	MILAN_PHYSADDR_IOHC_IOAPIC	0xfec01000
+#define	MILAN_PHYSADDR_FCH_IOAPIC	0xfec00000UL
+#define	MILAN_PHYSADDR_IOHC_IOAPIC	0xfec01000UL
 
 #ifdef __cplusplus
 }

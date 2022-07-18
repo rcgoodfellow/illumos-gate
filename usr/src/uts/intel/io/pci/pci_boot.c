@@ -3412,6 +3412,7 @@ static int
 memlist_to_spec(struct pci_phys_spec *sp, struct memlist *list, int type)
 {
 	int i = 0;
+	int newtype;
 
 	while (list) {
 		/*
@@ -3421,16 +3422,19 @@ memlist_to_spec(struct pci_phys_spec *sp, struct memlist *list, int type)
 		 * consideration the complete address.
 		 */
 		if (list->ml_address + (list->ml_size - 1) > 0xffffffffUL) {
-			if (type & PCI_ADDR_IO) {
+			if ((type & PCI_ADDR_MASK) == PCI_ADDR_IO) {
 				/* XXX this is invalid and should warn */
+				list = list->ml_next;
 				continue;
 			} else {
-				type &= ~PCI_ADDR_MEM32;
-				type |= PCI_ADDR_MEM64;
+				newtype = (type & ~PCI_ADDR_MASK);
+				newtype |= PCI_ADDR_MEM64;
 			}
+		} else {
+			newtype = type;
 		}
 
-		sp->pci_phys_hi = type;
+		sp->pci_phys_hi = newtype;
 		sp->pci_phys_mid = (uint32_t)(list->ml_address >> 32);
 		sp->pci_phys_low = (uint32_t)list->ml_address;
 		sp->pci_size_hi = (uint32_t)(list->ml_size >> 32);

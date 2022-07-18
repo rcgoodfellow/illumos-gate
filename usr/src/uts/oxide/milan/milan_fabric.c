@@ -36,6 +36,7 @@
 #include <sys/ksynch.h>
 #include <sys/pci.h>
 #include <sys/pci_cfgspace.h>
+#include <sys/pci_cfgspace_impl.h>
 #include <sys/pcie.h>
 #include <sys/spl.h>
 #include <sys/debug.h>
@@ -714,6 +715,16 @@ milan_fabric_thread_get_brandstr(const milan_thread_t *thread,
 {
 	milan_soc_t *soc = thread->mt_core->mc_ccx->mcx_ccd->mcd_iodie->mi_soc;
 	return (snprintf(buf, len, "%s", soc->ms_brandstr));
+}
+
+uint64_t
+milan_fabric_ecam_base(void)
+{
+	uint64_t ecam = milan_fabric.mf_ecam_base;
+
+	ASSERT3U(ecam, !=, 0);
+
+	return (ecam);
 }
 
 static uint32_t
@@ -2077,6 +2088,21 @@ milan_fabric_topo_init(void)
 
 	PRM_POINT("milan_fabric_topo_init() starting...");
 
+	/*
+	 * Before we can do anything else, we must set up PCIe ECAM.  We locate
+	 * this region beyond either the end of DRAM or the IOMMU hole,
+	 * whichever is higher.  The remainder of the 64-bit MMIO space is
+	 * available for allocation to IOMSs (for e.g. PCIe devices).
+	 */
+	fabric->mf_tom = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM));
+	fabric->mf_tom2 = MSR_AMD_TOM2_MASK(rdmsr(MSR_AMD_TOM2));
+
+	fabric->mf_ecam_base = P2ROUNDUP(MAX(fabric->mf_tom2,
+	    MILAN_PHYSADDR_IOMMU_HOLE_END), PCIE_CFGSPACE_ALIGN);
+	fabric->mf_mmio64_base = fabric->mf_ecam_base + PCIE_CFGSPACE_SIZE;
+
+	pcie_cfgspace_init();
+
 	syscfg = milan_df_early_read32(DF_SYSCFG_V3);
 	syscomp = milan_df_early_read32(DF_COMPCNT_V2);
 	nsocs = DF_SYSCFG_V3_GET_OTHER_SOCK(syscfg) + 1;
@@ -2088,17 +2114,6 @@ milan_fabric_topo_init(void)
 	VERIFY3U(nsocs, ==, DF_COMPCNT_V2_GET_PIE(syscomp));
 	VERIFY3U(nsocs * MILAN_IOMS_PER_IODIE, ==,
 	    DF_COMPCNT_V2_GET_IOMS(syscomp));
-
-	fabric->mf_tom = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM));
-	fabric->mf_tom2 = MSR_AMD_TOM_MASK(rdmsr(MSR_AMD_TOM2));
-
-	/*
-	 * Set up the base of 64-bit MMIO. The actual starting point depends on
-	 * the combination of where DRAM ends and where the mysterious hole
-	 * ends. As a result, we always start things at the higher of the two.
-	 */
-	fabric->mf_mmio64_base = MAX(fabric->mf_tom2,
-	    MILAN_PHYSADDR_MYSTERY_HOLE_END);
 
 	/*
 	 * Gather the register masks for decoding global fabric IDs into local
@@ -2277,8 +2292,8 @@ milan_fabric_init_tom(milan_ioms_t *ioms, void *arg)
 		return (0);
 	}
 
-	if (fabric->mf_tom2 > MILAN_PHYSADDR_MYSTERY_HOLE_END) {
-		tom2 = MILAN_PHYSADDR_MYSTERY_HOLE;
+	if (fabric->mf_tom2 > MILAN_PHYSADDR_IOMMU_HOLE_END) {
+		tom2 = MILAN_PHYSADDR_IOMMU_HOLE;
 		tom3 = fabric->mf_tom2 - 1;
 	} else {
 		tom2 = fabric->mf_tom2;
@@ -3945,57 +3960,58 @@ milan_mmio_assign(milan_iodie_t *iodie, void *arg)
  * because we're being lazy).
  *
  * The below 4 GiB space is split due to the compat region
- * (MILAN_PHYSADDR_COMPAT_MMIO) and the presence of the PCIe configuration space
- * at (MILAN_PHYSADDR_PCIECFG). The way we divide up the lower region is simple:
+ * (MILAN_PHYSADDR_COMPAT_MMIO).  The way we divide up the lower region is
+ * simple:
  *
- *   o The region between TOM and PCIe is split evenly among our non-primary
- *     entry. In a 1P system this results in 256 MiB per IOMS. This is divided
- *     more awkwardly when we have a 2P system, but it's fine.
+ *   o The region between TOM and 4 GiB is split evenly among all IOMSs.
+ *     In a 1P system with the MMIO base set at 0x8000_0000 (as it always is in
+ *     the oxide architecture) this results in 512 MiB per IOMS; with 2P it's
+ *     simply half that.
  *
- *   o The 32-bit region between PCIe and compat is just always just given to
- *     the primary root bridge because there are nebulous suggestions that some
- *     of its other devices want to be mapped in that region.
+ *   o The part of this region at the top is assigned to the IOMS with the FCH
+ *     A small part of this is removed from this routed region to account for
+ *     the adjacent FCH compatibility space immediately below 4 GiB; the
+ *     remainder is routed to the primary root bridge.
  *
- * 64-bit space is simple. We find which is higher: TOM2 or the top of the
- * second hole (MILAN_PHYSADDR_MYSTERY_HOLE_END). From there, we just divide all
- * the remaining space between that and MILAN_PHYSADDR_MMIO_END. This is the
- * milan_fabric_t's mf_mmio64_base member.
+ * 64-bit space is also simple. We find which is higher: TOM2 or the top of the
+ * second hole (MILAN_PHYSADDR_IOMMU_HOLE_END).  The 256 MiB ECAM region lives
+ * there; above it, we just divide all the remaining space between that and
+ * MILAN_PHYSADDR_MMIO_END. This is the milan_fabric_t's mf_mmio64_base member.
  *
  * Our general assumption with this strategy is that 64-bit MMIO is plentiful
  * and that's what we'd rather assign and use.  This ties into the last bit
  * which is important: the hardware requires us to allocate in 16-bit chunks. So
- * we actually really treat all of our allocations as units of 64 KiB,
- * accepting that we're going to waste some 32-bit space.
+ * we actually really treat all of our allocations as units of 64 KiB.
  */
 static void
 milan_route_mmio(milan_fabric_t *fabric)
 {
-	uint32_t mmio32_size, fch_size;
+	uint32_t mmio32_size;
 	uint64_t mmio64_size;
 	uint_t nioms32;
 	milan_route_mmio_t mrm;
 	const uint32_t mmio_gran = 1 << DF_MMIO_SHIFT;
 
 	VERIFY(IS_P2ALIGNED(fabric->mf_tom, mmio_gran));
-	VERIFY3U(MILAN_PHYSADDR_PCIECFG, >, fabric->mf_tom);
-	mmio32_size = MILAN_PHYSADDR_PCIECFG - fabric->mf_tom;
-	nioms32 = fabric->mf_total_ioms - 1;
-	VERIFY3U(mmio32_size, >, nioms32 * mmio_gran);
+	VERIFY3U(MILAN_PHYSADDR_COMPAT_MMIO, >, fabric->mf_tom);
+	mmio32_size = MILAN_PHYSADDR_MMIO32_END - fabric->mf_tom;
+	nioms32 = fabric->mf_total_ioms;
+	VERIFY3U(mmio32_size, >,
+	    nioms32 * mmio_gran + MILAN_COMPAT_MMIO_SIZE);
 
 	VERIFY(IS_P2ALIGNED(fabric->mf_mmio64_base, mmio_gran));
 	VERIFY3U(MILAN_PHYSADDR_MMIO_END, >, fabric->mf_mmio64_base);
 	mmio64_size = MILAN_PHYSADDR_MMIO_END - fabric->mf_mmio64_base;
 	VERIFY3U(mmio64_size, >,  fabric->mf_total_ioms * mmio_gran);
 
-	VERIFY(IS_P2ALIGNED(MILAN_PHYSADDR_PCIECFG_END, mmio_gran));
-	VERIFY3U(MILAN_PHYSADDR_COMPAT_MMIO, >, MILAN_PHYSADDR_PCIECFG_END);
-	fch_size = MILAN_PHYSADDR_COMPAT_MMIO - MILAN_PHYSADDR_PCIECFG_END;
+	CTASSERT(IS_P2ALIGNED(MILAN_PHYSADDR_COMPAT_MMIO, mmio_gran));
 
 	bzero(&mrm, sizeof (mrm));
 	mrm.mrm_mmio32_base = fabric->mf_tom;
 	mrm.mrm_mmio32_chunks = mmio32_size / mmio_gran / nioms32;
-	mrm.mrm_fch_base = MILAN_PHYSADDR_PCIECFG_END;
-	mrm.mrm_fch_chunks = fch_size / mmio_gran;
+	mrm.mrm_fch_base = MILAN_PHYSADDR_MMIO32_END - mmio32_size / nioms32;
+	mrm.mrm_fch_chunks = mrm.mrm_mmio32_chunks -
+	    MILAN_COMPAT_MMIO_SIZE / mmio_gran;
 	mrm.mrm_mmio64_base = fabric->mf_mmio64_base;
 	mrm.mrm_mmio64_chunks = mmio64_size / mmio_gran / fabric->mf_total_ioms;
 

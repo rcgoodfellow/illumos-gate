@@ -1651,7 +1651,7 @@ mp_startup(void)
 	uchar_t new_x86_featureset[BT_SIZEOFMAP(NUM_X86_FEATURES)];
 	extern void cpu_event_init_cpu(cpu_t *);
 
-	milan_ccx_mmio_init(MILAN_PHYSADDR_PCIECFG, B_FALSE);
+	milan_ccx_mmio_init(milan_fabric_ecam_base(), B_FALSE);
 	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
 	cpuid_execpass(cp, CPUID_PASS_PRELUDE, new_x86_featureset);
 	cpuid_execpass(cp, CPUID_PASS_IDENT, NULL);

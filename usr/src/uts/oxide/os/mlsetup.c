@@ -60,7 +60,6 @@
 #include <sys/kdi_machimpl.h>
 #include <sys/archsystm.h>
 #include <sys/promif.h>
-#include <sys/pci_cfgspace.h>
 #include <sys/apic.h>
 #include <sys/apic_common.h>
 #include <sys/bootvfs.h>
@@ -257,16 +256,13 @@ mlsetup(struct regs *rp)
 	cpuid_execpass(cpu[0], CPUID_PASS_PRELUDE, x86_featureset);
 
 	/*
-	 * PCI config space access is required for fabric setup.
-	 */
-	pcie_cfgspace_init();
-
-	/*
-	 * With PCIe up and running and our basic identity known, set up our
-	 * data structures for tracking the Milan topology so we can use the at
-	 * later parts of the build.  We need to probe out the CCXs before we
-	 * can set mcpu_hwthread, and we need mcpu_hwthread to set up brand
-	 * strings for cpuid pass 0.
+	 * PCI config space access is required for fabric setup, and depends on
+	 * a few addresses the early fabric initialisation code will retrieve.
+	 * After setting up config space, this will then set up all our data
+	 * structures for tracking the Milan topology so we can use the at later
+	 * parts of the build.  We need to probe out the CCXs before we can set
+	 * mcpu_hwthread, and we need mcpu_hwthread to set up brand strings for
+	 * cpuid in a later pass.
 	 */
 	milan_fabric_topo_init();
 	CPU->cpu_m.mcpu_hwthread =
@@ -285,7 +281,8 @@ mlsetup(struct regs *rp)
 	/*
 	 * Now go through and set up the BSP's thread-, core-, and CCX-specific
 	 * registers.  This includes registers that control what cpuid returns
-	 * so it must be done before pass 1.  This will be run on APs later on.
+	 * so it must be done before the BASIC cpuid pass.  This will be run on
+	 * APs later on.
 	 */
 	milan_ccx_init();
 

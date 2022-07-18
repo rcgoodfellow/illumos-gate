@@ -159,6 +159,7 @@ struct milan_fabric {
 	 */
 	uint64_t	mf_tom;
 	uint64_t	mf_tom2;
+	uint64_t	mf_ecam_base;
 	uint64_t	mf_mmio64_base;
 	milan_hotplug_t	mf_hotplug;
 	milan_soc_t	mf_socs[MILAN_FABRIC_MAX_SOCS];
