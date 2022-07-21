@@ -80,7 +80,6 @@ struct milan_core {
 	uint8_t			mc_logical_coreno;
 	uint8_t			mc_physical_coreno;
 	uint8_t			mc_nthreads;
-	uint32_t		mc_scfctp_smn_base;
 	milan_thread_t		mc_threads[MILAN_MAX_THREADS_PER_CORE];
 	milan_ccx_t		*mc_ccx;
 };
@@ -89,7 +88,6 @@ struct milan_ccx {
 	uint8_t			mcx_logical_cxno;
 	uint8_t			mcx_physical_cxno;
 	uint8_t			mcx_ncores;
-	uint32_t		mcx_scfctp_smn_base;
 	milan_core_t		mcx_cores[MILAN_MAX_CORES_PER_CCX];
 	milan_ccd_t		*mcx_ccd;
 };
@@ -99,7 +97,6 @@ struct milan_ccd {
 	uint8_t			mcd_physical_dieno;
 	uint8_t			mcd_ccm_fabric_id;
 	uint8_t			mcd_ccm_comp_id;
-	uint32_t		mcd_smupwr_smn_base;
 	uint8_t			mcd_nccxs;
 	milan_ccx_t		mcd_ccxs[MILAN_MAX_CCXS_PER_CCD];
 	milan_iodie_t		*mcd_iodie;

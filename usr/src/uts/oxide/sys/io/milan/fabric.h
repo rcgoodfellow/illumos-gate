@@ -24,6 +24,7 @@
 #include <sys/memlist.h>
 #include <sys/plat/pci_prd.h>
 #include <sys/types.h>
+#include <sys/amdzen/smn.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +79,10 @@ extern int milan_walk_iodie(milan_iodie_cb_f, void *);
 extern int milan_walk_ioms(milan_ioms_cb_f, void *);
 
 extern milan_ioms_flag_t milan_ioms_flags(const milan_ioms_t *);
+extern smn_reg_t milan_ioms_reg(const milan_ioms_t *const, const smn_reg_def_t,
+    const uint16_t);
+extern uint32_t milan_ioms_read32(milan_ioms_t *, const smn_reg_t);
+extern void milan_ioms_write32(milan_ioms_t *, const smn_reg_t, const uint32_t);
 
 #ifdef __cplusplus
 }

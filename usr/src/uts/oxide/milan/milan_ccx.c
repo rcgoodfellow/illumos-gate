@@ -20,9 +20,11 @@
 
 #include <milan/milan_physaddrs.h>
 #include <sys/io/milan/fabric.h>
+#include <sys/io/milan/fabric_impl.h>
 #include <sys/io/milan/ccx.h>
 #include <sys/io/milan/ccx_impl.h>
 #include <sys/amdzen/ccx.h>
+#include <sys/amdzen/smn.h>
 #include <sys/boot_physmem.h>
 #include <sys/x86_archext.h>
 #include <sys/types.h>
@@ -78,6 +80,90 @@ milan_ccx_physmem_init(void)
 	    EBPR_NOT_RAM);
 }
 
+smn_reg_t
+milan_core_reg(const milan_core_t *const core, const smn_reg_def_t def)
+{
+	milan_ccd_t *ccd = core->mc_ccx->mcx_ccd;
+	smn_reg_t reg;
+
+	switch (def.srd_unit) {
+	case SMN_UNIT_SCFCTP:
+		reg = milan_scfctp_smn_reg(ccd->mcd_physical_dieno, def,
+		    core->mc_physical_coreno);
+		break;
+	default:
+		cmn_err(CE_PANIC, "invalid SMN register type %d for core",
+		    def.srd_unit);
+	}
+
+	return (reg);
+}
+
+smn_reg_t
+milan_ccd_reg(const milan_ccd_t *const ccd, const smn_reg_def_t def)
+{
+	smn_reg_t reg;
+
+	switch (def.srd_unit) {
+	case SMN_UNIT_SMUPWR:
+		reg = milan_smupwr_smn_reg(ccd->mcd_physical_dieno, def, 0);
+		break;
+	default:
+		cmn_err(CE_PANIC, "invalid SMN register type %d for CCD",
+		    def.srd_unit);
+	}
+
+	return (reg);
+}
+
+uint32_t
+milan_ccd_read32(milan_ccd_t *ccd, const smn_reg_t reg)
+{
+	milan_iodie_t *iodie = ccd->mcd_iodie;
+
+	return (milan_smn_read32(iodie, reg));
+}
+
+void
+milan_ccd_write32(milan_ccd_t *ccd, const smn_reg_t reg, const uint32_t val)
+{
+	milan_iodie_t *iodie = ccd->mcd_iodie;
+
+	milan_smn_write32(iodie, reg, val);
+}
+
+uint32_t
+milan_ccx_read32(milan_ccx_t *ccx, const smn_reg_t reg)
+{
+	milan_iodie_t *iodie = ccx->mcx_ccd->mcd_iodie;
+
+	return (milan_smn_read32(iodie, reg));
+}
+
+void
+milan_ccx_write32(milan_ccx_t *ccx, const smn_reg_t reg, const uint32_t val)
+{
+	milan_iodie_t *iodie = ccx->mcx_ccd->mcd_iodie;
+
+	milan_smn_write32(iodie, reg, val);
+}
+
+uint32_t
+milan_core_read32(milan_core_t *core, const smn_reg_t reg)
+{
+	milan_iodie_t *iodie = core->mc_ccx->mcx_ccd->mcd_iodie;
+
+	return (milan_smn_read32(iodie, reg));
+}
+
+void
+milan_core_write32(milan_core_t *core, const smn_reg_t reg, const uint32_t val)
+{
+	milan_iodie_t *iodie = core->mc_ccx->mcx_ccd->mcd_iodie;
+
+	milan_smn_write32(iodie, reg, val);
+}
+
 /*
  * In this context, "thread" == AP.  SMT may or may not be enabled (by HW, FW,
  * or our own controls).  That may affect the number of threads per core, but
@@ -99,6 +185,7 @@ milan_ccx_start_thread(const milan_thread_t *thread)
 	milan_core_t *core = thread->mt_core;
 	milan_ccx_t *ccx = core->mc_ccx;
 	milan_ccd_t *ccd = ccx->mcx_ccd;
+	smn_reg_t reg;
 	uint8_t thr_ccd_idx;
 	uint32_t en;
 
@@ -113,12 +200,13 @@ milan_ccx_start_thread(const milan_thread_t *thread)
 	VERIFY3U(thr_ccd_idx, <, MILAN_MAX_CCXS_PER_CCD *
 	    MILAN_MAX_CORES_PER_CCX * MILAN_MAX_THREADS_PER_CORE);
 
-	en = milan_ccd_smupwr_read32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE);
-	if (MILAN_SMUPWR_R_GET_THREAD_ENABLE_T(en, thr_ccd_idx) != 0)
+	reg = milan_ccd_reg(ccd, D_SMUPWR_THREAD_EN);
+	en = milan_ccd_read32(ccd, reg);
+	if (SMUPWR_THREAD_EN_GET_T(en, thr_ccd_idx) != 0)
 		return (B_FALSE);
 
-	en = MILAN_SMUPWR_R_SET_THREAD_ENABLE_T(en, thr_ccd_idx);
-	milan_ccd_smupwr_write32(ccd, MILAN_SMUPWR_R_SMN_THREAD_ENABLE, en);
+	en = SMUPWR_THREAD_EN_SET_T(en, thr_ccd_idx);
+	milan_ccd_write32(ccd, reg, en);
 	return (B_TRUE);
 }
 

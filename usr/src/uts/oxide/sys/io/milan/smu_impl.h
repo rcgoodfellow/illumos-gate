@@ -25,6 +25,7 @@
 
 #include <sys/bitext.h>
 #include <sys/types.h>
+#include <sys/amdzen/smn.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,14 +34,14 @@ extern "C" {
 /*
  * SMN addresses to reach the SMU for RPCs.
  */
-#define	MILAN_SMU_SMN_RPC_REQ	0x3b10530
-#define	MILAN_SMU_SMN_RPC_RESP	0x3b1057c
-#define	MILAN_SMU_SMN_RPC_ARG0	0x3b109c4
-#define	MILAN_SMU_SMN_RPC_ARG1	0x3b109c8
-#define	MILAN_SMU_SMN_RPC_ARG2	0x3b109cc
-#define	MILAN_SMU_SMN_RPC_ARG3	0x3b109d0
-#define	MILAN_SMU_SMN_RPC_ARG4	0x3b109d4
-#define	MILAN_SMU_SMN_RPC_ARG5	0x3b109d8
+#define	MILAN_SMU_SMN_RPC_REQ	SMN_MAKE_REG(0x3b10530)
+#define	MILAN_SMU_SMN_RPC_RESP	SMN_MAKE_REG(0x3b1057c)
+#define	MILAN_SMU_SMN_RPC_ARG0	SMN_MAKE_REG(0x3b109c4)
+#define	MILAN_SMU_SMN_RPC_ARG1	SMN_MAKE_REG(0x3b109c8)
+#define	MILAN_SMU_SMN_RPC_ARG2	SMN_MAKE_REG(0x3b109cc)
+#define	MILAN_SMU_SMN_RPC_ARG3	SMN_MAKE_REG(0x3b109d0)
+#define	MILAN_SMU_SMN_RPC_ARG4	SMN_MAKE_REG(0x3b109d4)
+#define	MILAN_SMU_SMN_RPC_ARG5	SMN_MAKE_REG(0x3b109d8)
 
 /*
  * SMU RPC Response codes

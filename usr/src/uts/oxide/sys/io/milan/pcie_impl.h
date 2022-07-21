@@ -16,6 +16,7 @@
 #ifndef _SYS_IO_MILAN_PCIE_IMPL_H
 #define	_SYS_IO_MILAN_PCIE_IMPL_H
 
+#include <sys/types.h>
 #include <sys/io/milan/fabric.h>
 #include <sys/io/milan/dxio_impl.h>
 #include <sys/io/milan/pcie.h>
@@ -61,11 +62,9 @@ typedef enum milan_pcie_port_flag {
 
 struct milan_pcie_bridge {
 	milan_pcie_bridge_flag_t	mpb_flags;
+	uint8_t				mpb_bridgeno;
 	uint8_t				mpb_device;
 	uint8_t				mpb_func;
-	uint32_t			mpb_iohc_smn_base;
-	uint32_t			mpb_port_smn_base;
-	uint32_t			mpb_cfg_smn_base;
 	zen_dxio_engine_t		*mpb_engine;
 	smu_hotplug_type_t		mpb_hp_type;
 	uint16_t			mpb_hp_slotno;
@@ -83,8 +82,7 @@ struct milan_pcie_port {
 	uint16_t		mpp_dxio_lane_end;
 	uint16_t		mpp_phys_lane_start;
 	uint16_t		mpp_phys_lane_end;
-	uint32_t		mpp_core_smn_addr;
-	uint32_t		mpp_strap_smn_addr;
+	kmutex_t		mpp_strap_lock;
 	milan_pcie_bridge_t	mpp_bridges[MILAN_IOMS_MAX_PCIE_BRIDGES];
 	milan_ioms_t		*mpp_ioms;
 };

@@ -22,12 +22,15 @@
  */
 
 #include <sys/memlist.h>
+#include <sys/memlist_impl.h>
 #include <sys/types.h>
+#include <sys/x86_archext.h>
 #include <sys/io/milan/fabric.h>
 #include <sys/io/milan/ccx_impl.h>
 #include <sys/io/milan/dxio_impl.h>
 #include <sys/io/milan/nbif_impl.h>
 #include <sys/io/milan/pcie_impl.h>
+#include <sys/amdzen/smn.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,11 +61,11 @@ extern "C" {
 /*
  * The maximum number of NBIFs and PCIe ports off of an IOMS. The IOMS has up to
  * three ports (though only one has three with the WAFL link). There are always
- * three primary NBIFs (nbif_impl.h). Each PCIe PORT has a maximum of 8 bridges
- * for devices (pcie_impl.h).
+ * three primary NBIFs (nbif_impl.h), but only two of the SYSHUB NBIFs in
+ * alternate space. Each PCIe PORT has a maximum of 8 bridges for devices
+ * (pcie_impl.h).
  */
 #define	MILAN_IOMS_MAX_PCIE_PORTS	3
-#define	MILAN_IOMS_MAX_NBIF		3
 #define	MILAN_IOMS_WAFL_PCIE_PORT	2
 
 /*
@@ -75,6 +78,11 @@ extern "C" {
  * FCH present.
  */
 #define	MILAN_IOMS_HAS_FCH	3
+
+/*
+ * Similarly, the IOMS instance with the WAFL port.
+ */
+#define	MILAN_IOMS_HAS_WAFL	0
 
 /*
  * Warning: These memlists cannot be given directly to PCI. They expect to be
@@ -95,12 +103,6 @@ typedef struct ioms_memlists {
 
 struct milan_ioms {
 	milan_ioms_flag_t	mio_flags;
-	uint32_t		mio_iohc_smn_base;
-	uint32_t		mio_ioagr_smn_base;
-	uint32_t		mio_sdpmux_smn_base;
-	uint32_t		mio_ioapic_smn_base;
-	uint32_t		mio_iommul1_smn_base;
-	uint32_t		mio_iommul2_smn_base;
 	uint16_t		mio_pci_busno;
 	uint8_t			mio_num;
 	uint8_t			mio_fabric_id;
@@ -117,7 +119,6 @@ struct milan_iodie {
 	kmutex_t		mi_df_ficaa_lock;
 	kmutex_t		mi_smn_lock;
 	kmutex_t		mi_smu_lock;
-	kmutex_t		mi_pcie_strap_lock;
 	uint8_t			mi_node_id;
 	uint8_t			mi_dfno;
 	uint8_t			mi_smn_busno;
@@ -164,6 +165,10 @@ struct milan_fabric {
 	milan_hotplug_t	mf_hotplug;
 	milan_soc_t	mf_socs[MILAN_FABRIC_MAX_SOCS];
 };
+
+extern uint32_t milan_smn_read32(struct milan_iodie *, const smn_reg_t);
+extern void milan_smn_write32(struct milan_iodie *, const smn_reg_t,
+    const uint32_t);
 
 #ifdef __cplusplus
 }

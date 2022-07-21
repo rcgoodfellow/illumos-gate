@@ -13,8 +13,8 @@
  * Copyright 2022 Oxide Computer Company
  */
 
-#ifndef _MILAN_MILAN_STRAPS_H
-#define	_MILAN_MILAN_STRAPS_H
+#ifndef _SYS_IO_MILAN_PCIE_RSMU_H
+#define	_SYS_IO_MILAN_PCIE_RSMU_H
 
 /*
  * Contains a series of strap registers for different parts of the SoC.
@@ -26,19 +26,72 @@
  * the PCIe vendor id strap is 16 units wide.
  */
 
+#include <sys/types.h>
+#include <sys/amdzen/smn.h>
 #include <sys/io/milan/fabric.h>
+#include <sys/io/milan/pcie.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define	MILAN_SMN_PCIE_STRAP_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS + 8
-#define	MILAN_SMN_PCIE_STRAP_BASE	0x9000000
-#define	MILAN_SMN_PCIE_STRAP_R_ADDR	0x7ac
-#define	MILAN_SMN_PCIE_STRAP_R_DATA	0x7b0
+/*
+ * The location of registers in the PCIE_RSMU unit is, like some other parts of
+ * the PCIe SMN space, highly nonstandard.  As a result, we ignore the values of
+ * srd_nents and srd_stride (more pointedly: they must not be set); each
+ * register in this block has a number of instances that depend upon the unit (1
+ * per IOMS) and the aperture base is effectively formed by both the unit and
+ * register instance numbers.
+ */
 
-#define	MILAN_SMN_PCIE_STRAP_IOMS_SHIFT(x)	((x + 0x46) << 12)
-#define	MILAN_SMN_PCIE_STRAP_PORT_SHIFT(x)	(x << 14)
+static inline smn_reg_t
+milan_pcie_rsmu_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
+    const uint16_t reginst)
+{
+	const uint32_t PCIE_RSMU_SMN_REG_MASK = 0xfff;
+	const uint32_t ioms32 = (const uint32_t)iomsno;
+	const uint32_t reginst32 = (const uint32_t)reginst;
+
+	ASSERT3S(def.srd_unit, ==, SMN_UNIT_PCIE_RSMU);
+	ASSERT0(def.srd_nents);
+	ASSERT0(def.srd_stride);
+	ASSERT3U(ioms32, <, 4);
+	ASSERT0(def.srd_reg & ~PCIE_RSMU_SMN_REG_MASK);
+
+#ifdef	DEBUG
+	const uint32_t nents = (const uint32_t)milan_nbio_n_pcie_ports(iomsno);
+	ASSERT3U(nents, >, reginst32);
+#endif	/* DEBUG */
+
+	const uint32_t aperture_base = 0x9046000;
+
+	const uint32_t aperture_off = (ioms32 << 12) + (reginst32 << 14);
+	ASSERT3U(aperture_off, <=, UINT32_MAX - aperture_base);
+
+	const uint32_t aperture = aperture_base + aperture_off;
+	ASSERT0(aperture & PCIE_RSMU_SMN_REG_MASK);
+
+	return (SMN_MAKE_REG(aperture + def.srd_reg));
+}
+
+/*
+ * Strap settings are accessed via the RSMU via this indirect index/data pair;
+ * the registers are undocumented and their names are not known.
+ */
+/*CSTYLED*/
+#define	D_PCIE_RSMU_STRAP_ADDR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_RSMU,	\
+	.srd_reg = 0x7ac	\
+}
+/*CSTYLED*/
+#define	D_PCIE_RSMU_STRAP_DATA	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_RSMU,	\
+	.srd_reg = 0x7b0	\
+}
+#define	PCIE_RSMU_STRAP_ADDR(h, p)	\
+    milan_pcie_rsmu_smn_reg(h, D_PCIE_RSMU_STRAP_ADDR, p)
+#define	PCIE_RSMU_STRAP_DATA(h, p)	\
+    milan_pcie_rsmu_smn_reg(h, D_PCIE_RSMU_STRAP_DATA, p)
 
 /*
  * The upper bits of the address register for any given strap
@@ -1527,4 +1580,4 @@ extern "C" {
 }
 #endif
 
-#endif /* _MILAN_MILAN_STRAPS_H */
+#endif /* _SYS_IO_MILAN_PCIE_RSMU_H */

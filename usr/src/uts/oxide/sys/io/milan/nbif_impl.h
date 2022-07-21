@@ -37,8 +37,6 @@ extern "C" {
 #define	MILAN_NBIF0_NFUNCS	3
 #define	MILAN_NBIF1_NFUNCS	7
 #define	MILAN_NBIF2_NFUNCS	3
-#define	MILAN_NBIF_MAX_FUNCS	7
-#define	MILAN_NBIF_MAX_DEVS	3
 
 /*
  * These types aren't exposed but we need forward declarations to break the type
@@ -76,13 +74,10 @@ struct milan_nbif_func {
 	milan_nbif_func_flag_t	mne_flags;
 	uint8_t			mne_dev;
 	uint8_t			mne_func;
-	uint32_t		mne_func_smn_base;
 	milan_nbif_t		*mne_nbif;
 };
 
 struct milan_nbif {
-	uint32_t		mn_nbif_smn_base;
-	uint32_t		mn_nbif_alt_smn_base;
 	uint8_t			mn_nbifno;
 	uint8_t			mn_nfuncs;
 	milan_nbif_func_t	mn_funcs[MILAN_NBIF_MAX_FUNCS];

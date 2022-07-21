@@ -512,15 +512,18 @@ apix_init_intr()
 static int
 ioms_enable_nmi_cb(milan_ioms_t *ioms, void *arg __unused)
 {
+	smn_reg_t reg;
 	uint32_t v;
 
 	if ((milan_ioms_flags(ioms) & MILAN_IOMS_F_HAS_FCH) != 0) {
-		v = MILAN_IOHC_R_PIN_CNTL_SET_MODE_NMI(0);
-		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_PIN_CNTL, v);
+		reg = milan_ioms_reg(ioms, D_IOHC_PIN_CTL, 0);
+		v = IOHC_PIN_CTL_SET_MODE_NMI(0);
+		milan_ioms_write32(ioms, reg, v);
 	}
 
-	v = MILAN_IOHC_R_MISC_RAS_CTL_SET_NMI_SYNCFLOOD_EN(0, 1);
-	milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_MISC_RAS_CTL, v);
+	reg = milan_ioms_reg(ioms, D_IOHC_MISC_RAS_CTL, 0);
+	v = IOHC_MISC_RAS_CTL_SET_NMI_SYNCFLOOD_EN(0, 1);
+	milan_ioms_write32(ioms, reg, v);
 
 	return (0);
 }

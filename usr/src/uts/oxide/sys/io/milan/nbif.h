@@ -22,7 +22,7 @@
  */
 
 #include <sys/bitext.h>
-#include <sys/io/milan/smn.h>
+#include <sys/amdzen/smn.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,6 +38,11 @@ struct milan_nbif;
 
 typedef struct milan_nbif milan_nbif_t;
 
+#define	MILAN_IOMS_MAX_NBIF		3
+#define	MILAN_IOMS_MAX_NBIF_ALT		2
+#define	MILAN_NBIF_MAX_DEVS	3
+#define	MILAN_NBIF_MAX_FUNCS	7
+
 /*
  * Function callback signatures for making operating on a given unit simpler.
  */
@@ -49,91 +54,229 @@ typedef int (*milan_nbif_cb_f)(milan_nbif_t *, void *);
  * which downstream device and function as well. There is a second SMN aperture
  * ID that seems to be used tha deals with the nBIF's clock gating, DMA
  * enhancements with the syshub, and related.
- */
-#define	MILAN_SMN_NBIF_BASE		0x10100000
-#define	MILAN_SMN_NBIF_FUNC_OFF		0x34000
-#define	MILAN_SMN_NBIF_ALT_BASE		0x01400000
-#define	MILAN_SMN_NBIF_FUNC_SHIFT(x)	((x) << 9)
-#define	MILAN_SMN_NBIF_DEV_SHIFT(x)	((x) << 12)
-#define	MILAN_SMN_NBIF_NBIF_SHIFT(x)	((x) << 22)
-#define	MILAN_SMN_NBIF_IOMS_SHIFT(x)	((x) << 20)
-#define	MILAN_SMN_NBIF_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
-#define	MILAN_SMN_NBIF_ALT_BASE_BITS	MILAN_SMN_ADDR_BLOCK_BITS
-#define	MILAN_SMN_NBIF_FUNC_BASE_BITS	(MILAN_SMN_ADDR_BLOCK_BITS + 11)
-#define	MILAN_SMN_NBIF_MAKE_ADDR(_b, _r)	\
-	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_NBIF_BASE_BITS, _r)
-#define	MILAN_SMN_NBIF_ALT_MAKE_ADDR(_b, _r)	\
-	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_NBIF_ALT_BASE_BITS, _r)
-#define	MILAN_SMN_NBIF_FUNC_MAKE_ADDR(_b, _r)	\
-	MILAN_SMN_MAKE_ADDR(_b, MILAN_SMN_NBIF_FUNC_BASE_BITS, _r)
-
-/*
- * The NBIF device straps for the port use a different shift style than those
- * above which are for the function space.
- */
-#define	MILAN_SMN_NBIF_DEV_PORT_SHIFT(x)	((x) << 9)
-
-/*
- * nBIF related registers.
+ *
+ * There is no way to pretend that the NBIF addressing schemes fit any kind of
+ * coherent plan.  We model them as well as we practically can with completely
+ * custom register calculation routines because that's just how the hardware is.
  */
 
-/*
- * NBIF Function strap 0. This SMN address is relative to the actual function
- * space.
- */
-#define	MILAN_NBIF_R_SMN_FUNC_STRAP0	0x00
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_SUP_D2(r, v)	bitset32(r, 31, 31, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_SUP_D1(r, v)	bitset32(r, 30, 30, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_BE_PCIE(r, v)	bitset32(r, 29, 29, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_EXIST(r, v)	bitset32(r, 28, 28, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_GFX_REV(r, v)	bitset32(r, 27, 24, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_MIN_REV(r, v)	bitset32(r, 23, 20, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_MAJ_REV(r, v)	bitset32(r, 19, 16, v)
-#define	MILAN_NBIF_R_SET_FUNC_STRAP0_DEV_ID(r, v)	bitset32(r, 0, 15, v)
+static inline smn_reg_t
+milan_nbif_func_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
+    const uint8_t nbifno, const uint8_t devno, const uint8_t funcno)
+{
+	const uint32_t NBIF_FUNC_SMN_REG_MASK = 0x1ff;
+
+	/*
+	 * Each entry in this matrix is a bitmask of valid function numbers for
+	 * each device on each NBIF (on all IOMSs).  This is used only for
+	 * checking the device and function numbers passed to us when built with
+	 * DEBUG enabled.  This must be in sync with milan_nbifN in
+	 * milan_fabric.c, though these describe hardware so no changes are
+	 * forseen.
+	 */
+#ifdef	DEBUG
+	const uint8_t MILAN_NBIF_FNVALID[MILAN_IOMS_MAX_NBIF]
+	    [MILAN_NBIF_MAX_DEVS] = {
+		{ 0x07, 0x00, 0x00 },
+		{ 0x1f, 0x01, 0x01 },
+		{ 0x07, 0x00, 0x00 }
+	};
+#endif
+	const uint32_t ioms32 = (const uint32_t)iomsno;
+	const uint32_t nbif32 = (const uint32_t)nbifno;
+	const uint32_t dev32 = (const uint32_t)devno;
+	const uint32_t func32 = (const uint32_t)funcno;
+
+	ASSERT3S(def.srd_unit, ==, SMN_UNIT_NBIF_FUNC);
+	ASSERT0(def.srd_nents);
+	ASSERT0(def.srd_stride);
+	ASSERT0(def.srd_reg & ~NBIF_FUNC_SMN_REG_MASK);
+
+	ASSERT3U(ioms32, <, 4);
+	ASSERT3U(nbif32, <, MILAN_IOMS_MAX_NBIF);
+	ASSERT3U(dev32, <, MILAN_NBIF_MAX_DEVS);
+	ASSERT3U(func32, <, MILAN_NBIF_MAX_FUNCS);
+
+	ASSERT3U(bitx8(MILAN_NBIF_FNVALID[nbifno][devno], funcno, funcno), !=,
+	    0);
+
+	const uint32_t aperture_base = 0x10134000;
+
+	const uint32_t aperture_off = (ioms32 << 20) + (nbif32 << 22) +
+	    (dev32 << 12) + (func32 << 9);
+	ASSERT3U(aperture_off, <=, UINT32_MAX - aperture_base);
+
+	const uint32_t aperture = aperture_base + aperture_off;
+	ASSERT0(aperture & NBIF_FUNC_SMN_REG_MASK);
+
+	return (SMN_MAKE_REG(aperture + def.srd_reg));
+}
+
+static inline smn_reg_t
+milan_nbif_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
+    const uint8_t nbifno, const uint16_t reginst)
+{
+	const uint32_t ioms32 = (const uint32_t)iomsno;
+	const uint32_t nbif32 = (const uint32_t)nbifno;
+	const uint32_t reginst32 = (const uint32_t)reginst;
+	const uint32_t stride = (def.srd_stride == 0) ? 4 :
+	    (const uint32_t)def.srd_stride;
+	const uint32_t nents = (def.srd_nents == 0) ? 1 :
+	    (const uint32_t)def.srd_nents;
+
+	ASSERT3S(def.srd_unit, ==, SMN_UNIT_NBIF);
+	ASSERT3U(ioms32, <, 4);
+	ASSERT3U(nbif32, <, MILAN_IOMS_MAX_NBIF);
+	ASSERT3U(nents, >, reginst32);
+	ASSERT0(def.srd_reg & SMN_APERTURE_MASK);
+
+	const uint32_t aperture_base = 0x10100000;
+
+	const uint32_t aperture_off = (ioms32 << 20) + (nbif32 << 22);
+	ASSERT3U(aperture_off, <=, UINT32_MAX - aperture_base);
+
+	const uint32_t aperture = aperture_base + aperture_off;
+	ASSERT0(aperture & ~SMN_APERTURE_MASK);
+
+	const uint32_t reg = def.srd_reg + reginst32 * stride;
+	ASSERT0(reg & SMN_APERTURE_MASK);
+
+	return (SMN_MAKE_REG(aperture + reg));
+}
+
+static inline smn_reg_t
+milan_nbif_alt_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
+    const uint8_t nbifno, const uint16_t reginst)
+{
+	const uint32_t ioms32 = (const uint32_t)iomsno;
+	const uint32_t nbif32 = (const uint32_t)nbifno;
+	const uint32_t reginst32 = (const uint32_t)reginst;
+	const uint32_t stride = (def.srd_stride == 0) ? 4 :
+	    (const uint32_t)def.srd_stride;
+	const uint32_t nents = (def.srd_nents == 0) ? 1 :
+	    (const uint32_t)def.srd_nents;
+
+	ASSERT3S(def.srd_unit, ==, SMN_UNIT_NBIF_ALT);
+	ASSERT3U(ioms32, <, 4);
+	ASSERT3U(nbif32, <, MILAN_IOMS_MAX_NBIF_ALT);
+	ASSERT3U(nents, >, reginst32);
+	ASSERT0(def.srd_reg & SMN_APERTURE_MASK);
+
+	const uint32_t aperture_base = 0x01400000;
+
+	const uint32_t aperture_off = (ioms32 << 20) + (nbif32 << 22);
+	ASSERT3U(aperture_off, <=, UINT32_MAX - aperture_base);
+
+	const uint32_t aperture = aperture_base + aperture_off;
+	ASSERT0(aperture & ~SMN_APERTURE_MASK);
+
+	const uint32_t reg = def.srd_reg + reginst32 * stride;
+	ASSERT0(reg & SMN_APERTURE_MASK);
+
+	return (SMN_MAKE_REG(aperture + reg));
+}
 
 /*
- * This register is arranged with one byte per device. Each bit corresponds to
- * an endpoint.
+ * NBIFMM::RCC_DEVn_EPFn_STRAP0.  NBIF Function strap 0. This SMN address is
+ * relative to the actual function space.
  */
-#define	MILAN_NBIF_R_SMN_INTR_LINE	0x3a008
-#define	MILAN_NBIF_R_INTR_LINE_SET_INTR(reg, dev, func, val)	\
+/*CSTYLED*/
+#define	D_NBIF_FUNC_STRAP0	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF_FUNC,	\
+	.srd_reg = 0x00	\
+}
+#define	NBIF_FUNC_STRAP0(i, n, d, f)	\
+    milan_nbif_func_smn_reg(i, D_NBIF_FUNC_STRAP0, n, d, f)
+#define	NBIF_FUNC_STRAP0_SET_SUP_D2(r, v)	bitset32(r, 31, 31, v)
+#define	NBIF_FUNC_STRAP0_SET_SUP_D1(r, v)	bitset32(r, 30, 30, v)
+#define	NBIF_FUNC_STRAP0_SET_BE_PCIE(r, v)	bitset32(r, 29, 29, v)
+#define	NBIF_FUNC_STRAP0_SET_EXIST(r, v)	bitset32(r, 28, 28, v)
+#define	NBIF_FUNC_STRAP0_SET_GFX_REV(r, v)	bitset32(r, 27, 24, v)
+#define	NBIF_FUNC_STRAP0_SET_MIN_REV(r, v)	bitset32(r, 23, 20, v)
+#define	NBIF_FUNC_STRAP0_SET_MAJ_REV(r, v)	bitset32(r, 19, 16, v)
+#define	NBIF_FUNC_STRAP0_SET_DEV_ID(r, v)	bitset32(r, 0, 15, v)
+
+/*
+ * NBIFMM::INTR_LINE_ENABLE.  This register is arranged with one byte per
+ * device. Each bit corresponds to an endpoint function.
+ */
+/*CSTYLED*/
+#define	D_NBIF_INTR_LINE_EN	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF,	\
+	.srd_reg = 0x3a008	\
+}
+#define	NBIF_INTR_LINE_EN(i, n)	milan_nbif_smn_reg(i, D_NBIF_INTR_LINE_EN, n)
+/*
+ * XXX Assert on the validity of dev and func.
+ */
+#define	NBIF_INTR_LINE_EN_SET_I(reg, dev, func, val)	\
     bitset32(reg, ((dev) * 8) + (func), ((dev) * 8) + (func), val)
 
 /*
- * Straps for the NBIF port. These are relative to the main NBIF base register.
+ * NBIFMM::BIFC_MISC_CTRL0.  As the name suggests, miscellaneous per-NBIF
+ * control bits.
  */
-#define	MILAN_NBIF_R_SMN_PORT_STRAP3	0x3100c
-#define	MILAN_NBIF_R_SET_PORT_STRAP3_COMP_TO(r, v)	bitset32(r, 7, 7, v)
-
+/*CSTYLED*/
+#define	D_NBIF_BIFC_MISC_CTL0	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF,	\
+	.srd_reg = 0x3a010	\
+}
+#define	NBIF_BIFC_MISC_CTL0(i, n)	\
+    milan_nbif_smn_reg(i, D_NBIF_BIFC_MISC_CTL0, n, 0)
+#define	NBIF_BIFC_MISC_CTL0_SET_PME_TURNOFF(r, v)	bitset32(r, 28, 28, v)
+#define	NBIF_BIFC_MISC_CTL0_PME_TURNOFF_BYPASS		0
+#define	NBIF_BIFC_MISC_CTL0_PME_TURNOFF_FW		1
 
 /*
- * This register seems to control various bits of control for a given NBIF. XXX
- * other bits.
- */
-#define	MILAN_NBIF_R_SMN_BIFC_MISC_CTRL0	0x3a010
-#define	MILAN_NBIF_R_SET_BIFC_MISC_CTRL0_PME_TURNOFF(r, v)	\
-    bitset32(r, 28, 28, v)
-#define	MILAN_NBIF_R_BIFC_MISC_CTRL0_PME_TURNOFF_BYPASS		0
-#define	MILAN_NBIF_R_BIFC_MISC_CTRL0_PME_TURNOFF_FW		1
-
-/*
- * The following two registers are not found in the PPR. These are used for some
+ * NBIFMM::BIF_GMI_WRR_WEIGHT[3:2].  These two registers are used for some
  * amount of arbitration in the same vein as the SION values. The base register
- * seemingly just has a bit which defaults to saying use these values.
+ * which we don't use has a bit that selects between payload-based and
+ * request-based interpretation of these values.
  */
-#define	MILAN_NBIF_R_SMN_GMI_WRR_WEIGHT2	0x3a124
-#define	MILAN_NBIF_R_SMN_GMI_WRR_WEIGHT3	0x3a128
-#define	MILAN_NBIF_R_GMI_WRR_WEIGHT_VAL		0x04040404
+/*CSTYLED*/
+#define	D_NBIF_GMI_WRR_WEIGHT2	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF,	\
+	.srd_reg = 0x3a124	\
+}
+/*CSTYLED*/
+#define	D_NBIF_GMI_WRR_WEIGHT3	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF,	\
+	.srd_reg = 0x3a128	\
+}
+#define	NBIF_GMI_WRR_WEIGHT2(i, n)	\
+    milan_nbif_smn_reg(i, D_NBIF_GMI_WRR_WEIGHT2, n, 0)
+#define	NBIF_GMI_WRR_WEIGHT3(i, n)	\
+    milan_nbif_smn_reg(i, D_NBIF_GMI_WRR_WEIGHT3, n, 0)
+#define	NBIF_GMI_WRR_WEIGHTn_VAL	0x04040404
 
 /*
- * This undocumented register is a weird SYSHUB and NBIF crossover that is in
- * the alternate space.
+ * NBIFMM::RCC_DEVn_PORT_STRAP3.  Straps for the NBIF port. These are relative
+ * to the main NBIF base aperture.
  */
-#define	MILAN_NBIF_R_SMN_SYSHUB_BGEN_BYPASS	0x10008
-#define	MILAN_NBIF_R_SET_SYSHUB_BGEN_BYPASS_DMA_SW0(r, v)	\
-    bitset32(r, 16, 16, v)
-#define	MILAN_NBIF_R_SET_SYSHUB_BGEN_BYPASS_DMA_SW1(r, v)	\
-    bitset32(r, 17, 17, v)
+/*CSTYLED*/
+#define	D_NBIF_PORT_STRAP3	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF,	\
+	.srd_reg = 0x3100c,	\
+	.srd_nents = MILAN_NBIF_MAX_DEVS,	\
+	.srd_stride = 0x200	\
+}
+#define	NBIF_PORT_STRAP3(i, n, d)	\
+    milan_nbif_smn_reg(i, D_NBIF_PORT_STRAP3, n, d)
+#define	NBIF_PORT_STRAP3_SET_COMP_TO(r, v)	bitset32(r, 7, 7, v)
+
+/*
+ * SYSHUBMM::SYSHUB_BGEN_ENHANCEMENT_BYPASS_EN_SOCCLK.  Yes, really.  This
+ * register is a weird SYSHUB and NBIF crossover that is in the alternate space.
+ */
+/*CSTYLED*/
+#define	D_NBIF_ALT_BGEN_BYP_SOC	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_NBIF_ALT,	\
+	.srd_reg = 0x10008	\
+}
+#define	NBIF_ALT_BGEN_BYP_SOC(i, n)	\
+    milan_nbif_alt_smn_reg(i, D_NBIF_ALT_BGEN_BYP_SOC, n, 0)
+#define	NBIF_ALT_BGEN_BYP_SOC_SET_DMA_SW1(r, v)	bitset32(r, 17, 17, v)
+#define	NBIF_ALT_BGEN_BYP_SOC_SET_DMA_SW0(r, v)	bitset32(r, 16, 16, v)
 
 #ifdef __cplusplus
 }

@@ -80,6 +80,7 @@
 #include <sys/io/milan/ccx.h>
 #include <sys/io/milan/fabric.h>
 #include <sys/io/milan/iohc.h>
+#include <sys/amdzen/smn.h>
 
 static void	apic_record_ioapic_rdt(void *intrmap_private,
 		    ioapic_rdt_t *irdt);
@@ -676,19 +677,22 @@ gethrtime_again:
 static int
 apic_iohc_nmi_eoi(milan_ioms_t *ioms, void *arg __unused)
 {
+	smn_reg_t reg;
 	uint32_t v;
 
-	v = milan_iohc_read32(ioms, MILAN_IOHC_R_SMN_FCTL2);
-	v = MILAN_IOHC_R_FCTL2_GET_NMI(v);
+	reg = milan_ioms_reg(ioms, D_IOHC_FCTL2, 0);
+	v = milan_ioms_read32(ioms, reg);
+	v = IOHC_FCTL2_GET_NMI(v);
 	if (v != 0) {
 		/*
 		 * We have no ability to handle the other bits here, as
 		 * those conditions may not have resulted in an NMI.  Clear only
 		 * the bit whose condition we have handled.
 		 */
-		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_FCTL2, v);
-		v = MILAN_IOHC_R_INTR_EOI_SET_NMI(0);
-		milan_iohc_write32(ioms, MILAN_IOHC_R_SMN_INTR_EOI, v);
+		milan_ioms_write32(ioms, reg, v);
+		reg = milan_ioms_reg(ioms, D_IOHC_INTR_EOI, 0);
+		v = IOHC_INTR_EOI_SET_NMI(0);
+		milan_ioms_write32(ioms, reg, v);
 	}
 
 	return (0);
