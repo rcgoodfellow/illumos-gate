@@ -243,6 +243,15 @@
  * cpuid_checkpass() respectively.  The passes now, in that execution order,
  * are as follows:
  *
+ * 	PRELUDE		This pass does not have any dependencies on system
+ * 			setup; in particular, unlike all subsequent passes it is
+ * 			guaranteed not to require PCI config space access.  It
+ * 			sets the flag indicating that the processor we are
+ * 			running on supports the cpuid instruction, which all
+ * 			64-bit processors do.  This would also be the place to
+ * 			add any other basic state that is required later on and
+ * 			can be learned without dependencies.
+ *
  *	IDENT		Determine which vendor manufactured the CPU, the family,
  *			model, and stepping information, and compute basic
  *			identifying tags from those values.  This is done first
@@ -3430,9 +3439,20 @@ cpuid_basic_ppin(cpu_t *cpu, uchar_t *featureset)
 #endif	/* ! __xpv */
 
 static void
-cpuid_pass_ident(cpu_t *cpu, void *arg)
+cpuid_pass_prelude(cpu_t *cpu, void *arg)
 {
 	uchar_t *featureset = (uchar_t *)arg;
+
+	/*
+	 * We don't run on any processor that doesn't have cpuid, and could not
+	 * possibly have arrived here.
+	 */
+	add_x86_feature(featureset, X86FSET_CPUID);
+}
+
+static void
+cpuid_pass_ident(cpu_t *cpu, void *arg __unused)
+{
 	struct cpuid_info *cpi;
 	struct cpuid_regs *cp;
 
@@ -3444,12 +3464,6 @@ cpuid_pass_ident(cpu_t *cpu, void *arg)
 #if !defined(__xpv)
 	ASSERT3S(platform_type, !=, -1);
 #endif	/* !__xpv */
-
-	/*
-	 * We don't run on any processor that doesn't have cpuid, and could not
-	 * possibly have arrived here.
-	 */
-	add_x86_feature(featureset, X86FSET_CPUID);
 
 	cpi = cpu->cpu_m.mcpu_cpi;
 	ASSERT(cpi != NULL);
@@ -7857,6 +7871,7 @@ typedef struct cpuid_pass_def {
  * normal sense and should not appear here.
  */
 static const cpuid_pass_def_t cpuid_pass_defs[] = {
+	{ CPUID_PASS_PRELUDE, cpuid_pass_prelude },
 	{ CPUID_PASS_IDENT, cpuid_pass_ident },
 	{ CPUID_PASS_BASIC, cpuid_pass_basic },
 	{ CPUID_PASS_EXTENDED, cpuid_pass_extended },

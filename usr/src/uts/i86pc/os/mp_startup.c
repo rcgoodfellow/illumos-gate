@@ -1700,7 +1700,8 @@ mp_startup_common(boolean_t boot)
 	 * right away.
 	 */
 	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
-	cpuid_execpass(cp, CPUID_PASS_IDENT, new_x86_featureset);
+	cpuid_execpass(cp, CPUID_PASS_PRELUDE, new_x86_featureset);
+	cpuid_execpass(cp, CPUID_PASS_IDENT, NULL);
 	cpuid_execpass(cp, CPUID_PASS_BASIC, new_x86_featureset);
 
 	if (boot && get_hwenv() == HW_NATIVE &&

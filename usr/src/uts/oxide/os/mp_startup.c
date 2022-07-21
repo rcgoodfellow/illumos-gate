@@ -1659,7 +1659,8 @@ mp_startup(void)
 	 */
 	milan_ccx_set_brandstr();
 	bzero(new_x86_featureset, BT_SIZEOFMAP(NUM_X86_FEATURES));
-	cpuid_execpass(cp, CPUID_PASS_IDENT, new_x86_featureset);
+	cpuid_execpass(cp, CPUID_PASS_PRELUDE, new_x86_featureset);
+	cpuid_execpass(cp, CPUID_PASS_IDENT, NULL);
 	milan_ccx_init();
 	cpuid_execpass(cp, CPUID_PASS_BASIC, new_x86_featureset);
 

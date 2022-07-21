@@ -251,6 +251,12 @@ mlsetup(struct regs *rp)
 	CPU->cpu_pri = 12;		/* initial PIL for the boot CPU */
 
 	/*
+	 * Ensure that we have set the necessary feature bits before setting up
+	 * PCI config space access.
+	 */
+	cpuid_execpass(cpu[0], CPUID_PASS_PRELUDE, x86_featureset);
+
+	/*
 	 * PCI config space access is required for fabric setup.
 	 */
 	pcie_cfgspace_init();
@@ -275,7 +281,7 @@ mlsetup(struct regs *rp)
 	 */
 	determine_platform();
 	milan_ccx_set_brandstr();
-	cpuid_execpass(cpu[0], CPUID_PASS_IDENT, x86_featureset);
+	cpuid_execpass(cpu[0], CPUID_PASS_IDENT, NULL);
 
 	/*
 	 * Now go through and set up the BSP's thread-, core-, and CCX-specific

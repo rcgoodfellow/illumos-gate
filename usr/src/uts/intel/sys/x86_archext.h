@@ -1446,6 +1446,7 @@ extern void cpu_fast_syscall_disable(void);
 
 typedef enum cpuid_pass {
 	CPUID_PASS_NONE = 0,
+	CPUID_PASS_PRELUDE,
 	CPUID_PASS_IDENT,
 	CPUID_PASS_BASIC,
 	CPUID_PASS_EXTENDED,
