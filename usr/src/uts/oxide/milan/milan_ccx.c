@@ -405,7 +405,7 @@ milan_core_l2_init(void)
 {
 	uint64_t v;
 	x86_chiprev_t chiprev = cpuid_getchiprev(CPU);
-	x86_uarch_t uarchrev = cpuid_getuarchrev(CPU);
+	x86_uarchrev_t uarchrev = cpuid_getuarchrev(CPU);
 
 	v = rdmsr(MSR_AMD_L2_CFG);
 	v = AMD_L2_CFG_SET_DIS_HWA(v, 1);
@@ -460,7 +460,7 @@ milan_ccx_l3_init(void)
 {
 	uint64_t v;
 	x86_chiprev_t chiprev = cpuid_getchiprev(CPU);
-	x86_uarch_t uarchrev = cpuid_getuarchrev(CPU);
+	x86_uarchrev_t uarchrev = cpuid_getuarchrev(CPU);
 
 	v = rdmsr(MSR_AMD_CH_L3_CFG0);
 	if (uarchrev_at_least(uarchrev, X86_UARCHREV_AMD_ZEN3_B1)) {
