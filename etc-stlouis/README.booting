@@ -1,22 +1,34 @@
 You will need:
 
-- A supportable Gimlet, or an Ethanol-X (for now)
-- Milan, possibly; I believe this should also work on Rome but have not tried
-  it yet
+- A supportable Gimlet, or an Ethanol-X (for now), with Milan processor(s)
 - illumos-gate stlouis a368956d97835cacf0266ab9ff2fe7b7944afa09 or later
-- nanobl-rs 0.4.7 or later (0.4.1 and later will work but will require manual
-  mapping of the space for the ramdisk prior to receiving it; the ramdisk
-  exceeds the automap limit of 64 MiB in loaders older than 0.4.7)
+- nanobl-rs 0.5.0 or later (0.4.1 and later will work but will require manual
+  steps and will not provide compressed image support; check out older
+  versions of this file for instructions on old loaders)
+- A built stlouis workspace
 - The tools in this directory
+
+External Links
+--------------
+Lab machine guide:
+https://github.com/oxidecomputer/meta/blob/master/engineering/lab/gimlet.adoc
+
+Setting up and using a helios-dev build machine:
+https://github.com/oxidecomputer/stlouis/blob/main/dev.adoc
 
 Steps:
 
-1. Build the kernel, modules, and kmdb and its dependencies.  The kmdb deps
-are a pain if you haven't set up a bunch of ancillary crap to build userland
-(in particular, Python.h seems to come up a lot).  If you have nightly(1onbld)
-working, that should work fine for building all the modules you need.  If you
-want to build on an arbitrary build machine using adjuncts, consider applying
-illumos-build-fixes.diff from this directory.
+1. Build the kernel, modules, and kmdb and its dependencies.  If you aren't
+sure how to do this, don't know what adjuncts are, or just want the simplest
+possible HOWTO, you are or probably want to be on helios-dev and should follow
+https://github.com/oxidecomputer/stlouis/blob/main/dev.adoc.  Otherwise it is
+assumed that you have a working build environment and know how to build what's
+needed on your distribution using the in-gate tools.  If you want to build on
+an arbitrary build machine using adjuncts, consider applying
+illumos-build-fixes.diff from this directory which fixes several upstream bugs
+that interfere with reproducible builds.  You don't need this patch if you are
+not doing a reproducible build (again, if you aren't sure, just follow
+https://github.com/oxidecomputer/stlouis/blob/main/dev.adoc).
 
 2. Build a ramdisk.  The size in mkrd.bash must match the end address property
 value in usr/src/uts/oxide/os/boot_data.c; if you need to grow the ramdisk,
@@ -27,12 +39,38 @@ to use a fixed name you can do something like:
 
 	$ mv $(./mkrd.bash) /path/to/ramdisk.ufs
 
-3. Build nanobl-rs and burn it to your test machine's boot flash.  See the
-instructions in that repo's README.
+3. Compress your ramdisk (optionally, you may also compress your kernel).
+Unfortunately, gzip is not appropriate; instead use
+https://github.com/oxidecomputer/pinprick or the python code in
+https://github.com/oxidecomputer/nanobl-rs/pull/89#issue-1301450517:
 
-4. At this point you should have:
-	- A box sitting at the > prompt in your terminal emulator (see
-	  nanobl-rs repo for notes on configuring it)
+	$ pinprick /path/to/ramdisk.ufs > /path/to/ramdisk.ufs.z
+
+4. Start your terminal emulator and attach it to the target machine's UART0.
+The examples here assume you use picocom, but you can use whatever you like.
+
+	// For lab systems:
+	$ pfexec humility -t <target> exec console
+	// In general:
+	$ picocom -s "sx -Xk" --flow h -b 3000000 --imap lfcrlf --omap \
+	crlf,delbs /dev/my/local/uart
+
+5. If you haven't done so already, build nanobl-rs and burn it to your test
+machine's boot flash.  See the instructions in that repo's README.  Put the
+test machine into A0:
+
+	// Image burn if needed; lab systems need pfexec + -t <target>
+	$ humility qspi -D ~/src/amd-host-image-builder/milan-gimlet-b.img
+	// Power up; lab systems need pfexec + -t <target>
+	$ humility hiffy -c Sequencer.set_state -a state=A0
+
+Note that you need to be in A2 first to burn the flash.  If you are using
+Ethanol-X, see the manual for your workstation's IPMI client tools and the
+Ethanol-X BMC firmware.
+
+6. At this point you should have:
+	- A box sitting at the throbber or > prompt in your terminal emulator
+	(see nanobl-rs repo for notes on configuring it)
 	- A copy of unix from $ROOT/platform/kernel/oxide/amd64/unix
 	- A copy of ramdisk.ufs or whatever you called it
 
@@ -43,39 +81,49 @@ That will save about 2 MiB in the image, but for now you need it twice, and
 the file in the ramdisk MUST MATCH the kernel you boot; otherwise krtld will
 complain and you will not get very far.
 
-5. If you are using a rev A Gimlet and want a NIC and/or SSD(s), you must now
+7. If you are using a rev A Gimlet and want a NIC and/or SSD(s), you must now
 power on any sharkfin power controllers you need, then release PERST# for each
 PCIe end device you wish to use.  Releasing PERST# requires hardware
 modification; ask if you don't know what to do.  These steps may be done in
 parallel with ramdisk loading (next step).
 
-6. Now issue the following sequence of loader commands:
+8. Now issue the following sequence of loader commands.  First, instruct
+nanobl-rs to receive the ramdisk:
 
-	> 101000000::recv -m
+	> 110000000::recv -m | ::inflate 101000000
 
-	Send the ramdisk you built previously via your terminal emulator's
-Xmodem upload command at this time.  This command places the ramdisk into
-memory at 1_0100_0000, which must match the address in oxide/os/boot_data.c.
-Note that if you build a ramdisk larger than 64 MiB, you will also need to map
-memory manually or specify the size in bytes on the loader command line.  See
-the help for ::recv's -m option.
+nanobl-rs will block, silently waiting for data to arrive.  You should now use
+your terminal emulator's Xmodem send command to transfer the compressed
+ramdisk you build in step 3.  On picocom, this is C-a C-s.
+
+This command places the ramdisk into memory at 1_0100_0000, which must match
+the address in oxide/os/boot_data.c.  Note that if you build a ramdisk larger
+than 128 MiB, you will also need to map memory manually or specify the size in
+bytes on the loader command line.  See the help for ::recv's -m option and
+::inflate.
+
+Next, instruct nanobl-rs to receive unix in the same manner, and to begin
+executing the kernel once the transfer completes.  If you compressed your
+kernel in step 3, utter:
+
+	> 110000000::recv -m | ::inflate 100000000 | ::load | ::call
+
+If you did not compress your kernel:
 
 	> 100000000::recv -m | ::load | ::call
 
-	Send unix in the same manner at this time.  You are free to put this
-almost anywhere that the loader will let you, except for the area the ramdisk
-already occupies and the regions the kernel itself wants to be loaded into.
-The suggested address is convenient and out of the way and should work on
-every supportable Gimlet and Ethanol-X.  When the file receiption completes,
-::load and ::call will interpret the kernel and an ELF object and transfer
-control to its entry point, booting the OS.  NOTE: This syntax is available
-only in nanobl-rs 0.4.1 and later.  If you have 0.4.0, you can still boot but
-will need to issue three separate commands instead of a single pipeline.
+Again, as soon as nanobl-rs blocks, use Xmodel to send unix.z (or unix) to the
+target machine (picocom: C-a C-s).
 
-6. If you wish to proceed to userland, utter ':c' when kmdb loads, ignoring
+The addresses used for unix in the above example are almost entirely
+arbitrary, but should work on any machine we have.  When the file receiption
+completes, ::load and ::call will interpret the kernel and an ELF object and
+transfer control to its entry point, booting the OS.
+
+9. If you wish to proceed to userland, utter ':c' when kmdb loads, ignoring
 any errors about failure to load kmods.  Otherwise, begin your debug session.
 
-7. Upon reaching userland, if you have a NIC you can plumb up your network
+10. Upon reaching userland, if you have a NIC you can plumb up your network
 links and routes, then utter '/root/start-sshd' to gain remote access.  The
 collection of available phase-1 system software is very limited and heavily
 skewed toward debugging tools.  If you want a more functional (RFD 241
@@ -100,7 +148,7 @@ not complete or perfect and some things probably still won't work; you are at
 the end of the graded road so grab your illumos man pages and work it out for
 yourself.
 
-8. If you wish to re-enter kmdb, send a BREAK using your terminal emulator
+11. If you wish to re-enter kmdb, send a BREAK using your terminal emulator
 (picocom default: C-a C-|).  There is currently no way to reboot.  On Gimlet,
 use humility to cycle through A2.  On Eth-X, ipmitool or the web UI may be
 used.
@@ -118,10 +166,6 @@ in boot.
 
 - Figure out how to turn off the three reserved regions of RAM the PSP wants.
 
-- Set the magic undocumented MSRs for the BSP, and add code to MP startup to
-  do it on APs once we get there.  This probably belongs in apix, which is a
-much bigger can of worms.
-
 - Fix up the boot time properties code so we can accept the root pointer as a
   physical address, or decide that we don't ever want the loader passing boot
 properties and just have it pass the ramdisk location.  There are several ways
@@ -138,14 +182,8 @@ to.  If we were clever we could even dispense with copying the contents and
 just load it in the right place, then create the proper mappings.  You know,
 like a loader.  See the notes above on step 4.
 
-- Switch us to a compressed CPIO ramdisk.  We're certain to need it to save
-  space, and probably time.  Even with just gzip, the existing 13 MiB ramdisk
-that is very nearly enough to get to userland fits in about 4 MiB compressed,
-which is shockingly comparable to LinuxBoot, though it doesn't include any
-actual user programs.  This also offers us another path to simplify booting
-into a single step, by including the kernel and having the loader extract it
-from the archive instead of making them separate steps; we wouldn't want to
-make the loader understand UFS but CPIO might be ok.
+- Switch us to a compressed CPIO ramdisk.  This is currently under way in a
+  new flash-only loader called phbl.
 
 - Probably rewrite mlsetup(), which is needlessly complicated for our needs.
 
