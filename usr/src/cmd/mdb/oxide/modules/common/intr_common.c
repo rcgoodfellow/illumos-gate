@@ -25,7 +25,6 @@
  */
 
 #include "intr_common.h"
-#include <sys/multidata.h>
 #include <sys/gld.h>
 #include <sys/gldpriv.h>
 
