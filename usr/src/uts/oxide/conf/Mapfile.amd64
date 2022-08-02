@@ -1,5 +1,6 @@
 #
 # Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2022 Oxide Computer Company
 #
 # CDDL HEADER START
 #
@@ -24,7 +25,7 @@
 $mapfile_version 2
 
 LOAD_SEGMENT text {
-	FLAGS =READ WRITE EXECUTE;
+	FLAGS = READ WRITE EXECUTE;
 	NOHDR;
 	PADDR = 0x200000;
 	VADDR = 0xFFFFFFFFFBC00000;
