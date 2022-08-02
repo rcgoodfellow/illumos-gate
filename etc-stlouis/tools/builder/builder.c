@@ -164,6 +164,7 @@ handle_link(char *target, const char *type,
 	(void) printf("LINK(%s): %s => %s: ", type, newpath, target);
 
 	if (linker(target, newpath) != 0) {
+		(void) fprintf(stderr, "linker(%s, %s): ", newpath, target);
 		perror(type);
 		exit(1);
 	}
