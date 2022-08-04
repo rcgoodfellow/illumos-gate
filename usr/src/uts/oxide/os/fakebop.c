@@ -624,25 +624,49 @@ apob_init(void)
  * day this might look more like the sun4 code than i86pc.
  */
 void
-_start(const bt_discovery_t *btdp)
+_start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 {
+	const bt_discovery_t *btdp;
 	extern void _kobj_boot();
 	extern int use_mp;
 	struct boot_syscalls *bsp;
+
+	uint64_t ramdisk_start = ramdisk_paddr;
+	uint64_t ramdisk_end = ramdisk_start + ramdisk_len;
+
+	/*
+	 * XXX(cross): the conditional is a hack for transition.
+	 * In steady-state, we'll call this unconditionally.
+	 */
+	if (ramdisk_start != 0) {
+		/*
+		 * Validate that the ramdisk lies completely
+		 * within the 48-bit physical address space.
+		 *
+		 * The check against the length accounts for
+		 * modular arithmetic in the cyclic subgroup.
+		 */
+		const uint64_t PHYS_LIMIT = (1ULL << 48) - 1;
+		if (ramdisk_start > PHYS_LIMIT ||
+		    ramdisk_end > PHYS_LIMIT ||
+		    ramdisk_len > PHYS_LIMIT ||
+		    ramdisk_start >= ramdisk_end) {
+			return;
+		}
+		ramdisk_set_tunables(ramdisk_start, ramdisk_end);
+	}
 
 	/*
 	 * XXX This works only on *non* Oxide hardware and should be deleted.
 	 */
 	outw(0x80, 0x1DE);
 
-	if (btdp == NULL) {
 #ifdef	USE_DISCOVERY_STUB
-		btdp = &bt_discovery_stub;
+	btdp = &bt_discovery_stub;
 #else
-		outw(0x80, 0xD15C);
-		return;
+	outw(0x80, 0xD15C);
+	return;
 #endif	/* USE_DISCOVERY_STUB */
-	}
 
 	kbm_init();
 	bsp = boot_console_init();

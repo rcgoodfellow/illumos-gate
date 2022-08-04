@@ -163,6 +163,7 @@ extern const bt_prop_t * const bt_fallback_props;
 
 extern void eb_set_tunables(void);
 extern void genunix_set_tunables(void);
+extern void ramdisk_set_tunables(uint64_t, uint64_t);
 
 #ifdef	__cplusplus
 }

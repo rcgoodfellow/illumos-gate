@@ -63,8 +63,9 @@ extern "C" {
 static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
 static const uint32_t ASSUMED_RESET_VECTOR = 0x7ffefff0U;
 static const char FAKE_BOARD_IDENT[] = "FAKE-IDENT";
-static const uint64_t RAMDISK_START_VAL = 0x101000000UL;
-static const uint64_t RAMDISK_END_VAL = 0x105c00000UL;
+
+static uint64_t ramdisk_start_val = 0x101000000UL;
+static uint64_t ramdisk_end_val = 0x105c00000UL;
 
 static const bt_prop_t reset_vector_prop = {
 	.btp_next = NULL,
@@ -78,7 +79,7 @@ static const bt_prop_t ramdisk_end_prop = {
 	.btp_next = &reset_vector_prop,
 	.btp_name = "ramdisk_end",
 	.btp_vlen = sizeof (uint64_t),
-	.btp_value = &RAMDISK_END_VAL,
+	.btp_value = &ramdisk_end_val,
 	.btp_typeflags = DDI_PROP_TYPE_INT64
 };
 
@@ -86,7 +87,7 @@ static const bt_prop_t ramdisk_start_prop = {
 	.btp_next = &ramdisk_end_prop,
 	.btp_name = "ramdisk_start",
 	.btp_vlen = sizeof (uint64_t),
-	.btp_value = &RAMDISK_START_VAL,
+	.btp_value = &ramdisk_start_val,
 	.btp_typeflags = DDI_PROP_TYPE_INT64
 };
 
@@ -195,6 +196,13 @@ genunix_set_tunables(void)
 	 * We don't support running in a virtual environment.
 	 */
 	enable_platform_detection = 0;
+}
+
+void
+ramdisk_set_tunables(uint64_t ramdisk_start, uint64_t ramdisk_end)
+{
+	ramdisk_start_val = ramdisk_start;
+	ramdisk_end_val = ramdisk_end;
 }
 
 #ifdef	__cplusplus
