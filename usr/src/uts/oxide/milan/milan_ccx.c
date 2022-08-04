@@ -230,6 +230,13 @@ static void
 milan_thread_uc_init(void)
 {
 	uint64_t v;
+	x86_chiprev_t chiprev = cpuid_getchiprev(CPU);
+
+	/*
+	 * The fields we modify in MCODE_CTL are reserved on A0.
+	 */
+	if (!chiprev_at_least(chiprev, X86_CHIPREV_AMD_MILAN_B0))
+		return;
 
 	v = rdmsr(MSR_AMD_MCODE_CTL);
 	v = AMD_MCODE_CTL_SET_REP_STOS_ST_THRESH(v,
@@ -249,10 +256,9 @@ milan_core_ls_init(void)
 	v = rdmsr(MSR_AMD_LS_CFG);
 	v = AMD_LS_CFG_SET_TEMP_LOCK_CONT_THRESH(v, 1);
 	v = AMD_LS_CFG_SET_ALLOW_NULL_SEL_BASE_LIMIT_UPD(v, 1);
-	if (chiprev_at_least(chiprev, X86_CHIPREV_AMD_MILAN_B1)) {
-		v = AMD_LS_CFG_SET_SBEX_MISALIGNED_TLBMISS_MA1_FRC_MA2(v, 1);
-	} else {
-		v = AMD_LS_CFG_SET_SBEX_MISALIGNED_TLBMISS_MA1_FRC_MA2(v, 0);
+	v = AMD_LS_CFG_SET_SBEX_MISALIGNED_TLBMISS_MA1_FRC_MA2(v, 1);
+	if (chiprev_matches(chiprev, X86_CHIPREV_AMD_MILAN_A0)) {
+		v = AMD_LS_CFG_SET_SPEC_LOCK_MAP_DIS(v, 1);
 	}
 	/*
 	 * XXX Possible boot-time or per-thread/guest policy option.
@@ -320,8 +326,8 @@ milan_core_ic_init(void)
 			v = AMD_IC_CFG_SET_UNKNOWN_48(v, 0);
 		} else {
 			v = AMD_IC_CFG_SET_UNKNOWN_48(v, 1);
-			v = AMD_IC_CFG_SET_DIS_SPEC_TLB_RLD(v, 1);
-			v = AMD_IC_CFG_SET_UNKNOWN_8(v, 0);
+			v = AMD_IC_CFG_SET_UNKNOWN_8(v, 1);
+			v = AMD_IC_CFG_SET_UNKNOWN_7(v, 0);
 		}
 		v = AMD_IC_CFG_SET_UNKNOWN_53(v, 0);
 		v = AMD_IC_CFG_SET_UNKNOWN_52(v, 1);
