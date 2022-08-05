@@ -22,11 +22,11 @@
 
 #include <mdb/mdb_modapi.h>
 #include <kmdb/kmdb_modext.h>
-#include <sys/x86_archext.h>
 #include <sys/pci.h>
 #include <sys/pcie.h>
 #include <sys/sysmacros.h>
 #include <milan/milan_physaddrs.h>
+#include <sys/amdzen/ccx.h>
 #include <io/amdzen/amdzen.h>
 
 static uint64_t pcicfg_physaddr;
@@ -136,13 +136,14 @@ pcicfg_space_init(void)
 		return (B_TRUE);
 	}
 
-	if (mdb_x86_rdmsr(MSR_AMD_MMIOCFG_BASEADDR, &msr) != DCMD_OK) {
+	if (mdb_x86_rdmsr(MSR_AMD_MMIO_CFG_BASE_ADDR, &msr) != DCMD_OK) {
 		mdb_warn("failed to read MSR_AMD_MMIOCFG_BASEADDR");
 		return (B_FALSE);
 	}
 
-	if ((msr & AMD_MMIOCFG_BASEADDR_ENABLE) != 0) {
-		pcicfg_physaddr = msr & AMD_MMIOCFG_BASEADDR_MASK;
+	if (AMD_MMIO_CFG_BASE_ADDR_GET_EN(msr) != 0) {
+		pcicfg_physaddr = AMD_MMIO_CFG_BASE_ADDR_GET_ADDR(msr) <<
+		    AMD_MMIO_CFG_BASE_ADDR_ADDR_SHIFT;
 		pcicfg_valid = B_TRUE;
 		return (B_TRUE);
 	}

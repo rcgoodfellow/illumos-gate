@@ -49,16 +49,18 @@ static const boolean_t milan_ccx_set_undoc_fields = B_TRUE;
 void
 milan_ccx_mmio_init(uint64_t pa, boolean_t reserve)
 {
-	uint64_t val = AMD_MMIOCFG_BASEADDR_ENABLE;
-	val |= AMD_MMIOCFG_BASEADDR_BUSRANGE_256 <<
-	    AMD_MMIOCFG_BASEADDR_BUSRANGE_SHIFT;
-	val |= (pa & AMD_MMIOCFG_BASEADDR_MASK);
-	wrmsr(MSR_AMD_MMIOCFG_BASEADDR, val);
+	uint64_t val;
+
+	val = AMD_MMIO_CFG_BASE_ADDR_SET_EN(0, 1);
+	val = AMD_MMIO_CFG_BASE_ADDR_SET_BUS_RANGE(val,
+	    AMD_MMIO_CFG_BASE_ADDR_BUS_RANGE_256);
+	val = AMD_MMIO_CFG_BASE_ADDR_SET_ADDR(val,
+	    pa >> AMD_MMIO_CFG_BASE_ADDR_ADDR_SHIFT);
+	wrmsr(MSR_AMD_MMIO_CFG_BASE_ADDR, val);
 
 	if (reserve) {
 		eb_physmem_reserve_range(pa,
-		    (1UL << AMD_MMIOCFG_BASEADDR_BUSRANGE_256) <<
-		    AMD_MMIOCFG_BASEADDR_ADDR_SHIFT, EBPR_NOT_RAM);
+		    256UL << AMD_MMIO_CFG_BASE_ADDR_ADDR_SHIFT, EBPR_NOT_RAM);
 	}
 }
 
