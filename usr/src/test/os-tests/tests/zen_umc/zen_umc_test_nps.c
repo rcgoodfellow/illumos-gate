@@ -2761,7 +2761,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (7)",
+	.udt_desc = "NPS 6ch, 1P (8)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x80bc,
 	.udt_pass = B_TRUE,
@@ -2778,7 +2778,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (8)",
+	.udt_desc = "NPS 6ch, 1P (9)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x81bc,
 	.udt_pass = B_TRUE,
@@ -2795,7 +2795,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (9)",
+	.udt_desc = "NPS 6ch, 1P (10)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0xa0bc,
 	.udt_pass = B_TRUE,
@@ -2812,7 +2812,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (10)",
+	.udt_desc = "NPS 6ch, 1P (11)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0xa1bc,
 	.udt_pass = B_TRUE,
@@ -2835,7 +2835,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
  * more contiguous.
  */
 {
-	.udt_desc = "NPS 6ch, 1P (11)",
+	.udt_desc = "NPS 6ch, 1P (12)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x120bc,
 	.udt_pass = B_TRUE,
@@ -2852,7 +2852,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (12)",
+	.udt_desc = "NPS 6ch, 1P (13)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x220bc,
 	.udt_pass = B_TRUE,
@@ -2869,7 +2869,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (13)",
+	.udt_desc = "NPS 6ch, 1P (14)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x320bc,
 	.udt_pass = B_TRUE,
@@ -2886,7 +2886,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (14)",
+	.udt_desc = "NPS 6ch, 1P (15)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x420bc,
 	.udt_pass = B_TRUE,
@@ -2903,7 +2903,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (15)",
+	.udt_desc = "NPS 6ch, 1P (16)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x720bc,
 	.udt_pass = B_TRUE,
@@ -2920,7 +2920,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (16)",
+	.udt_desc = "NPS 6ch, 1P (17)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1000020bc,
 	.udt_pass = B_TRUE,
@@ -2937,7 +2937,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (17)",
+	.udt_desc = "NPS 6ch, 1P (18)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1800020bc,
 	.udt_pass = B_TRUE,
@@ -2954,7 +2954,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (18)",
+	.udt_desc = "NPS 6ch, 1P (19)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1c00020bc,
 	.udt_pass = B_TRUE,
@@ -2971,7 +2971,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (19)",
+	.udt_desc = "NPS 6ch, 1P (20)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1c00060bc,
 	.udt_pass = B_TRUE,
@@ -2988,7 +2988,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (20)",
+	.udt_desc = "NPS 6ch, 1P (21)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1c00040bc,
 	.udt_pass = B_TRUE,
@@ -3005,7 +3005,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (21)",
+	.udt_desc = "NPS 6ch, 1P (22)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1c00041bc,
 	.udt_pass = B_TRUE,
@@ -3022,7 +3022,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 6ch, 1P (22)",
+	.udt_desc = "NPS 6ch, 1P (23)",
 	.udt_umc = &zen_umc_nps6_1p,
 	.udt_pa = 0x1c00061bc,
 	.udt_pass = B_TRUE,
@@ -3141,7 +3141,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (0)",
+	.udt_desc = "NPS 3ch, 2P (6)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x1fc0ad,
 	.udt_pass = B_TRUE,
@@ -3158,7 +3158,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (1)",
+	.udt_desc = "NPS 3ch, 2P (7)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x1fc1ad,
 	.udt_pass = B_TRUE,
@@ -3175,7 +3175,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (0)",
+	.udt_desc = "NPS 3ch, 2P (8)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x2000ad,
 	.udt_pass = B_TRUE,
@@ -3192,7 +3192,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (1)",
+	.udt_desc = "NPS 3ch, 2P (9)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x2001ad,
 	.udt_pass = B_TRUE,
@@ -3209,7 +3209,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (0)",
+	.udt_desc = "NPS 3ch, 2P (10)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x2040ad,
 	.udt_pass = B_TRUE,
@@ -3226,7 +3226,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (1)",
+	.udt_desc = "NPS 3ch, 2P (11)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x2041ad,
 	.udt_pass = B_TRUE,
@@ -3243,7 +3243,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (0)",
+	.udt_desc = "NPS 3ch, 2P (12)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x2080ad,
 	.udt_pass = B_TRUE,
@@ -3260,7 +3260,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (1)",
+	.udt_desc = "NPS 3ch, 2P (13)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x2081ad,
 	.udt_pass = B_TRUE,
@@ -3277,7 +3277,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (0)",
+	.udt_desc = "NPS 3ch, 2P (14)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x20c0ad,
 	.udt_pass = B_TRUE,
@@ -3294,7 +3294,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (1)",
+	.udt_desc = "NPS 3ch, 2P (15)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x20c1ad,
 	.udt_pass = B_TRUE,
@@ -3311,7 +3311,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (0)",
+	.udt_desc = "NPS 3ch, 2P (16)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x10020c0ad,
 	.udt_pass = B_TRUE,
@@ -3328,7 +3328,7 @@ const umc_decode_test_t zen_umc_test_nps[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "NPS 3ch, 2P (1)",
+	.udt_desc = "NPS 3ch, 2P (17)",
 	.udt_umc = &zen_umc_nps3_2p,
 	.udt_pa = 0x10020c1ad,
 	.udt_pass = B_TRUE,

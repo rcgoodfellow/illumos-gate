@@ -139,9 +139,9 @@
  *   o Reading or writing to SMN registers
  *
  * In general, it is preferred that the lock be held across an entire client
- * operation if plausible. The only time this becomes an issue are when we have
+ * operation if possible. The only time this becomes an issue are when we have
  * callbacks into our callers (ala amdzen_c_df_iter()) as they will likely
- * recurisvely call into us.
+ * recursively call into us.
  */
 
 #include <sys/modctl.h>
@@ -474,7 +474,16 @@ amdzen_c_df_iter(uint_t dfno, zen_df_type_t type, amdzen_c_iter_f func,
 	switch (type) {
 	case ZEN_DF_TYPE_CS_UMC:
 		df_type = DF_TYPE_CS;
-		df_subtype = DF_CS_SUBTYPE_UMC;
+		/*
+		 * In the original Zeppelin DFv2 die there was no subtype field
+		 * used for the CS. The UMC is the only type and has a subtype
+		 * of zero.
+		 */
+		if (df->adf_rev != DF_REV_2) {
+			df_subtype = DF_CS_SUBTYPE_UMC;
+		} else {
+			df_subtype = 0;
+		}
 		break;
 	case ZEN_DF_TYPE_CCM_CPU:
 		df_type = DF_TYPE_CCM;
@@ -751,7 +760,6 @@ amdzen_determine_fabric_decomp(amdzen_t *azn, amdzen_df_t *df)
 		default:
 			panic("DF thinks we're not on a CPU!");
 		}
-		mask = amdzen_df_read32_bcast(azn, df, DF_FIDMASK_V2);
 		df->adf_mask0 = mask;
 
 		/*
@@ -770,7 +778,7 @@ amdzen_determine_fabric_decomp(amdzen_t *azn, amdzen_df_t *df)
 		 * we encounter DFv2, we fake up a node mask and shift and make
 		 * it look like DFv3+.
 		 */
-		decomp->dfd_node_mask = DF_DIEMASK_V2_GET_SOCK_SHIFT(mask) |
+		decomp->dfd_node_mask = DF_DIEMASK_V2_GET_SOCK_MASK(mask) |
 		    DF_DIEMASK_V2_GET_DIE_MASK(mask);
 		decomp->dfd_node_shift = DF_DIEMASK_V2_GET_DIE_SHIFT(mask);
 		decomp->dfd_comp_mask = DF_DIEMASK_V2_GET_COMP_MASK(mask);

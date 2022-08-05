@@ -27,8 +27,8 @@
  * There are effectively four different revisions of the UMC that we know about
  * and support querying:
  *
- *   o DDR4 based APUs
- *   o DDR4 based CPUs
+ *   o DDR4 capable APUs
+ *   o DDR4 capable CPUs
  *   o DDR5 capable APUs
  *   o DDR5 capable CPUs
  *

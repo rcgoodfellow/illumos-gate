@@ -89,8 +89,8 @@ mcb_imc_decode_pa(void *arg, uint64_t pa)
 
 	bzero(&dec, sizeof (dec));
 	if (!imc_decode_pa(imc, pa, &dec)) {
-		errx(EXIT_FAILURE, "failed to decode address 0x%"
-		    PRIx64 " -- 0x%x, 0x" PRIx64, pa, dec.ids_fail,
+		errx(EXIT_FAILURE, "failed to decode address 0x%" PRIx64
+		    " -- 0x%x, 0x%" PRIx64, pa, dec.ids_fail,
 		    dec.ids_fail_data);
 	}
 
@@ -132,9 +132,9 @@ mcb_umc_decode_pa(void *arg, uint64_t pa)
 
 	bzero(&dec, sizeof (dec));
 	if (!zen_umc_decode_pa(umc, pa, &dec)) {
-		errx(EXIT_FAILURE, "failed to decode address 0x%"
-		    PRIx64 " -- 0x%x, 0x" PRIx64, pa,
-		    dec.dec_fail, dec.dec_fail_data);
+		errx(EXIT_FAILURE, "failed to decode address 0x%" PRIx64
+		    " -- 0x%x, 0x%" PRIx64, pa, dec.dec_fail,
+		    dec.dec_fail_data);
 	}
 
 	zen_fabric_id_decompose(&umc->umc_decomp, dec.dec_targ_fabid, &sock,

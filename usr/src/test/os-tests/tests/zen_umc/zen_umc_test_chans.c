@@ -1042,7 +1042,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 1
 }, {
-	.udt_desc = "2 DPC 2R no hash, rank ilv (5)",
+	.udt_desc = "2 DPC 2R no hash, rank ilv (4)",
 	.udt_umc = &zen_umc_chan_ilv,
 	.udt_pa = 0xe1be12e00,
 	.udt_pass = B_TRUE,
@@ -1059,7 +1059,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "2 DPC 2R no hash, rank ilv (6)",
+	.udt_desc = "2 DPC 2R no hash, rank ilv (5)",
 	.udt_umc = &zen_umc_chan_ilv,
 	.udt_pa = 0x1fffffffff,
 	.udt_pass = B_TRUE,
@@ -1078,7 +1078,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 },
 /*
  * Test the CS hashing by first going back and using bits that aren't part of
- * the CS hash modification, e.g. the same 4 interleaving caes that we hit
+ * the CS hash modification, e.g. the same 4 interleaving case that we hit
  * earlier. Next, we go through and tweak things that would normally go to a
  * given CS originally by tweaking the bits that would be used in a hash and
  * prove that they go elsewhere.
@@ -1102,7 +1102,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_cs = 0
 }, {
 	.udt_desc = "2 DPC 2R cs hash, rank ilv (1)",
-	.udt_umc = &zen_umc_chan_ilv,
+	.udt_umc = &zen_umc_chan_ilv_cs_hash,
 	.udt_pa = 0x20000,
 	.udt_pass = B_TRUE,
 	.udt_norm_addr = 0x20000,
@@ -1119,7 +1119,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_cs = 1
 }, {
 	.udt_desc = "2 DPC 2R cs hash, rank ilv (2)",
-	.udt_umc = &zen_umc_chan_ilv,
+	.udt_umc = &zen_umc_chan_ilv_cs_hash,
 	.udt_pa = 0x40000,
 	.udt_pass = B_TRUE,
 	.udt_norm_addr = 0x40000,
@@ -1136,7 +1136,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_cs = 0
 }, {
 	.udt_desc = "2 DPC 2R cs hash, rank ilv (3)",
-	.udt_umc = &zen_umc_chan_ilv,
+	.udt_umc = &zen_umc_chan_ilv_cs_hash,
 	.udt_pa = 0x60000,
 	.udt_pass = B_TRUE,
 	.udt_norm_addr = 0x60000,
@@ -1237,7 +1237,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 1
 }, {
-	.udt_desc = "2 DPC 2R cs hash, rank ilv (8)",
+	.udt_desc = "2 DPC 2R cs hash, rank ilv (9)",
 	.udt_umc = &zen_umc_chan_ilv_cs_hash,
 	.udt_pa = 0x181c0000,
 	.udt_pass = B_TRUE,
@@ -1254,7 +1254,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "2 DPC 2R cs hash, rank ilv (8)",
+	.udt_desc = "2 DPC 2R cs hash, rank ilv (10)",
 	.udt_umc = &zen_umc_chan_ilv_cs_hash,
 	.udt_pa = 0x181e0000,
 	.udt_pass = B_TRUE,
@@ -1584,7 +1584,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "2 DPC 2R bank hash, rank ilv (17)",
+	.udt_desc = "2 DPC 2R bank hash, rank ilv (18)",
 	.udt_umc = &zen_umc_chan_ilv_bank_hash,
 	.udt_pa = 0x7ff9c000,
 	.udt_pass = B_TRUE,
@@ -1601,7 +1601,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "2 DPC 2R bank hash, rank ilv (18)",
+	.udt_desc = "2 DPC 2R bank hash, rank ilv (19)",
 	.udt_umc = &zen_umc_chan_ilv_bank_hash,
 	.udt_pa = 0x71c000,
 	.udt_pass = B_TRUE,
@@ -1618,7 +1618,7 @@ const umc_decode_test_t zen_umc_test_chans[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "2 DPC 2R bank hash, rank ilv (18)",
+	.udt_desc = "2 DPC 2R bank hash, rank ilv (20)",
 	.udt_umc = &zen_umc_chan_ilv_bank_hash,
 	.udt_pa = 0x71c118,
 	.udt_pass = B_TRUE,

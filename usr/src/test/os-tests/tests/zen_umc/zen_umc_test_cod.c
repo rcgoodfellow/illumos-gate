@@ -1243,7 +1243,7 @@ const umc_decode_test_t zen_umc_test_cod[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "COD 6ch (18)",
+	.udt_desc = "COD 6ch (19)",
 	.udt_umc = &zen_umc_cod_6ch,
 	.udt_pa = 0x10000071ff,
 	.udt_pass = B_TRUE,
@@ -1265,7 +1265,7 @@ const umc_decode_test_t zen_umc_test_cod[] = { {
  * as we expect. Note, the bit 0 hash was already taken into account.
  */
 {
-	.udt_desc = "COD 6ch (19)",
+	.udt_desc = "COD 6ch (20)",
 	.udt_umc = &zen_umc_cod_6ch,
 	.udt_pa = 0x8001ff,
 	.udt_pass = B_TRUE,
@@ -1282,7 +1282,7 @@ const umc_decode_test_t zen_umc_test_cod[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "COD 6ch (20)",
+	.udt_desc = "COD 6ch (21)",
 	.udt_umc = &zen_umc_cod_6ch,
 	.udt_pa = 0xa001ff,
 	.udt_pass = B_TRUE,
@@ -1299,7 +1299,7 @@ const umc_decode_test_t zen_umc_test_cod[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "COD 6ch (21)",
+	.udt_desc = "COD 6ch (22)",
 	.udt_umc = &zen_umc_cod_6ch,
 	.udt_pa = 0xe001ff,
 	.udt_pass = B_TRUE,
@@ -1316,7 +1316,7 @@ const umc_decode_test_t zen_umc_test_cod[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "COD 6ch (22)",
+	.udt_desc = "COD 6ch (23)",
 	.udt_umc = &zen_umc_cod_6ch,
 	.udt_pa = 0x180e001ff,
 	.udt_pass = B_TRUE,
@@ -1333,7 +1333,7 @@ const umc_decode_test_t zen_umc_test_cod[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "COD 6ch (23)",
+	.udt_desc = "COD 6ch (24)",
 	.udt_umc = &zen_umc_cod_6ch,
 	.udt_pa = 0x1c0e041ff,
 	.udt_pass = B_TRUE,

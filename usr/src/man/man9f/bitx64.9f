@@ -72,7 +72,7 @@ functions are used to extract a range of bits from on an 8, 16, 32, and
 64-bit value respectively.
 These functions are all implementations of a classical application of a
 bitwise-AND of a mask and a logical right shift.
-More specifically, the aguments
+More specifically, the arguments
 .Fa high
 and
 .Fa low
@@ -93,7 +93,7 @@ Each of the variants here operates on a specifically sized integer.
 .Fa high
 and
 .Fa low
-must fit witin the bit range that the integer implies.
+must fit within the bit range that the integer implies.
 For example, the valid range for
 .Fa bitx32
 is from 0 to 31.

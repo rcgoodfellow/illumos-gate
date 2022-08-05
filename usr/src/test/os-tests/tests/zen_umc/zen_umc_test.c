@@ -259,7 +259,7 @@ zen_umc_test_decode_one(const umc_decode_test_t *test)
 		(void) printf("\t\tdecoded socket: 0x%x\n", sock);
 		(void) printf("\t\tdecoded die: 0x%x\n", die);
 		(void) printf("\t\tdecoded component: 0x%x\n", comp);
-		(void) printf("\t\tnormal address: 0x %" PRIx64 "\n",
+		(void) printf("\t\tnormal address: 0x%" PRIx64 "\n",
 		    dec.dec_norm_addr);
 		(void) printf("\t\tdecoded dimm: 0x%x\n", dec.dec_dimm_no);
 		(void) printf("\t\tdecoded row: 0x%x\n", dec.dec_dimm_row);
@@ -509,7 +509,7 @@ static const zen_umc_test_set_t zen_umc_test_set[] = {
 static void
 zen_umc_test_selected(int argc, char *argv[], uint_t *ntests, uint_t *nfail)
 {
-	for (int i = 1; i < argc; i ++) {
+	for (int i = 1; i < argc; i++) {
 		boolean_t ran = B_FALSE;
 
 		if (strcmp(argv[i], "fabric_ids") == 0) {

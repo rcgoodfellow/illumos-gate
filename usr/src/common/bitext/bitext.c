@@ -16,7 +16,8 @@
 /*
  * Various functions for manipulating regions of bits in standard sized
  * integers. Meant to be a replacement for the extant BITX macro and provide
- * additional functionality.
+ * additional functionality. See bitx64(9F), bitdel64(9F), and bitset64(9f) for
+ * more information.
  */
 
 #include <sys/debug.h>

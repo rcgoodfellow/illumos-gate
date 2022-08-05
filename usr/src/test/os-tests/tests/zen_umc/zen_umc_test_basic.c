@@ -336,7 +336,7 @@ const umc_decode_test_t zen_umc_test_basics[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 1
 }, {
-	.udt_desc = "single socket/channel/DIMM 2R DDR4 (2)",
+	.udt_desc = "single socket/channel/DIMM 2R DDR4 (3)",
 	.udt_umc = &zen_umc_basic_1p1c1d_64g,
 	.udt_pa = 0x076543210,
 	.udt_pass = B_TRUE,

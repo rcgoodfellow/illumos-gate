@@ -33,7 +33,7 @@ zen_fabric_id_valid_fabid(const df_fabric_decomp_t *decomp,
 
 /*
  * Validate whether the parts of a fabric ID (e.g. the socket, die, and
- * component), are in fact valid for a given data fabric.
+ * component) are in fact valid for a given data fabric.
  */
 boolean_t
 zen_fabric_id_valid_parts(const df_fabric_decomp_t *decomp, const uint32_t sock,

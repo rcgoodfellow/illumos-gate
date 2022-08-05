@@ -88,8 +88,8 @@ typedef struct mc_snapshot_info {
 
 /*
  * Data used to simulate encoding or decoding of a physical / DIMM address.
- * These are used in different ways between AMD and Intel, so this kind of is a
- * bit of a smorgasboard. Details about each field are listed below.
+ * These are used in different ways between AMD and Intel, so this is a bit of a
+ * smorgasbord. Details about each field are listed below.
  */
 typedef struct mc_encode_ioc {
 	/*
@@ -116,10 +116,11 @@ typedef struct mc_encode_ioc {
 	 * zero. The chip should correspond to the socket ID. The die refers to
 	 * a particular internal die if on a chiplet or MCP. The memory
 	 * controller and channel refer to a unique instance of both within a
-	 * given die. On platforms where this memory controller and channel are
-	 * 1:1 the system generally exposes only channels, set chan to 0 and put
-	 * the mc as the logical channel value. The dimm is a relative dimm in
-	 * the channel.
+	 * given die. On platforms where the memory controller and channel are
+	 * 1:1 (that is each memory controller has only a single channel or
+	 * doesn't have a specific distinction between the two), set chan to 0
+	 * and set the mc to the logical channel value. The DIMM is a relative
+	 * DIMM in the channel, meaning it's usually going to be 0, 1, or 2.
 	 */
 	uint32_t	mcei_board;
 	uint32_t	mcei_chip;

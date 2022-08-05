@@ -141,8 +141,8 @@ Upon successful completion, the
 .Fn bitset32 ,
 and
 .Fn bitset64
-functions all return a new value has first cleared the specified bit
-range from
+functions all return a new value that has first cleared the specified
+bit range from
 .Fa base
 and then replaced it with
 .Fa value .
@@ -154,8 +154,8 @@ function to build up a register value.
 .Pp
 A common use case for these functions is to help deal with registers
 that are defined as a series of bit values.
-The following example shows examples of definitions for this and then
-how it is used.
+The following example shows a register's bit definitions and then how
+they are used to construct a value to write.
 .Bd -literal
 /*
  * This represents a token register definition. It is normally a

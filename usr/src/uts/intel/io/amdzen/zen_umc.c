@@ -175,8 +175,8 @@
  *	registers is via these indirect reads.
  *
  *	There is one instance of the Data Fabric per socket starting with Zen 2.
- *	In Zen 1, there was one instance of the data fabric per CCD (see
- *	cpuid.c's big theory statement for more information).
+ *	In Zen 1, there was one instance of the data fabric per CCD -- core
+ *	complex die (see cpuid.c's big theory statement for more information).
  *
  * DF INSTANCE ID
  *
@@ -225,8 +225,8 @@
  *	us to avoid hardcoding too much information other than which registers
  *	actually have which fields. With both masks and shifts, it's important
  *	to establish which comes first. We follow AMD's convention and always
- *	apply masks before shifts.  With that, let's look at an example of a
- *	made up bit sets:
+ *	apply masks before shifts. With that, let's look at an example of a
+ *	made up bit set:
  *
  *	Assumptions (to make this example simple):
  *	  o The fabric ID is 16 bits
@@ -308,11 +308,16 @@
  *
  * ROW AND COLUMN
  *
- *	To address memory on an individual die of DRAM is organized into a
- *	series of rows and columns. First, one selects a row. At which point one
- *	is able to select a specific column. It is more expensive to change rows
- *	than columns, leading a given row to contain approximately 1 KiB of data
- *	spread across its columns. The exact size depends on the device.
+ *	The most basic building block of a DIMM is a die. A DIMM consists of
+ *	multiple dies that are organized together (we'll discuss the
+ *	organization next). A given die is organized into a series of rows and
+ *	columns. First, one selects a row. At which point one is able to select
+ *	a specific column. It is more expensive to change rows than columns,
+ *	leading a given row to contain approximately 1 KiB of data spread across
+ *	its columns. The exact size depends on the device. Each row/column is a
+ *	series of capacitors and transistors. The transistor is used to select
+ *	data from the capacitor and the capacitor actually contains the logical
+ *	0/1 value.
  *
  * BANKS AND BANK GROUPS
  *
@@ -344,10 +349,10 @@
  *
  *	On a DIMM, only a single bank and bank group can be active at a time for
  *	reading or writing an 8 byte chunk of data. However, these are still
- *	pretty important and useful because of the time involved. It is much
- *	cheaper to switch between bank groups than between banks and that time
- *	can be cheaper than activating a new row. This allows memory controllers
- *	to pipeline this substantially.
+ *	pretty important and useful because of the time involved to switch
+ *	between them. It is much cheaper to switch between bank groups than
+ *	between banks and that time can be cheaper than activating a new row.
+ *	This allows memory controllers to pipeline this substantially.
  *
  * RANK AND CHIP-SELECT
  *
@@ -395,7 +400,7 @@
  *      |           |          The CPU core receives a memory request and then
  *      |           * . . . .  determines whether this request is DRAM or MMIO
  *      |           |          (memory-mapped I/O) and then sends it to the data
- *      v           v          fabric from it there.
+ *      v           v          fabric.
  * +----------+ +--------+
  * | Physical | | Data   |
  * | Address  | | Fabric |
@@ -428,7 +433,7 @@
  * internal to this that we end up mimicking in software. This includes things
  * like, applying hashing logic, address transformations, and related.
  * Thankfully the hardware is fairly generic and programmed with enough
- * information that we can grab out to figure this out. The rest of this theory
+ * information that we can pull out to figure this out. The rest of this theory
  * statement covers the major parts of this: interleaving, the act of
  * determining which memory channel to actually go to, and normalization, the
  * act of removing some portion of the physical address bits to determine the
@@ -440,12 +445,12 @@
  *
  * One of the major parts of address decoding is to understand how the
  * interleaving features work in the data fabric. This is used to allow an
- * address range to be spread out between multiple memory channels and then
- * later on again when normalizing the address. As mentioned above, a system
- * address matches a rule which has information on interleaving. Interleaving
- * comes in many different flavors. It can be used to just switch between
- * channels, sockets, and dies. It can also end up involving some
- * straightforward and some fairly complex hashing operations.
+ * address range to be spread out between multiple memory channels and then,
+ * later on, when normalizing the address. As mentioned above, a system address
+ * matches a rule which has information on interleaving. Interleaving comes in
+ * many different flavors. It can be used to just switch between channels,
+ * sockets, and dies. It can also end up involving some straightforward and some
+ * fairly complex hashing operations.
  *
  * Each DRAM rule has instructions on how to perform this interleaving. The way
  * this works is that the rule first says to start at a given address bit,
@@ -522,7 +527,7 @@
  *	ID is computed based on that. The number of bits that we use here
  *	depends on how many channels the hash is going across.
  *
- * The Genoa and related variant, termed "NPS", has a few wrinkles. First,
+ * The Genoa and related variants, termed "NPS", has a few wrinkles. First,
  * rather than 3 bits being used for the channel, up to 4 bits are. Second,
  * while the Rome/Milan "COD" hash above does not support socket or die
  * interleaving, the "NPS" hash actually supports socket interleaving. However,
@@ -576,13 +581,13 @@
  *      are different.
  *
  *	This flow starts by calculating the three hash bits. This is defined
- *	below. In the following, all bits marked with an '*' are ones that will
+ *	below. In the following, all bits marked with an '@' are ones that will
  *	change when starting at address bit 12. In those cases the value will
  *	increase by 1. Here's how we calculate the hash bits:
  *
- *      hash[0] = addr[11*] ^ addr[14*] ^ addr[23] ^ addr[32]
- *      hash[1] = addr[12*] ^ addr[21] ^ addr[30]
- *      hash[2] = addr[13*] ^ addr[22] ^ addr[31]
+ *      hash[0] = addr[11@] ^ addr[14@] ^ addr[23] ^ addr[32]
+ *      hash[1] = addr[12@] ^ addr[21] ^ addr[30]
+ *      hash[2] = addr[13@] ^ addr[22] ^ addr[31]
  *
  *      With this calculated, we always assign the first bit of the channel
  *      based on the hash. The other bits are more complicated as we have to
@@ -594,7 +599,7 @@
  *
  *      Channel Id[0] = hash[0]
  *      if (hash[2:1] == 3)
- *		Channel ID[2:1] = (addr >> [11*+3]) % 3
+ *		Channel ID[2:1] = (addr >> [11@+3]) % 3
  *      else
  *		Channel ID[2:1] = hash[2:1]
  *
@@ -627,17 +632,17 @@
  *      to seed the overall value. Depending on whether hash[0] is a 0 or 1, the
  *      system goes through two different calculations entirely. Though all of
  *      them end up involving the remainder of the system address going through
- *      the modulus. In the following, a '3*' indicates the modulus value would
+ *      the modulus. In the following, a '3@' indicates the modulus value would
  *      be swapped to 5 in a different scenario.
  *
- *      Channel ID = addr[63:14] % 3*
+ *      Channel ID = addr[63:14] % 3@
  *      if (hash[0] == 1)
- *		Channel ID = (Channel ID + 1) % 3*
+ *		Channel ID = (Channel ID + 1) % 3@
  *
  *      Once this base has for the channel ID has been calculated, additional
  *      portions are added in. As this is the 6-channel form, we say:
  *
- *      Channel ID = Channel ID + (hash[2] * 3*)
+ *      Channel ID = Channel ID + (hash[2] * 3@)
  *
  *      Finally the socket is deterministic and always comes from hash[0].
  *      Basically:
@@ -653,7 +658,7 @@
  *       and hash[2]. The following logic is used instead of the final
  *       calculation above.
  *
- *       Channel ID = Channel ID + (hash[2:1] * 3*)
+ *       Channel ID = Channel ID + (hash[2:1] * 3@)
  *
  *
  * POST BIT EXTRACTION
@@ -1032,7 +1037,7 @@
  * separately an array of bits used to concoct the actual address. It appears,
  * mostly through experimental evidence, that the bank group bits occur first
  * and then are followed by the bank selection itself.  This makes some sense if
- * you assume that switching bank groups is faster than switching bans.
+ * you assume that switching bank groups is faster than switching banks.
  *
  * So if we see the UMC noting 4 bank bits and 2 bank groups bits, that means
  * that the umc_cs_t's ucs_bank_bits[1:0] correspond to bank_group[1:0] and
@@ -1041,10 +1046,10 @@
  * bank address.
  *
  * Now, this would all be straightforward if not for hashing, our favorite.
- * There are five bank hashing registers per channel (UMC_BANK_HASH_DDR[45]),
- * one that corresponds to the five possible bank bits. To do this we need to
- * use the calculated row and column that we previously determined. This
- * calculation happens in a few steps:
+ * There are five bank hashing registers per channel (UMC_BANK_HASH_DDR4,
+ * UMC_BANK_HASH_DDR5), one that corresponds to the five possible bank bits. To
+ * do this we need to use the calculated row and column that we previously
+ * determined. This calculation happens in a few steps:
  *
  *   1) First check if the enable bit is set in the rule. If not, just use the
  *      normal bank address bit and we're done.

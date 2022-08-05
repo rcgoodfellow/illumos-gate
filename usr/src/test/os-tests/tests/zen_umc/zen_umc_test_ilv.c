@@ -1273,7 +1273,7 @@ const umc_decode_test_t zen_umc_test_ilv[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "ILV: 1/1/4 4-way Channel (0)",
+	.udt_desc = "ILV: 1/1/4 4-way Channel (1)",
 	.udt_umc = &zen_umc_ilv_1p1d4c_4ch,
 	.udt_pa = 0x3ff,
 	.udt_pass = B_TRUE,
@@ -1290,7 +1290,7 @@ const umc_decode_test_t zen_umc_test_ilv[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "ILV: 1/1/4 4-way Channel (0)",
+	.udt_desc = "ILV: 1/1/4 4-way Channel (2)",
 	.udt_umc = &zen_umc_ilv_1p1d4c_4ch,
 	.udt_pa = 0x5ff,
 	.udt_pass = B_TRUE,
@@ -1307,7 +1307,7 @@ const umc_decode_test_t zen_umc_test_ilv[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "ILV: 1/1/4 4-way Channel (0)",
+	.udt_desc = "ILV: 1/1/4 4-way Channel (3)",
 	.udt_umc = &zen_umc_ilv_1p1d4c_4ch,
 	.udt_pa = 0x7ff,
 	.udt_pass = B_TRUE,
@@ -1324,7 +1324,7 @@ const umc_decode_test_t zen_umc_test_ilv[] = { {
 	.udt_dimm_rm = 0,
 	.udt_dimm_cs = 0
 }, {
-	.udt_desc = "ILV: 1/1/4 4-way Channel (0)",
+	.udt_desc = "ILV: 1/1/4 4-way Channel (4)",
 	.udt_umc = &zen_umc_ilv_1p1d4c_4ch,
 	.udt_pa = 0x42231679,
 	.udt_pass = B_TRUE,

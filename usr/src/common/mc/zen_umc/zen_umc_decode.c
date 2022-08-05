@@ -51,7 +51,7 @@
  * into the following when we have more than 1 TiB of DRAM:
  *
  *  o [ 0, TOM )
- *  o [ 4 GiB, MIN{1 TiB - 12 GiB, TOM2} )
+ *  o [ 4 GiB, 1 TiB - 12 GiB )
  *  o [ 1 TiB, TOM2 )
  *
  * Note, this does not currently scan MTRRs or MMIO rules for what might be
@@ -296,8 +296,8 @@ zen_umc_decode_ileave_cod(const zen_umc_t *umc, zen_umc_decoder_t *dec)
 	uint32_t nchan_bit;
 	const df_dram_rule_t *rule = dec->dec_df_rule;
 	/*
-	 * The order of bits here is defined by AMD. Yes, this is start with the
-	 * defined address bit and then skip to bit 12.
+	 * The order of bits here is defined by AMD. Yes, we do use the rule's
+	 * address bit first and then skip to bit 12 for the second hash bit.
 	 */
 	const uint32_t addr_bits[3] = { rule->ddr_addr_start, 12, 13 };
 

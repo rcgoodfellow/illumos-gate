@@ -305,13 +305,13 @@ const umc_fabric_test_t zen_umc_test_fabric_ids[] = { {
 	.uft_die_id = 0,
 	.uft_comp_id = 0xf
 }, {
-	.uft_desc = "Milan Invalid Socket (1)",
+	.uft_desc = "Milan Invalid Socket (2)",
 	.uft_decomp = &milan_decomp,
 	.uft_compose = B_FALSE,
 	.uft_valid = B_FALSE,
 	.uft_fabric_id = 0x40
 }, {
-	.uft_desc = "Milan Invalid Socket (1)",
+	.uft_desc = "Milan Invalid Socket (3)",
 	.uft_decomp = &milan_decomp,
 	.uft_compose = B_FALSE,
 	.uft_valid = B_FALSE,
@@ -344,7 +344,7 @@ const umc_fabric_test_t zen_umc_test_fabric_ids[] = { {
 	.uft_die_id = 0x2,
 	.uft_comp_id = 0x21
 }, {
-	.uft_desc = "Contig Multi-Die Roundtrip (2)",
+	.uft_desc = "Contig Multi-Die Roundtrip (3)",
 	.uft_decomp = &contig_decomp,
 	.uft_compose = B_TRUE,
 	.uft_valid = B_TRUE,
