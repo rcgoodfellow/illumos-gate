@@ -8600,18 +8600,18 @@ ip_nd_entries_walk(ill_t *ill, nce_t *nce, void *arg)
 			entry->ndpre_ifname[i] = *(ill->ill_name+i);
 		}
 	}
-        entry->ndpre_state = nce->nce_common->ncec_state;
+	entry->ndpre_state = nce->nce_common->ncec_state;
 
-        if (NCE_MYADDR(nce->nce_common)) {
-                entry->ndpr_type = NDP_TYPE_LOCAL;
+	if (NCE_MYADDR(nce->nce_common)) {
+		entry->ndpr_type = NDP_TYPE_LOCAL;
 	} else if (nce->nce_common->ncec_flags & NCE_F_PUBLISH) {
-                entry->ndpr_type = NDP_TYPE_OTHER;
+		entry->ndpr_type = NDP_TYPE_OTHER;
 	} else if (nce->nce_common->ncec_flags & NCE_F_STATIC) {
-                entry->ndpr_type = NDP_TYPE_STATIC;
+		entry->ndpr_type = NDP_TYPE_STATIC;
 	} else if (nce->nce_common->ncec_flags & (NCE_F_MCAST|NCE_F_BCAST)) {
-                entry->ndpr_type = NDP_TYPE_OTHER;
+		entry->ndpr_type = NDP_TYPE_OTHER;
 	} else {
-                entry->ndpr_type = NDP_TYPE_DYNAMIC;
+		entry->ndpr_type = NDP_TYPE_DYNAMIC;
 	}
 
 	it->ndpi_index++;
