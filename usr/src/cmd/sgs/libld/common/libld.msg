@@ -140,7 +140,6 @@
 			 allow extraction of\n\
 			 \t\t\tarchive members to resolve weak references from \
 			 \n\t\t\t\archive files\n"
-@ MSG_ARG_DETAIL_ZAL	"\t[-z altexec64]\texecute the 64-bit link-editor\n"
 @ MSG_ARG_DETAIL_ZADLIB	"\t[-z assert-deflib]\n\
 			\t\t\tenables warnings for linking with libraries in \
 			the \n\t\t\tdefault search path\n\
@@ -260,6 +259,7 @@
 #
 @ MSG_GRP_INVALNDX	"file %s: group section [%u]%s: entry %d: \
 			 invalid section index: %d"
+@ MSG_GRP_MISSINGOUT	"file %s: discarded section: [%u]%s: part of output group [%u]%s"
 
 # Relocation processing messages (some of these are required to satisfy
 # do_reloc(), which is common code used by cmd/sgs/rtld - make sure both

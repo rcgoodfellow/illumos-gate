@@ -81,6 +81,9 @@ static list_t		vmm_destroy_list;
 static id_space_t	*vmm_minors;
 static void		*vmm_statep;
 
+/* temporary safety switch */
+int		vmm_allow_state_writes;
+
 static const char *vmmdev_hvm_name = "bhyve";
 
 /* For sdev plugin (/dev) */
@@ -108,6 +111,26 @@ struct vmm_lease {
 	struct vmm_hold		*vml_hold;
 };
 
+/* Options for vmm_destroy_locked */
+typedef enum vmm_destroy_opts {
+	VDO_DEFAULT		= 0,
+	/*
+	 * Request that zone-specific-data associated with this VM not be
+	 * cleaned up as part of the destroy.  Skipping ZSD clean-up is
+	 * necessary when VM is being destroyed as part of zone destruction,
+	 * when said ZSD is already being cleaned up.
+	 */
+	VDO_NO_CLEAN_ZSD	= (1 << 0),
+	/*
+	 * Skip any attempt to wait for vmm_drv consumers when attempting to
+	 * purge them from the instance.  When performing an auto-destruct, it
+	 * is not desirable to wait, since said consumer might exist in a
+	 * "higher" file descriptor which has not yet been closed.
+	 */
+	VDO_NO_PURGE_WAIT	= (1 << 1),
+} vmm_destroy_opts_t;
+
+static int vmm_destroy_locked(vmm_softc_t *, vmm_destroy_opts_t, boolean_t *);
 static int vmm_drv_block_hook(vmm_softc_t *, boolean_t);
 static void vmm_lease_block(vmm_softc_t *);
 static void vmm_lease_unblock(vmm_softc_t *);
@@ -477,10 +500,29 @@ vmmdev_do_ioctl(vmm_softc_t *sc, int cmd, intptr_t arg, int md,
 		lock_type = LOCK_READ_HOLD;
 		break;
 
+	case VM_DATA_READ:
+	case VM_DATA_WRITE:
+		if (ddi_copyin(datap, &vcpu, sizeof (vcpu), md)) {
+			return (EFAULT);
+		}
+		if (vcpu == -1) {
+			/* Access data for VM-wide devices */
+			vmm_write_lock(sc);
+			lock_type = LOCK_WRITE_HOLD;
+		} else if (vcpu >= 0 && vcpu < vm_get_maxcpus(sc->vmm_vm)) {
+			/* Access data associated with a specific vCPU */
+			vcpu_lock_one(sc, vcpu);
+			lock_type = LOCK_VCPU;
+		} else {
+			return (EINVAL);
+		}
+		break;
+
 	case VM_GET_GPA_PMAP:
 	case VM_IOAPIC_PINCOUNT:
 	case VM_SUSPEND:
 	case VM_DESC_FPU_AREA:
+	case VM_SET_AUTODESTRUCT:
 	default:
 		break;
 	}
@@ -812,6 +854,17 @@ vmmdev_do_ioctl(vmm_softc_t *sc, int cmd, intptr_t arg, int md,
 				error = EFAULT;
 			}
 		}
+		break;
+	}
+	case VM_SET_AUTODESTRUCT: {
+		/*
+		 * Since this has to do with controlling the lifetime of the
+		 * greater vmm_softc_t, the flag is protected by vmm_mtx, rather
+		 * than the vcpu-centric or rwlock exclusion mechanisms.
+		 */
+		mutex_enter(&vmm_mtx);
+		sc->vmm_autodestruct = (arg != 0);
+		mutex_exit(&vmm_mtx);
 		break;
 	}
 
@@ -1512,6 +1565,132 @@ vmmdev_do_ioctl(vmm_softc_t *sc, int cmd, intptr_t arg, int md,
 		 */
 		break;
 	}
+	case VM_DATA_READ: {
+		struct vm_data_xfer vdx;
+
+		if (ddi_copyin(datap, &vdx, sizeof (vdx), md) != 0) {
+			error = EFAULT;
+			break;
+		}
+		if ((vdx.vdx_flags & ~VDX_FLAGS_VALID) != 0) {
+			error = EINVAL;
+			break;
+		}
+		if (vdx.vdx_len > VM_DATA_XFER_LIMIT) {
+			error = EFBIG;
+			break;
+		}
+
+		const size_t len = vdx.vdx_len;
+		void *buf = NULL;
+		if (len != 0) {
+			buf = kmem_alloc(len, KM_SLEEP);
+			if ((vdx.vdx_flags & VDX_FLAG_READ_COPYIN) != 0 &&
+			    ddi_copyin(vdx.vdx_data, buf, len, md) != 0) {
+				kmem_free(buf, len);
+				error = EFAULT;
+				break;
+			} else {
+				bzero(buf, len);
+			}
+		}
+
+		vdx.vdx_result_len = 0;
+		vmm_data_req_t req = {
+			.vdr_class = vdx.vdx_class,
+			.vdr_version = vdx.vdx_version,
+			.vdr_flags = vdx.vdx_flags,
+			.vdr_len = len,
+			.vdr_data = buf,
+			.vdr_result_len = &vdx.vdx_result_len,
+		};
+		error = vmm_data_read(sc->vmm_vm, vdx.vdx_vcpuid, &req);
+
+		if (error == 0 && buf != NULL) {
+			if (ddi_copyout(buf, vdx.vdx_data, len, md) != 0) {
+				error = EFAULT;
+			}
+		}
+
+		/*
+		 * Copy out the transfer request so that the value of
+		 * vdx_result_len can be made available, regardless of any
+		 * error(s) which may have occurred.
+		 */
+		if (ddi_copyout(&vdx, datap, sizeof (vdx), md) != 0) {
+			error = (error != 0) ? error : EFAULT;
+		}
+
+		if (buf != NULL) {
+			kmem_free(buf, len);
+		}
+		break;
+	}
+	case VM_DATA_WRITE: {
+		struct vm_data_xfer vdx;
+
+		if (ddi_copyin(datap, &vdx, sizeof (vdx), md) != 0) {
+			error = EFAULT;
+			break;
+		}
+		if ((vdx.vdx_flags & ~VDX_FLAGS_VALID) != 0) {
+			error = EINVAL;
+			break;
+		}
+		if (vdx.vdx_len > VM_DATA_XFER_LIMIT) {
+			error = EFBIG;
+			break;
+		}
+
+		const size_t len = vdx.vdx_len;
+		void *buf = NULL;
+		if (len != 0) {
+			buf = kmem_alloc(len, KM_SLEEP);
+			if (ddi_copyin(vdx.vdx_data, buf, len, md) != 0) {
+				kmem_free(buf, len);
+				error = EFAULT;
+				break;
+			}
+		}
+
+		vdx.vdx_result_len = 0;
+		vmm_data_req_t req = {
+			.vdr_class = vdx.vdx_class,
+			.vdr_version = vdx.vdx_version,
+			.vdr_flags = vdx.vdx_flags,
+			.vdr_len = len,
+			.vdr_data = buf,
+			.vdr_result_len = &vdx.vdx_result_len,
+		};
+		if (vmm_allow_state_writes == 0) {
+			/* XXX: Play it safe for now */
+			error = EPERM;
+		} else {
+			error = vmm_data_write(sc->vmm_vm, vdx.vdx_vcpuid,
+			    &req);
+		}
+
+		if (error == 0 && buf != NULL &&
+		    (vdx.vdx_flags & VDX_FLAG_WRITE_COPYOUT) != 0) {
+			if (ddi_copyout(buf, vdx.vdx_data, len, md) != 0) {
+				error = EFAULT;
+			}
+		}
+
+		/*
+		 * Copy out the transfer request so that the value of
+		 * vdx_result_len can be made available, regardless of any
+		 * error(s) which may have occurred.
+		 */
+		if (ddi_copyout(&vdx, datap, sizeof (vdx), md) != 0) {
+			error = (error != 0) ? error : EFAULT;
+		}
+
+		if (buf != NULL) {
+			kmem_free(buf, len);
+		}
+		break;
+	}
 
 	default:
 		error = ENOTTY;
@@ -1665,7 +1844,7 @@ vmmdev_do_vm_create(const struct vm_create_req *req, cred_t *cr)
 		goto fail;
 	}
 
-	error = vm_create(req->name, req->flags, &sc->vmm_vm);
+	error = vm_create(req->flags, &sc->vmm_vm);
 	if (error == 0) {
 		/* Complete VM intialization and report success. */
 		(void) strlcpy(sc->vmm_name, name, sizeof (sc->vmm_name));
@@ -1774,6 +1953,7 @@ void
 vmm_drv_rele(vmm_hold_t *hold)
 {
 	vmm_softc_t *sc;
+	boolean_t hma_release = B_FALSE;
 
 	ASSERT(hold != NULL);
 	ASSERT(hold->vmh_sc != NULL);
@@ -1785,9 +1965,25 @@ vmm_drv_rele(vmm_hold_t *hold)
 	if (list_is_empty(&sc->vmm_holds)) {
 		sc->vmm_flags &= ~VMM_HELD;
 		cv_broadcast(&sc->vmm_cv);
+
+		/*
+		 * If pending hold(s) had prevented an auto-destruct of the
+		 * instance when it was closed, finish that clean-up now.
+		 */
+		if (sc->vmm_autodestruct && !sc->vmm_is_open) {
+			int err = vmm_destroy_locked(sc,
+			    VDO_NO_PURGE_WAIT, &hma_release);
+
+			VERIFY0(err);
+			VERIFY(hma_release);
+		}
 	}
 	mutex_exit(&vmm_mtx);
 	kmem_free(hold, sizeof (*hold));
+
+	if (hma_release) {
+		vmm_hma_release();
+	}
 }
 
 boolean_t
@@ -2080,7 +2276,7 @@ vmm_drv_ioport_unhook(vmm_hold_t *hold, void **cookie)
 }
 
 static int
-vmm_drv_purge(vmm_softc_t *sc)
+vmm_drv_purge(vmm_softc_t *sc, boolean_t no_wait)
 {
 	ASSERT(MUTEX_HELD(&vmm_mtx));
 
@@ -2092,8 +2288,32 @@ vmm_drv_purge(vmm_softc_t *sc)
 		    hold = list_next(&sc->vmm_holds, hold)) {
 			hold->vmh_release_req = B_TRUE;
 		}
+
+		/*
+		 * Require that all leases on the instance be broken, now that
+		 * all associated holds have been marked as needing release.
+		 *
+		 * Dropping vmm_mtx is not strictly necessary, but if any of the
+		 * lessees are slow to respond, it would be nice to leave it
+		 * available for other parties.
+		 */
+		mutex_exit(&vmm_mtx);
+		vmm_lease_block(sc);
+		vmm_lease_unblock(sc);
+		mutex_enter(&vmm_mtx);
+
+		/*
+		 * With all of the leases broken, we can proceed in an orderly
+		 * fashion to waiting for any lingering holds to be dropped.
+		 */
 		while ((sc->vmm_flags & VMM_HELD) != 0) {
-			if (cv_wait_sig(&sc->vmm_cv, &vmm_mtx) <= 0) {
+			/*
+			 * Some holds remain, so wait (if acceptable) for them
+			 * to be cleaned up.
+			 */
+			if (no_wait ||
+			    cv_wait_sig(&sc->vmm_cv, &vmm_mtx) <= 0) {
+				sc->vmm_flags &= ~VMM_CLEANUP;
 				return (EINTR);
 			}
 		}
@@ -2138,7 +2358,7 @@ done:
 }
 
 static int
-vmm_do_vm_destroy_locked(vmm_softc_t *sc, boolean_t clean_zsd,
+vmm_destroy_locked(vmm_softc_t *sc, vmm_destroy_opts_t opts,
     boolean_t *hma_release)
 {
 	dev_info_t	*pdip = ddi_get_parent(vmmdev_dip);
@@ -2148,11 +2368,11 @@ vmm_do_vm_destroy_locked(vmm_softc_t *sc, boolean_t clean_zsd,
 
 	*hma_release = B_FALSE;
 
-	if (vmm_drv_purge(sc) != 0) {
+	if (vmm_drv_purge(sc, (opts & VDO_NO_PURGE_WAIT) != 0) != 0) {
 		return (EINTR);
 	}
 
-	if (clean_zsd) {
+	if ((opts & VDO_NO_CLEAN_ZSD) == 0) {
 		vmm_zsd_rem_vm(sc);
 	}
 
@@ -2179,13 +2399,13 @@ vmm_do_vm_destroy_locked(vmm_softc_t *sc, boolean_t clean_zsd,
 }
 
 int
-vmm_do_vm_destroy(vmm_softc_t *sc, boolean_t clean_zsd)
+vmm_zone_vm_destroy(vmm_softc_t *sc)
 {
 	boolean_t	hma_release = B_FALSE;
 	int		err;
 
 	mutex_enter(&vmm_mtx);
-	err = vmm_do_vm_destroy_locked(sc, clean_zsd, &hma_release);
+	err = vmm_destroy_locked(sc, VDO_NO_CLEAN_ZSD, &hma_release);
 	mutex_exit(&vmm_mtx);
 
 	if (hma_release)
@@ -2219,7 +2439,7 @@ vmmdev_do_vm_destroy(const struct vm_destroy_req *req, cred_t *cr)
 		mutex_exit(&vmm_mtx);
 		return (EPERM);
 	}
-	err = vmm_do_vm_destroy_locked(sc, B_TRUE, &hma_release);
+	err = vmm_destroy_locked(sc, VDO_DEFAULT, &hma_release);
 
 	mutex_exit(&vmm_mtx);
 
@@ -2424,6 +2644,16 @@ vmm_close(dev_t dev, int flag, int otyp, cred_t *credp)
 		ddi_soft_state_free(vmm_statep, minor);
 		id_free(vmm_minors, minor);
 		hma_release = B_TRUE;
+	} else if (sc->vmm_autodestruct) {
+		/*
+		 * Attempt auto-destruct on instance if requested.
+		 *
+		 * Do not wait for existing holds to be purged from the
+		 * instance, since there is no guarantee that will happen in a
+		 * timely manner.  Auto-destruction will resume when the last
+		 * hold is released. (See: vmm_drv_rele)
+		 */
+		(void) vmm_destroy_locked(sc, VDO_NO_PURGE_WAIT, &hma_release);
 	}
 	mutex_exit(&vmm_mtx);
 
@@ -2491,6 +2721,11 @@ vmm_ctl_ioctl(int cmd, intptr_t arg, int md, cred_t *cr, int *rvalp)
 		return (vmm_is_supported(arg));
 	case VMM_INTERFACE_VERSION:
 		*rvalp = VMM_CURRENT_INTERFACE_VERSION;
+		return (0);
+	case VMM_CHECK_IOMMU:
+		if (!vmm_check_iommu()) {
+			return (ENXIO);
+		}
 		return (0);
 	case VMM_RESV_QUERY:
 	case VMM_RESV_ADD:

@@ -329,11 +329,6 @@ VMXNET3S_OBJS =	vmxnet3_main.o \
 		vmxnet3_utils.o
 
 #
-# VMware PVSCSI SCSI Controller
-#
-PVSCSI_OBJS =	pvscsi.o
-
-#
 # Intel Temperature Module
 #
 CORETEMP_OBJS =	coretemp.o
@@ -361,6 +356,7 @@ AMDZEN_STUB_OBJS = amdzen_stub.o
 SMNTEMP_OBJS = smntemp.o
 USMN_OBJS = usmn.o
 ZEN_UDF_OBJS = zen_udf.o
+ZEN_UMC_OBJS = zen_umc.o zen_umc_decode.o zen_fabric_utils.o zen_umc_dump.o
 
 #
 # Intel Integrated Memory Controller
@@ -383,3 +379,13 @@ VIONA_OBJS = \
 # bhyve PCI-passthru
 #
 PPT_OBJS = ppt.o
+
+#
+# bhyve VT-d
+#
+VMM_VTD_OBJS = vtd.o
+
+#
+# bhyve drv test interface
+#
+VMM_DRV_TEST_OBJS = vmm_drv_test.o

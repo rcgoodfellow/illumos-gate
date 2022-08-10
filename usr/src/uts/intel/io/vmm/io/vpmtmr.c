@@ -44,7 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/kernel.h>
-#include <sys/malloc.h>
+#include <sys/kmem.h>
 #include <sys/systm.h>
 
 #include <machine/vmm.h>
@@ -67,14 +67,12 @@ struct vpmtmr {
 	hrtime_t	base_time;
 };
 
-static MALLOC_DEFINE(M_VPMTMR, "vpmtmr", "bhyve virtual acpi timer");
-
 struct vpmtmr *
 vpmtmr_init(struct vm *vm)
 {
 	struct vpmtmr *vpmtmr;
 
-	vpmtmr = malloc(sizeof (struct vpmtmr), M_VPMTMR, M_WAITOK | M_ZERO);
+	vpmtmr = kmem_zalloc(sizeof (struct vpmtmr), KM_SLEEP);
 	vpmtmr->vm = vm;
 	vpmtmr->base_time = gethrtime();
 
@@ -111,7 +109,7 @@ vpmtmr_cleanup(struct vpmtmr *vpmtmr)
 	err = vpmtmr_detach_ioport(vpmtmr);
 	VERIFY3P(err, ==, 0);
 
-	free(vpmtmr, M_VPMTMR);
+	kmem_free(vpmtmr, sizeof (*vpmtmr));
 }
 
 int
@@ -157,3 +155,44 @@ vpmtmr_handler(void *arg, bool in, uint16_t port, uint8_t bytes, uint32_t *val)
 
 	return (0);
 }
+
+static int
+vpmtmr_data_read(void *datap, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_PM_TIMER);
+	VERIFY3U(req->vdr_version, ==, 1);
+	VERIFY3U(req->vdr_len, ==, sizeof (struct vdi_pm_timer_v1));
+
+	struct vpmtmr *vpmtmr = datap;
+	struct vdi_pm_timer_v1 *out = req->vdr_data;
+
+	out->vpt_time_base = vm_normalize_hrtime(vpmtmr->vm, vpmtmr->base_time);
+	out->vpt_ioport = vpmtmr->io_port;
+
+	return (0);
+}
+
+static int
+vpmtmr_data_write(void *datap, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_PM_TIMER);
+	VERIFY3U(req->vdr_version, ==, 1);
+	VERIFY3U(req->vdr_len, ==, sizeof (struct vdi_pm_timer_v1));
+
+	struct vpmtmr *vpmtmr = datap;
+	const struct vdi_pm_timer_v1 *src = req->vdr_data;
+
+	vpmtmr->base_time =
+	    vm_denormalize_hrtime(vpmtmr->vm, src->vpt_time_base);
+
+	return (0);
+}
+
+static const vmm_data_version_entry_t pm_timer_v1 = {
+	.vdve_class = VDC_PM_TIMER,
+	.vdve_version = 1,
+	.vdve_len_expect = sizeof (struct vdi_pm_timer_v1),
+	.vdve_readf = vpmtmr_data_read,
+	.vdve_writef = vpmtmr_data_write,
+};
+VMM_DATA_VERSION(pm_timer_v1);

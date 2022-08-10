@@ -51,7 +51,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/sysctl.h>
-#include <sys/malloc.h>
+#include <sys/kmem.h>
 #include <sys/pcpu.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
@@ -72,9 +72,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/vmm_instruction_emul.h>
 #include <sys/vmm_vm.h>
 #include <sys/vmm_gpt.h>
+#include <sys/vmm_data.h>
 
 #include "vmm_ioport.h"
-#include "vmm_ktr.h"
 #include "vmm_host.h"
 #include "vmm_util.h"
 #include "vatpic.h"
@@ -206,14 +206,15 @@ struct vm {
 	struct mem_map	mem_maps[VM_MAX_MEMMAPS]; /* (i) guest address space */
 	struct mem_seg	mem_segs[VM_MAX_MEMSEGS]; /* (o) guest memory regions */
 	struct vmspace	*vmspace;		/* (o) guest's address space */
-	char		name[VM_MAX_NAMELEN];	/* (o) virtual machine name */
 	struct vcpu	vcpu[VM_MAXCPU];	/* (i) guest vcpus */
 	/* The following describe the vm cpu topology */
 	uint16_t	sockets;		/* (o) num of sockets */
 	uint16_t	cores;			/* (o) num of cores/socket */
 	uint16_t	threads;		/* (o) num of threads/core */
 	uint16_t	maxcpus;		/* (o) max pluggable cpus */
+
 	uint64_t	boot_tsc_offset;	/* (i) TSC offset at VM boot */
+	hrtime_t	boot_hrtime;		/* (i) hrtime at VM boot */
 
 	struct ioport_config ioports;		/* (o) ioport handling */
 
@@ -247,6 +248,8 @@ static struct vmm_ops vmm_ops_null = {
 	.vlapic_cleanup	= (vmi_vlapic_cleanup)nullop_panic,
 	.vmsavectx	= (vmi_savectx)nullop_panic,
 	.vmrestorectx	= (vmi_restorectx)nullop_panic,
+	.vmgetmsr	= (vmi_get_msr_t)nullop_panic,
+	.vmsetmsr	= (vmi_set_msr_t)nullop_panic,
 };
 
 static struct vmm_ops *ops = &vmm_ops_null;
@@ -273,8 +276,6 @@ static vmm_pte_ops_t *pte_ops = NULL;
 #define	fpu_stop_emulating()	clts()
 
 SDT_PROVIDER_DEFINE(vmm);
-
-static MALLOC_DEFINE(M_VM, "vm", "vm");
 
 SYSCTL_NODE(_hw, OID_AUTO, vmm, CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
     NULL);
@@ -462,13 +463,30 @@ vmm_mod_unload()
 
 	VERIFY(vmm_initialized == 1);
 
-	iommu_cleanup();
 	error = VMM_CLEANUP();
 	if (error)
 		return (error);
 	vmm_initialized = 0;
 
 	return (0);
+}
+
+/*
+ * Create a test IOMMU domain to see if the host system has necessary hardware
+ * and drivers to do so.
+ */
+bool
+vmm_check_iommu(void)
+{
+	void *domain;
+	const size_t arb_test_sz = (1UL << 32);
+
+	domain = iommu_create_domain(arb_test_sz);
+	if (domain == NULL) {
+		return (false);
+	}
+	iommu_destroy_domain(domain);
+	return (true);
 }
 
 static void
@@ -506,7 +524,12 @@ vm_init(struct vm *vm, bool create)
 	 * The TSC offsetting math is all unsigned, using overflow for negative
 	 * offets.  A reading of the TSC is negated to form the boot offset.
 	 */
-	vm->boot_tsc_offset = (uint64_t)(-(int64_t)rdtsc_offset());
+	const uint64_t boot_tsc = rdtsc_offset();
+	vm->boot_tsc_offset = (uint64_t)(-(int64_t)boot_tsc);
+
+	/* Convert the boot TSC reading to hrtime */
+	vm->boot_hrtime = (hrtime_t)boot_tsc;
+	scalehrtime(&vm->boot_hrtime);
 }
 
 /*
@@ -522,7 +545,7 @@ uint_t threads_per_core = 1;
 bool gpt_track_dirty = false;
 
 int
-vm_create(const char *name, uint64_t flags, struct vm **retvm)
+vm_create(uint64_t flags, struct vm **retvm)
 {
 	struct vm *vm;
 	struct vmspace *vmspace;
@@ -534,15 +557,11 @@ vm_create(const char *name, uint64_t flags, struct vm **retvm)
 	if (!vmm_initialized)
 		return (ENXIO);
 
-	/* Name validation has already occurred */
-	VERIFY3U(strnlen(name, VM_MAX_NAMELEN), <, VM_MAX_NAMELEN);
-
 	vmspace = vmspace_alloc(VM_MAXUSER_ADDRESS, pte_ops, gpt_track_dirty);
 	if (vmspace == NULL)
 		return (ENOMEM);
 
-	vm = malloc(sizeof (struct vm), M_VM, M_WAITOK | M_ZERO);
-	(void) strlcpy(vm->name, name, sizeof (vm->name));
+	vm = kmem_zalloc(sizeof (struct vm), KM_SLEEP);
 
 	vm->vmspace = vmspace;
 	vm->mem_transient = (flags & VCF_RESERVOIR_MEM) == 0;
@@ -663,7 +682,7 @@ void
 vm_destroy(struct vm *vm)
 {
 	vm_cleanup(vm, true);
-	free(vm, M_VM);
+	kmem_free(vm, sizeof (*vm));
 }
 
 int
@@ -703,12 +722,6 @@ vm_reinit(struct vm *vm, uint64_t flags)
 	vm_cleanup(vm, false);
 	vm_init(vm, false);
 	return (0);
-}
-
-const char *
-vm_name(struct vm *vm)
-{
-	return (vm->name);
 }
 
 int
@@ -989,15 +1002,9 @@ vm_iommu_modify(struct vm *vm, bool map)
 	int i, sz;
 	vm_paddr_t gpa, hpa;
 	struct mem_map *mm;
-#ifdef __FreeBSD__
-	void *vp, *cookie, *host_domain;
-#endif
 	vm_client_t *vmc;
 
 	sz = PAGE_SIZE;
-#ifdef __FreeBSD__
-	host_domain = iommu_host_domain();
-#endif
 	vmc = vmspace_client_alloc(vm->vmspace);
 
 	for (i = 0; i < VM_MAX_MEMMAPS; i++) {
@@ -1030,16 +1037,22 @@ vm_iommu_modify(struct vm *vm, bool map)
 			hpa = ((uintptr_t)vmp_get_pfn(vmp) << PAGESHIFT);
 			(void) vmp_release(vmp);
 
+			/*
+			 * When originally ported from FreeBSD, the logic for
+			 * adding memory to the guest domain would
+			 * simultaneously remove it from the host domain.  The
+			 * justification for that is not clear, and FreeBSD has
+			 * subsequently changed the behavior to not remove the
+			 * memory from the host domain.
+			 *
+			 * Leaving the guest memory in the host domain for the
+			 * life of the VM is necessary to make it available for
+			 * DMA, such as through viona in the TX path.
+			 */
 			if (map) {
 				iommu_create_mapping(vm->iommu, gpa, hpa, sz);
-#ifdef __FreeBSD__
-				iommu_remove_mapping(host_domain, hpa, sz);
-#endif
 			} else {
 				iommu_remove_mapping(vm->iommu, gpa, sz);
-#ifdef __FreeBSD__
-				iommu_create_mapping(host_domain, hpa, hpa, sz);
-#endif
 			}
 
 			gpa += PAGE_SIZE;
@@ -1051,14 +1064,7 @@ vm_iommu_modify(struct vm *vm, bool map)
 	 * Invalidate the cached translations associated with the domain
 	 * from which pages were removed.
 	 */
-#ifdef __FreeBSD__
-	if (map)
-		iommu_invalidate_tlb(host_domain);
-	else
-		iommu_invalidate_tlb(vm->iommu);
-#else
 	iommu_invalidate_tlb(vm->iommu);
-#endif
 }
 
 int
@@ -1098,39 +1104,51 @@ vm_assign_pptdev(struct vm *vm, int pptfd)
 }
 
 int
-vm_get_register(struct vm *vm, int vcpu, int reg, uint64_t *retval)
+vm_get_register(struct vm *vm, int vcpuid, int reg, uint64_t *retval)
 {
-
-	if (vcpu < 0 || vcpu >= vm->maxcpus)
-		return (EINVAL);
-
-	if (reg >= VM_REG_LAST)
-		return (EINVAL);
-
-	return (VMGETREG(vm->cookie, vcpu, reg, retval));
-}
-
-int
-vm_set_register(struct vm *vm, int vcpuid, int reg, uint64_t val)
-{
-	struct vcpu *vcpu;
-	int error;
-
 	if (vcpuid < 0 || vcpuid >= vm->maxcpus)
 		return (EINVAL);
 
 	if (reg >= VM_REG_LAST)
 		return (EINVAL);
 
-	error = VMSETREG(vm->cookie, vcpuid, reg, val);
-	if (error || reg != VM_REG_GUEST_RIP)
-		return (error);
+	struct vcpu *vcpu = &vm->vcpu[vcpuid];
+	switch (reg) {
+	case VM_REG_GUEST_XCR0:
+		*retval = vcpu->guest_xcr0;
+		return (0);
+	default:
+		return (VMGETREG(vm->cookie, vcpuid, reg, retval));
+	}
+}
 
-	/* Set 'nextrip' to match the value of %rip */
-	VCPU_CTR1(vm, vcpuid, "Setting nextrip to %lx", val);
-	vcpu = &vm->vcpu[vcpuid];
-	vcpu->nextrip = val;
-	return (0);
+int
+vm_set_register(struct vm *vm, int vcpuid, int reg, uint64_t val)
+{
+	if (vcpuid < 0 || vcpuid >= vm->maxcpus)
+		return (EINVAL);
+
+	if (reg >= VM_REG_LAST)
+		return (EINVAL);
+
+	int error;
+	struct vcpu *vcpu = &vm->vcpu[vcpuid];
+	switch (reg) {
+	case VM_REG_GUEST_RIP:
+		error = VMSETREG(vm->cookie, vcpuid, reg, val);
+		if (error == 0) {
+			vcpu->nextrip = val;
+		}
+		return (error);
+	case VM_REG_GUEST_XCR0:
+		if (!validate_guest_xcr0(val, vmm_get_host_xcr0())) {
+			return (EINVAL);
+		}
+		vcpu->guest_xcr0 = val;
+		return (0);
+	default:
+		return (VMSETREG(vm->cookie, vcpuid, reg, val));
+	}
 }
 
 static bool
@@ -1340,8 +1358,6 @@ vcpu_set_state_locked(struct vm *vm, int vcpuid, enum vcpu_state newstate,
 		while (vcpu->state != VCPU_IDLE) {
 			vcpu->reqidle = 1;
 			vcpu_notify_event_locked(vcpu, VCPU_NOTIFY_EXIT);
-			VCPU_CTR1(vm, vcpuid, "vcpu state change from %s to "
-			    "idle requested", vcpu_state2str(vcpu->state));
 			cv_wait(&vcpu->state_cv, &vcpu->lock);
 		}
 	} else {
@@ -1379,9 +1395,6 @@ vcpu_set_state_locked(struct vm *vm, int vcpuid, enum vcpu_state newstate,
 
 	if (error)
 		return (EBUSY);
-
-	VCPU_CTR2(vm, vcpuid, "vcpu state changed from %s to %s",
-	    vcpu_state2str(vcpu->state), vcpu_state2str(newstate));
 
 	vcpu->state = newstate;
 	if (newstate == VCPU_RUNNING)
@@ -1511,9 +1524,6 @@ vm_handle_paging(struct vm *vm, int vcpuid)
 
 	rv = vmc_fault(vmc, vme->u.paging.gpa, ftype);
 
-	VCPU_CTR3(vm, vcpuid, "vm_handle_paging rv = %d, gpa = %lx, "
-	    "ftype = %d", rv, vme->u.paging.gpa, ftype);
-
 	if (rv != 0)
 		return (EFAULT);
 	return (0);
@@ -1576,9 +1586,6 @@ vm_handle_mmio_emul(struct vm *vm, int vcpuid)
 	inst_addr = vme->rip + vme->u.mmio_emul.cs_base;
 	cs_d = vme->u.mmio_emul.cs_d;
 
-	VCPU_CTR1(vm, vcpuid, "inst_emul fault accessing gpa %lx",
-	    vme->u.mmio_emul.gpa);
-
 	/* Fetch the faulting instruction */
 	if (vie_needs_fetch(vie)) {
 		error = vie_fetch_instruction(vie, vm, vcpuid, inst_addr,
@@ -1597,8 +1604,6 @@ vm_handle_mmio_emul(struct vm *vm, int vcpuid)
 	}
 
 	if (vie_decode_instruction(vie, vm, vcpuid, cs_d) != 0) {
-		VCPU_CTR1(vm, vcpuid, "Error decoding instruction at %lx",
-		    inst_addr);
 		/* Dump (unrecognized) instruction bytes in userspace */
 		vie_fallback_exitinfo(vie, vme);
 		return (-1);
@@ -1765,7 +1770,6 @@ vm_handle_suspend(struct vm *vm, int vcpuid)
 		int rc;
 
 		if (CPU_CMP(&vm->suspended_cpus, &vm->active_cpus) == 0) {
-			VCPU_CTR0(vm, vcpuid, "All vcpus suspended");
 			break;
 		}
 
@@ -1875,7 +1879,7 @@ vm_handle_run_state(struct vm *vm, int vcpuid)
 }
 
 static int
-vm_rdmtrr(struct vm_mtrr *mtrr, uint32_t num, uint64_t *val)
+vm_rdmtrr(const struct vm_mtrr *mtrr, uint32_t num, uint64_t *val)
 {
 	switch (num) {
 	case MSR_MTRRcap:
@@ -1954,6 +1958,22 @@ vm_wrmtrr(struct vm_mtrr *mtrr, uint32_t num, uint64_t val)
 	}
 
 	return (0);
+}
+
+static bool
+is_mtrr_msr(uint32_t msr)
+{
+	switch (msr) {
+	case MSR_MTRRcap:
+	case MSR_MTRRdefType:
+	case MSR_MTRR4kBase ... MSR_MTRR4kBase + 7:
+	case MSR_MTRR16kBase ... MSR_MTRR16kBase + 1:
+	case MSR_MTRR64kBase:
+	case MSR_MTRRVarBase ... MSR_MTRRVarBase + (VMM_MTRR_VAR_MAX * 2) - 1:
+		return (true);
+	default:
+		return (false);
+	}
 }
 
 static int
@@ -2435,8 +2455,6 @@ exit:
 	vmm_savectx(&vcpu->vtc);
 	kpreempt_enable();
 
-	VCPU_CTR2(vm, vcpuid, "retu %d/%d", error, vme->exitcode);
-
 	vcpu_ustate_change(vm, vcpuid, VU_EMU_USER);
 	return (error);
 }
@@ -2464,8 +2482,6 @@ vm_restart_instruction(void *arg, int vcpuid)
 		 * instruction to be restarted.
 		 */
 		vcpu->exitinfo.inst_length = 0;
-		VCPU_CTR1(vm, vcpuid, "restarting instruction at %lx by "
-		    "setting inst_length to zero", vcpu->exitinfo.rip);
 	} else if (state == VCPU_FROZEN) {
 		/*
 		 * When a vcpu is "frozen" it is outside the critical section
@@ -2475,8 +2491,6 @@ vm_restart_instruction(void *arg, int vcpuid)
 		 */
 		error = vm_get_register(vm, vcpuid, VM_REG_GUEST_RIP, &rip);
 		KASSERT(!error, ("%s: error %d getting rip", __func__, error));
-		VCPU_CTR2(vm, vcpuid, "restarting instruction by updating "
-		    "nextrip from %lx to %lx", vcpu->nextrip, rip);
 		vcpu->nextrip = rip;
 	} else {
 		panic("%s: invalid state %d", __func__, state);
@@ -3032,6 +3046,9 @@ vm_set_capability(struct vm *vm, int vcpu, int type, int val)
 struct vlapic *
 vm_lapic(struct vm *vm, int cpu)
 {
+	ASSERT3S(cpu, >=, 0);
+	ASSERT3S(cpu, <, VM_MAXCPU);
+
 	return (vm->vcpu[cpu].vlapic);
 }
 
@@ -3111,6 +3128,22 @@ vcpu_tsc_offset(struct vm *vm, int vcpuid, bool phys_adj)
 	return (vcpu_off);
 }
 
+/* Normalize hrtime against the boot time for a VM */
+hrtime_t
+vm_normalize_hrtime(struct vm *vm, hrtime_t hrt)
+{
+	/* To avoid underflow/overflow UB, perform math as unsigned */
+	return ((hrtime_t)((uint64_t)hrt - (uint64_t)vm->boot_hrtime));
+}
+
+/* Denormalize hrtime against the boot time for a VM */
+hrtime_t
+vm_denormalize_hrtime(struct vm *vm, hrtime_t hrt)
+{
+	/* To avoid underflow/overflow UB, perform math as unsigned */
+	return ((hrtime_t)((uint64_t)hrt + (uint64_t)vm->boot_hrtime));
+}
+
 int
 vm_activate_cpu(struct vm *vm, int vcpuid)
 {
@@ -3125,7 +3158,6 @@ vm_activate_cpu(struct vm *vm, int vcpuid)
 		return (EBUSY);
 	}
 
-	VCPU_CTR0(vm, vcpuid, "activated");
 	CPU_SET_ATOMIC(vcpuid, &vm->active_cpus);
 
 	/*
@@ -3689,4 +3721,532 @@ vmm_kstat_update_vcpu(struct kstat *ksp, int rw)
 	vvk->vvk_time_sched.value.ui64 = vcpu->ustate_total[VU_SCHED];
 
 	return (0);
+}
+
+SET_DECLARE(vmm_data_version_entries, const vmm_data_version_entry_t);
+
+static inline bool
+vmm_data_is_cpu_specific(uint16_t data_class)
+{
+	switch (data_class) {
+	case VDC_REGISTER:
+	case VDC_MSR:
+	case VDC_FPU:
+	case VDC_LAPIC:
+		return (true);
+	default:
+		return (false);
+	}
+}
+
+static int
+vmm_data_find(const vmm_data_req_t *req, const vmm_data_version_entry_t **resp)
+{
+	const vmm_data_version_entry_t **vdpp, *vdp;
+
+	ASSERT(resp != NULL);
+	ASSERT(req->vdr_result_len != NULL);
+
+	SET_FOREACH(vdpp, vmm_data_version_entries) {
+		vdp = *vdpp;
+		if (vdp->vdve_class == req->vdr_class &&
+		    vdp->vdve_version == req->vdr_version) {
+			/*
+			 * Enforce any data length expectation expressed by the
+			 * provider for this data.
+			 */
+			if (vdp->vdve_len_expect != 0 &&
+			    vdp->vdve_len_expect > req->vdr_len) {
+				*req->vdr_result_len = vdp->vdve_len_expect;
+				return (ENOSPC);
+			}
+			*resp = vdp;
+			return (0);
+		}
+	}
+	return (EINVAL);
+}
+
+static void *
+vmm_data_from_class(const vmm_data_req_t *req, struct vm *vm, int vcpuid)
+{
+	switch (req->vdr_class) {
+		/* per-cpu data/devices */
+	case VDC_LAPIC:
+		return (vm_lapic(vm, vcpuid));
+	case VDC_VMM_ARCH:
+		return (vm);
+
+	case VDC_FPU:
+	case VDC_REGISTER:
+	case VDC_MSR:
+		/*
+		 * These have per-CPU handling which is dispatched outside
+		 * vmm_data_version_entries listing.
+		 */
+		return (NULL);
+
+		/* system-wide data/devices */
+	case VDC_IOAPIC:
+		return (vm->vioapic);
+	case VDC_ATPIT:
+		return (vm->vatpit);
+	case VDC_ATPIC:
+		return (vm->vatpic);
+	case VDC_HPET:
+		return (vm->vhpet);
+	case VDC_PM_TIMER:
+		return (vm->vpmtmr);
+	case VDC_RTC:
+		return (vm->vrtc);
+
+	default:
+		/* The data class will have been validated by now */
+		panic("Unexpected class %u", req->vdr_class);
+	}
+}
+
+const uint32_t arch_msr_iter[] = {
+	MSR_EFER,
+
+	/*
+	 * While gsbase and fsbase are accessible via the MSR accessors, they
+	 * are not included in MSR iteration since they are covered by the
+	 * segment descriptor interface too.
+	 */
+	MSR_KGSBASE,
+
+	MSR_STAR,
+	MSR_LSTAR,
+	MSR_CSTAR,
+	MSR_SF_MASK,
+
+	MSR_SYSENTER_CS_MSR,
+	MSR_SYSENTER_ESP_MSR,
+	MSR_SYSENTER_EIP_MSR,
+	MSR_PAT,
+};
+const uint32_t generic_msr_iter[] = {
+	MSR_TSC,
+	MSR_MTRRcap,
+	MSR_MTRRdefType,
+
+	MSR_MTRR4kBase, MSR_MTRR4kBase + 1, MSR_MTRR4kBase + 2,
+	MSR_MTRR4kBase + 3, MSR_MTRR4kBase + 4, MSR_MTRR4kBase + 5,
+	MSR_MTRR4kBase + 6, MSR_MTRR4kBase + 7,
+
+	MSR_MTRR16kBase, MSR_MTRR16kBase + 1,
+
+	MSR_MTRR64kBase,
+};
+
+static int
+vmm_data_read_msrs(struct vm *vm, int vcpuid, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_MSR);
+	VERIFY3U(req->vdr_version, ==, 1);
+
+	const uint_t num_msrs = nitems(arch_msr_iter) + nitems(generic_msr_iter)
+	    + (VMM_MTRR_VAR_MAX * 2);
+	const uint32_t output_len =
+	    num_msrs * sizeof (struct vdi_field_entry_v1);
+	*req->vdr_result_len = output_len;
+
+	if (req->vdr_len < output_len) {
+		return (ENOSPC);
+	}
+
+	struct vdi_field_entry_v1 *entryp = req->vdr_data;
+	for (uint_t i = 0; i < nitems(arch_msr_iter); i++, entryp++) {
+		const uint32_t msr = arch_msr_iter[i];
+		uint64_t val = 0;
+
+		int err = ops->vmgetmsr(vm->cookie, vcpuid, msr, &val);
+		/* All of these MSRs are expected to work */
+		VERIFY0(err);
+		entryp->vfe_ident = msr;
+		entryp->vfe_value = val;
+	}
+
+	struct vm_mtrr *mtrr = &vm->vcpu[vcpuid].mtrr;
+	for (uint_t i = 0; i < nitems(generic_msr_iter); i++, entryp++) {
+		const uint32_t msr = generic_msr_iter[i];
+
+		entryp->vfe_ident = msr;
+		switch (msr) {
+		case MSR_TSC:
+			/*
+			 * Communicate this as the difference from the VM-wide
+			 * offset of the boot time.
+			 */
+			entryp->vfe_value = vm->vcpu[vcpuid].tsc_offset;
+			break;
+		case MSR_MTRRcap:
+		case MSR_MTRRdefType:
+		case MSR_MTRR4kBase ... MSR_MTRR4kBase + 7:
+		case MSR_MTRR16kBase ... MSR_MTRR16kBase + 1:
+		case MSR_MTRR64kBase: {
+			int err = vm_rdmtrr(mtrr, msr, &entryp->vfe_value);
+			VERIFY0(err);
+			break;
+		}
+		default:
+			panic("unexpected msr export %x", msr);
+		}
+	}
+	/* Copy the variable MTRRs */
+	for (uint_t i = 0; i < (VMM_MTRR_VAR_MAX * 2); i++, entryp++) {
+		const uint32_t msr = MSR_MTRRVarBase + i;
+
+		entryp->vfe_ident = msr;
+		int err = vm_rdmtrr(mtrr, msr, &entryp->vfe_value);
+		VERIFY0(err);
+	}
+	return (0);
+}
+
+static int
+vmm_data_write_msrs(struct vm *vm, int vcpuid, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_MSR);
+	VERIFY3U(req->vdr_version, ==, 1);
+
+	const struct vdi_field_entry_v1 *entryp = req->vdr_data;
+	const uint_t entry_count =
+	    req->vdr_len / sizeof (struct vdi_field_entry_v1);
+	struct vm_mtrr *mtrr = &vm->vcpu[vcpuid].mtrr;
+
+	/*
+	 * First make sure that all of the MSRs can be manipulated.
+	 * For now, this check is done by going though the getmsr handler
+	 */
+	for (uint_t i = 0; i < entry_count; i++, entryp++) {
+		const uint32_t msr = entryp->vfe_ident;
+		uint64_t val;
+		int err = 0;
+
+		switch (msr) {
+		case MSR_TSC:
+			break;
+		default:
+			if (is_mtrr_msr(msr)) {
+				err = vm_rdmtrr(mtrr, msr, &val);
+			} else {
+				err = ops->vmgetmsr(vm->cookie, vcpuid, msr,
+				    &val);
+			}
+			break;
+		}
+		if (err != 0) {
+			return (err);
+		}
+	}
+
+	/*
+	 * Fairly confident that all of the 'set' operations are at least
+	 * targeting valid MSRs, continue on.
+	 */
+	entryp = req->vdr_data;
+	for (uint_t i = 0; i < entry_count; i++, entryp++) {
+		const uint32_t msr = entryp->vfe_ident;
+		const uint64_t val = entryp->vfe_value;
+		int err = 0;
+
+		switch (msr) {
+		case MSR_TSC:
+			vm->vcpu[vcpuid].tsc_offset = entryp->vfe_value;
+			break;
+		default:
+			if (is_mtrr_msr(msr)) {
+				if (msr == MSR_MTRRcap) {
+					/*
+					 * MTRRcap is read-only.  If the current
+					 * value matches the incoming one,
+					 * consider it a success
+					 */
+					uint64_t comp;
+					err = vm_rdmtrr(mtrr, msr, &comp);
+					if (err != 0 || comp != val) {
+						err = EINVAL;
+					}
+				} else {
+					err = vm_wrmtrr(mtrr, msr, val);
+				}
+			} else {
+				err = ops->vmsetmsr(vm->cookie, vcpuid, msr,
+				    val);
+			}
+			break;
+		}
+		if (err != 0) {
+			return (err);
+		}
+	}
+	*req->vdr_result_len = entry_count * sizeof (struct vdi_field_entry_v1);
+
+	return (0);
+}
+
+static const vmm_data_version_entry_t msr_v1 = {
+	.vdve_class = VDC_MSR,
+	.vdve_version = 1,
+	.vdve_len_per_item = sizeof (struct vdi_field_entry_v1),
+	/* Requires backend-specific dispatch */
+	.vdve_readf = NULL,
+	.vdve_writef = NULL,
+};
+VMM_DATA_VERSION(msr_v1);
+
+static const uint32_t vmm_arch_v1_fields[] = {
+	VAI_TSC_BOOT_OFFSET,
+	VAI_BOOT_HRTIME,
+	VAI_TSC_FREQ,
+};
+
+static bool
+vmm_read_arch_field(struct vm *vm, uint32_t ident, uint64_t *valp)
+{
+	ASSERT(valp != NULL);
+
+	switch (ident) {
+	case VAI_TSC_BOOT_OFFSET:
+		*valp = vm->boot_tsc_offset;
+		return (true);
+	case VAI_BOOT_HRTIME:
+		*valp = vm->boot_hrtime;
+		return (true);
+	case VAI_TSC_FREQ:
+		/*
+		 * Since the system TSC calibration is not public, just derive
+		 * it from the scaling functions available.
+		 */
+		*valp = unscalehrtime(NANOSEC);
+		return (true);
+	default:
+		break;
+	}
+	return (false);
+}
+
+static int
+vmm_data_read_vmm_arch(void *arg, const vmm_data_req_t *req)
+{
+	struct vm *vm = arg;
+
+	VERIFY3U(req->vdr_class, ==, VDC_VMM_ARCH);
+	VERIFY3U(req->vdr_version, ==, 1);
+
+	struct vdi_field_entry_v1 *entryp = req->vdr_data;
+
+	/* Specific fields requested */
+	if ((req->vdr_flags & VDX_FLAG_READ_COPYIN) != 0) {
+		const uint_t count =
+		    req->vdr_len / sizeof (struct vdi_field_entry_v1);
+
+		for (uint_t i = 0; i < count; i++, entryp++) {
+			if (!vmm_read_arch_field(vm, entryp->vfe_ident,
+			    &entryp->vfe_value)) {
+				return (EINVAL);
+			}
+		}
+		*req->vdr_result_len =
+		    count * sizeof (struct vdi_field_entry_v1);
+		return (0);
+	}
+
+	/* Emit all of the possible values */
+	const uint32_t total_size = nitems(vmm_arch_v1_fields) *
+	    sizeof (struct vdi_field_entry_v1);
+	*req->vdr_result_len = total_size;
+	if (req->vdr_len < total_size) {
+		return (ENOSPC);
+	}
+	for (uint_t i = 0; i < nitems(vmm_arch_v1_fields); i++, entryp++) {
+		entryp->vfe_ident = vmm_arch_v1_fields[i];
+		VERIFY(vmm_read_arch_field(vm, entryp->vfe_ident,
+		    &entryp->vfe_value));
+	}
+	return (0);
+}
+
+static int
+vmm_data_write_vmm_arch(void *arg, const vmm_data_req_t *req)
+{
+	struct vm *vm = arg;
+
+	VERIFY3U(req->vdr_class, ==, VDC_VMM_ARCH);
+	VERIFY3U(req->vdr_version, ==, 1);
+
+	const struct vdi_field_entry_v1 *entryp = req->vdr_data;
+	const uint_t entry_count =
+	    req->vdr_len / sizeof (struct vdi_field_entry_v1);
+
+	for (uint_t i = 0; i < entry_count; i++, entryp++) {
+		const uint64_t val = entryp->vfe_value;
+
+		switch (entryp->vfe_ident) {
+		case VAI_TSC_BOOT_OFFSET:
+			vm->boot_tsc_offset = val;
+			break;
+		case VAI_BOOT_HRTIME:
+			vm->boot_hrtime = val;
+			break;
+		case VAI_TSC_FREQ:
+			/* Guest TSC frequency not (currently) adjustable */
+			return (EPERM);
+		default:
+			return (EINVAL);
+		}
+	}
+	*req->vdr_result_len = entry_count * sizeof (struct vdi_field_entry_v1);
+	return (0);
+}
+
+static const vmm_data_version_entry_t vmm_arch_v1 = {
+	.vdve_class = VDC_VMM_ARCH,
+	.vdve_version = 1,
+	.vdve_len_per_item = sizeof (struct vdi_field_entry_v1),
+	.vdve_readf = vmm_data_read_vmm_arch,
+	.vdve_writef = vmm_data_write_vmm_arch,
+};
+VMM_DATA_VERSION(vmm_arch_v1);
+
+static int
+vmm_data_read_versions(void *arg, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_VERSION);
+	VERIFY3U(req->vdr_version, ==, 1);
+
+	const uint32_t total_size = SET_COUNT(vmm_data_version_entries) *
+	    sizeof (struct vdi_version_entry_v1);
+
+	/* Make sure there is room for all of the entries */
+	*req->vdr_result_len = total_size;
+	if (req->vdr_len < *req->vdr_result_len) {
+		return (ENOSPC);
+	}
+
+	struct vdi_version_entry_v1 *entryp = req->vdr_data;
+	const vmm_data_version_entry_t **vdpp;
+	SET_FOREACH(vdpp, vmm_data_version_entries) {
+		const vmm_data_version_entry_t *vdp = *vdpp;
+
+		entryp->vve_class = vdp->vdve_class;
+		entryp->vve_version = vdp->vdve_version;
+		entryp->vve_len_expect = vdp->vdve_len_expect;
+		entryp->vve_len_per_item = vdp->vdve_len_per_item;
+		entryp++;
+	}
+	return (0);
+}
+
+static int
+vmm_data_write_versions(void *arg, const vmm_data_req_t *req)
+{
+	/* Writing to the version information makes no sense */
+	return (EPERM);
+}
+
+static const vmm_data_version_entry_t versions_v1 = {
+	.vdve_class = VDC_VERSION,
+	.vdve_version = 1,
+	.vdve_len_per_item = sizeof (struct vdi_version_entry_v1),
+	.vdve_readf = vmm_data_read_versions,
+	.vdve_writef = vmm_data_write_versions,
+};
+VMM_DATA_VERSION(versions_v1);
+
+int
+vmm_data_read(struct vm *vm, int vcpuid, const vmm_data_req_t *req)
+{
+	int err = 0;
+
+	if (vmm_data_is_cpu_specific(req->vdr_class)) {
+		if (vcpuid >= VM_MAXCPU) {
+			return (EINVAL);
+		}
+	}
+
+	const vmm_data_version_entry_t *entry = NULL;
+	err = vmm_data_find(req, &entry);
+	if (err != 0) {
+		return (err);
+	}
+	ASSERT(entry != NULL);
+
+	void *datap = vmm_data_from_class(req, vm, vcpuid);
+	if (datap != NULL) {
+		err = entry->vdve_readf(datap, req);
+
+		/*
+		 * Successful reads of fixed-length data should populate the
+		 * length of that result.
+		 */
+		if (err == 0 && entry->vdve_len_expect != 0) {
+			*req->vdr_result_len = entry->vdve_len_expect;
+		}
+	} else {
+		switch (req->vdr_class) {
+		case VDC_MSR:
+			err = vmm_data_read_msrs(vm, vcpuid, req);
+			break;
+		case VDC_FPU:
+			/* TODO: wire up to xsave export via hma_fpu iface */
+			err = EINVAL;
+			break;
+		case VDC_REGISTER:
+		default:
+			err = EINVAL;
+			break;
+		}
+	}
+
+	return (err);
+}
+
+int
+vmm_data_write(struct vm *vm, int vcpuid, const vmm_data_req_t *req)
+{
+	int err = 0;
+
+	if (vmm_data_is_cpu_specific(req->vdr_class)) {
+		if (vcpuid >= VM_MAXCPU) {
+			return (EINVAL);
+		}
+	}
+
+	const vmm_data_version_entry_t *entry = NULL;
+	err = vmm_data_find(req, &entry);
+	if (err != 0) {
+		return (err);
+	}
+	ASSERT(entry != NULL);
+
+	void *datap = vmm_data_from_class(req, vm, vcpuid);
+	if (datap != NULL) {
+		err = entry->vdve_writef(datap, req);
+		/*
+		 * Successful writes of fixed-length data should populate the
+		 * length of that result.
+		 */
+		if (err == 0 && entry->vdve_len_expect != 0) {
+			*req->vdr_result_len = entry->vdve_len_expect;
+		}
+	} else {
+		switch (req->vdr_class) {
+		case VDC_MSR:
+			err = vmm_data_write_msrs(vm, vcpuid, req);
+			break;
+		case VDC_FPU:
+			/* TODO: wire up to xsave import via hma_fpu iface */
+			err = EINVAL;
+			break;
+		case VDC_REGISTER:
+		default:
+			err = EINVAL;
+			break;
+		}
+	}
+
+	return (err);
 }

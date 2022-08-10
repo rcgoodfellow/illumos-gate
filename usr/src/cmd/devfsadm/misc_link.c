@@ -22,6 +22,7 @@
  * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2015, Joyent, Inc. All rights reserved.
+ * Copyright 2022 Garrett D'Amore <garrett@damore.org>
  */
 
 #include <regex.h>
@@ -104,14 +105,14 @@ static devfsadm_create_t misc_cbt[] = {
 	    "(^ptsl$)|(^mm$)|(^wc$)|(^dump$)|(^cn$)|(^svvslo$)|(^ptm$)|"
 	    "(^ptc$)|(^openeepr$)|(^poll$)|(^sysmsg$)|(^random$)|(^trapstat$)|"
 	    "(^cryptoadm$)|(^crypto$)|(^pool$)|(^poolctl$)|(^bl$)|(^kmdb$)|"
-	    "(^sysevent$)|(^kssl$)|(^physmem$)",
+	    "(^sysevent$)|(^physmem$)",
 	    TYPE_EXACT | DRV_RE, ILEVEL_1, minor_name
 	},
 	{ "pseudo", "ddi_pseudo",
 	    "(^ip$)|(^tcp$)|(^udp$)|(^icmp$)|"
 	    "(^ip6$)|(^tcp6$)|(^udp6$)|(^icmp6$)|"
 	    "(^rts$)|(^arp$)|(^ipsecah$)|(^ipsecesp$)|(^keysock$)|(^spdsock$)|"
-	    "(^nca$)|(^rds$)|(^sdp$)|(^ipnet$)|(^dlpistub$)|(^bpf$)",
+	    "(^rds$)|(^sdp$)|(^ipnet$)|(^dlpistub$)|(^bpf$)",
 	    TYPE_EXACT | DRV_RE, ILEVEL_1, minor_name
 	},
 	{ "pseudo", "ddi_pseudo", "ipd",

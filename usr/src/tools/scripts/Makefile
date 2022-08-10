@@ -25,6 +25,7 @@
 #
 # Copyright 2020 Joyent, Inc.
 # Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 Jason King
 
 SHELL=/usr/bin/ksh93
 
@@ -51,7 +52,6 @@ SHFILES= \
 
 PERLFILES= \
 	check_rtime \
-	find_elf \
 	interface_check \
 	interface_cmp \
 	jstyle \
@@ -86,7 +86,6 @@ MAN1ONBLDFILES= \
 	check_rtime.1onbld \
 	ctfconvert.1onbld \
 	cstyle.1onbld \
-	find_elf.1onbld \
 	flg.flp.1onbld \
 	git-pbchk.1onbld \
 	hdrchk.1onbld \
@@ -137,7 +136,7 @@ all:	$(SHFILES) $(PERLFILES) $(PERLMODULES) $(PYFILES) \
 	$(MAN1ONBLDFILES) $(MAKEFILES) $(SCRIPTS)
 
 onu.sh:	onu.sh.in
-	$(SED) -e "s:@PYTHON_VERSION@:$(PYTHON_VERSION):g" < onu.sh.in > $@
+	$(SED) -e "s:@PYTHON_VERSION@:$(PYTHON3_VERSION):g" < onu.sh.in > $@
 
 $(ROOTONBLDBIN)/git-nits:
 	$(RM) $(ROOTONBLDBIN)/git-nits

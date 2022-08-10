@@ -51,13 +51,13 @@ __FBSDID("$FreeBSD$");
 #include <sys/mutex.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
-#include <sys/malloc.h>
+#include <sys/kmem.h>
 #include <sys/cpuset.h>
 
 #include <x86/apicreg.h>
 #include <machine/vmm.h>
+#include <sys/vmm_data.h>
 
-#include "vmm_ktr.h"
 #include "vmm_lapic.h"
 #include "vlapic.h"
 #include "vioapic.h"
@@ -96,19 +96,6 @@ struct vioapic {
 #define	VIOAPIC_UNLOCK(vioapic)		mutex_exit(&((vioapic)->lock))
 #define	VIOAPIC_LOCKED(vioapic)		MUTEX_HELD(&((vioapic)->lock))
 
-static MALLOC_DEFINE(M_VIOAPIC, "vioapic", "bhyve virtual ioapic");
-
-#define	VIOAPIC_CTR1(vioapic, fmt, a1)					\
-	VM_CTR1((vioapic)->vm, fmt, a1)
-
-#define	VIOAPIC_CTR2(vioapic, fmt, a1, a2)				\
-	VM_CTR2((vioapic)->vm, fmt, a1, a2)
-
-#define	VIOAPIC_CTR3(vioapic, fmt, a1, a2, a3)				\
-	VM_CTR3((vioapic)->vm, fmt, a1, a2, a3)
-
-#define	VIOAPIC_CTR4(vioapic, fmt, a1, a2, a3, a4)			\
-	VM_CTR4((vioapic)->vm, fmt, a1, a2, a3, a4)
 
 static void
 vioapic_send_intr(struct vioapic *vioapic, int pin)
@@ -124,7 +111,7 @@ vioapic_send_intr(struct vioapic *vioapic, int pin)
 	high = vioapic->rtbl[pin].reg >> 32;
 
 	if ((low & IOART_INTMASK) == IOART_INTMSET) {
-		VIOAPIC_CTR1(vioapic, "ioapic pin%d: masked", pin);
+		/* Pin is masked */
 		return;
 	}
 
@@ -133,8 +120,7 @@ vioapic_send_intr(struct vioapic *vioapic, int pin)
 	level = low & IOART_TRGRLVL ? true : false;
 	if (level) {
 		if ((low & IOART_REM_IRR) != 0) {
-			VIOAPIC_CTR1(vioapic, "ioapic pin%d: irr pending",
-			    pin);
+			/* IRR already pending */
 			return;
 		}
 		vioapic->rtbl[pin].reg |= IOART_REM_IRR;
@@ -331,9 +317,6 @@ vioapic_write(struct vioapic *vioapic, int vcpuid, uint32_t addr, uint32_t data)
 		    (vioapic->rtbl[pin].reg & IOART_REM_IRR) != 0)
 			vioapic->rtbl[pin].reg &= ~IOART_REM_IRR;
 
-		VIOAPIC_CTR2(vioapic, "ioapic pin%d: redir table entry %#lx",
-		    pin, vioapic->rtbl[pin].reg);
-
 		/*
 		 * Generate an interrupt if the following conditions are met:
 		 * - pin trigger mode is level
@@ -341,8 +324,6 @@ vioapic_write(struct vioapic *vioapic, int vcpuid, uint32_t addr, uint32_t data)
 		 */
 		if ((vioapic->rtbl[pin].reg & IOART_TRGRMOD) == IOART_TRGRLVL &&
 		    (vioapic->rtbl[pin].acnt > 0)) {
-			VIOAPIC_CTR2(vioapic, "ioapic pin%d: asserted at rtbl "
-			    "write, acnt %d", pin, vioapic->rtbl[pin].acnt);
 			vioapic_send_intr(vioapic, pin);
 		}
 	}
@@ -420,7 +401,6 @@ vioapic_process_eoi(struct vm *vm, int vcpuid, int vector)
 	    ("vioapic_process_eoi: invalid vector %d", vector));
 
 	vioapic = vm_ioapic(vm);
-	VIOAPIC_CTR1(vioapic, "ioapic processing eoi for vector %d", vector);
 
 	/*
 	 * XXX keep track of the pins associated with this vector instead
@@ -434,8 +414,7 @@ vioapic_process_eoi(struct vm *vm, int vcpuid, int vector)
 			continue;
 		vioapic->rtbl[pin].reg &= ~IOART_REM_IRR;
 		if (vioapic->rtbl[pin].acnt > 0) {
-			VIOAPIC_CTR2(vioapic, "ioapic pin%d: asserted at eoi, "
-			    "acnt %d", pin, vioapic->rtbl[pin].acnt);
+			/* Pin asserted at EOI */
 			vioapic_send_intr(vioapic, pin);
 		}
 	}
@@ -448,7 +427,7 @@ vioapic_init(struct vm *vm)
 	int i;
 	struct vioapic *vioapic;
 
-	vioapic = malloc(sizeof (struct vioapic), M_VIOAPIC, M_WAITOK | M_ZERO);
+	vioapic = kmem_zalloc(sizeof (struct vioapic), KM_SLEEP);
 
 	vioapic->vm = vm;
 	mutex_init(&vioapic->lock, NULL, MUTEX_ADAPTIVE, NULL);
@@ -464,7 +443,7 @@ void
 vioapic_cleanup(struct vioapic *vioapic)
 {
 	mutex_destroy(&vioapic->lock);
-	free(vioapic, M_VIOAPIC);
+	kmem_free(vioapic, sizeof (*vioapic));
 }
 
 int
@@ -473,3 +452,56 @@ vioapic_pincount(struct vm *vm)
 
 	return (REDIR_ENTRIES);
 }
+
+static int
+vioapic_data_read(void *datap, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_IOAPIC);
+	VERIFY3U(req->vdr_version, ==, 1);
+	VERIFY3U(req->vdr_len, ==, sizeof (struct vdi_ioapic_v1));
+
+	struct vioapic *vioapic = datap;
+	struct vdi_ioapic_v1 *out = req->vdr_data;
+
+	VIOAPIC_LOCK(vioapic);
+	out->vi_id = vioapic->id;
+	out->vi_reg_sel = vioapic->ioregsel;
+	for (uint_t i = 0; i < REDIR_ENTRIES; i++) {
+		out->vi_pin_reg[i] = vioapic->rtbl[i].reg;
+		out->vi_pin_level[i] = vioapic->rtbl[i].acnt;
+	}
+	VIOAPIC_UNLOCK(vioapic);
+
+	return (0);
+}
+
+static int
+vioapic_data_write(void *datap, const vmm_data_req_t *req)
+{
+	VERIFY3U(req->vdr_class, ==, VDC_IOAPIC);
+	VERIFY3U(req->vdr_version, ==, 1);
+	VERIFY3U(req->vdr_len, ==, sizeof (struct vdi_ioapic_v1));
+
+	struct vioapic *vioapic = datap;
+	const struct vdi_ioapic_v1 *src = req->vdr_data;
+
+	VIOAPIC_LOCK(vioapic);
+	vioapic->id = src->vi_id;
+	vioapic->ioregsel = src->vi_reg_sel;
+	for (uint_t i = 0; i < REDIR_ENTRIES; i++) {
+		vioapic->rtbl[i].reg = src->vi_pin_reg[i] & ~RTBL_RO_BITS;
+		vioapic->rtbl[i].acnt = src->vi_pin_level[i];
+	}
+	VIOAPIC_UNLOCK(vioapic);
+
+	return (0);
+}
+
+static const vmm_data_version_entry_t ioapic_v1 = {
+	.vdve_class = VDC_IOAPIC,
+	.vdve_version = 1,
+	.vdve_len_expect = sizeof (struct vdi_ioapic_v1),
+	.vdve_readf = vioapic_data_read,
+	.vdve_writef = vioapic_data_write,
+};
+VMM_DATA_VERSION(ioapic_v1);
