@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, OmniTI Computer Consulting, Inc. All rights reserved.
+ * Copyright 2022 Oxide Computer Company
  */
 
 /*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T	*/
@@ -338,6 +339,12 @@ extern "C" {
 #define	SIOCSLIFPREFIX		_IOWR('i', 191, struct lifreq)
 
 #define	SIOCGLIFHWADDR	_IOWR('i', 192, struct lifreq)
+
+/*
+ * IOCTL's to get IPv6 neighbor information
+ */
+#define	SIOCGNDNUM	_IOWR('i', 193, struct ndpreq)
+#define	SIOCGNDS	_IOWR('i', 194, struct ndpreq)
 
 #ifdef	__cplusplus
 }
