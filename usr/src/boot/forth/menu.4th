@@ -989,14 +989,21 @@ also menu-namespace
 		then
 	then
 
+	cursor-invisible cursor-set
 	menu-create
 
 	begin \ Loop forever
 
 		at-bl
+		\ restore cursor for case the getkey ends up in
+		\ booting the kernel. This does restore cursor for
+		\ serial terminals.
+		cursor-normal cursor-set
 		getkey     \ Block here, waiting for a key to be pressed
+		cursor-invisible cursor-set
 
 		dup -1 = if
+			cursor-normal cursor-set
 			drop exit \ Caught abort (abnormal return)
 		then
 
@@ -1004,6 +1011,7 @@ also menu-namespace
 		\ Ctrl-Enter/Ctrl-J (10)
 		dup over 13 = swap 10 = or if
 			drop ( no longer needed )
+			cursor-normal cursor-set
 			s" boot" evaluate
 			exit ( pedantic; never reached )
 		then
@@ -1041,6 +1049,7 @@ also menu-namespace
 					0= if
 						drop \ key pressed
 						drop \ loop iterator
+						cursor-normal cursor-set
 						exit
 					else
 						swap \ need iterator on top
@@ -1075,6 +1084,8 @@ also menu-namespace
 							evaluate
 							0= if
 								2drop
+								cursor-normal
+								cursor-set
 								exit
 							then
 						else
