@@ -242,7 +242,6 @@ i386_MANFILES=	ahci.4d		\
 		ural.4d		\
 		urtw.4d		\
 		usmn.4d		\
-		vio9p.4d	\
 		vioblk.4d	\
 		vioif.4d	\
 		vioscsi.4d	\

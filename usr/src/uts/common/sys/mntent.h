@@ -44,7 +44,6 @@ extern "C" {
 #define	MNTTYPE_NFS	"nfs"		/* NFS file system */
 #define	MNTTYPE_NFS3	"nfs3"		/* NFS Version 3 file system */
 #define	MNTTYPE_NFS4	"nfs4"		/* NFS Version 4 file system */
-#define	MNTTYPE_P9FS	"p9fs"		/* Plan 9 file system (9P) */
 #define	MNTTYPE_PCFS	"pcfs"		/* PC (MSDOS) file system */
 #define	MNTTYPE_PC	MNTTYPE_PCFS	/* Deprecated name; use MNTTYPE_PCFS */
 #define	MNTTYPE_LOFS	"lofs"		/* Loop back file system */
