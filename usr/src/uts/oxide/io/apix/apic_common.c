@@ -681,7 +681,7 @@ apic_iohc_nmi_eoi(milan_ioms_t *ioms, void *arg __unused)
 	uint32_t v;
 
 	reg = milan_ioms_reg(ioms, D_IOHC_FCTL2, 0);
-	v = milan_ioms_read32(ioms, reg);
+	v = milan_ioms_read(ioms, reg);
 	v = IOHC_FCTL2_GET_NMI(v);
 	if (v != 0) {
 		/*
@@ -689,10 +689,10 @@ apic_iohc_nmi_eoi(milan_ioms_t *ioms, void *arg __unused)
 		 * those conditions may not have resulted in an NMI.  Clear only
 		 * the bit whose condition we have handled.
 		 */
-		milan_ioms_write32(ioms, reg, v);
+		milan_ioms_write(ioms, reg, v);
 		reg = milan_ioms_reg(ioms, D_IOHC_INTR_EOI, 0);
 		v = IOHC_INTR_EOI_SET_NMI(0);
-		milan_ioms_write32(ioms, reg, v);
+		milan_ioms_write(ioms, reg, v);
 	}
 
 	return (0);

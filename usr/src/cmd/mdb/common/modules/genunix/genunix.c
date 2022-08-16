@@ -1688,11 +1688,7 @@ calloutid(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	}
 	arg = &argv[0];
 
-	if (arg->a_type == MDB_TYPE_IMMEDIATE) {
-		xid = arg->a_un.a_val;
-	} else {
-		xid = (callout_id_t)mdb_strtoull(arg->a_un.a_str);
-	}
+	xid = (callout_id_t)mdb_argtoull(arg);
 
 	if (DCMD_HDRSPEC(flags)) {
 		coargs.flags |= COF_CHDR;
@@ -3624,10 +3620,7 @@ fd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (argc != 1)
 		return (DCMD_USAGE);
 
-	if (argp->a_type == MDB_TYPE_IMMEDIATE)
-		fdnum = argp->a_un.a_val;
-	else
-		fdnum = mdb_strtoull(argp->a_un.a_str);
+	fdnum = (int)mdb_argtoull(argp);
 
 	if (mdb_ctf_vread(&p, "proc_t", "mdb_fd_proc_t", addr, 0) == -1) {
 		mdb_warn("couldn't read proc_t at %p", addr);
@@ -3789,7 +3782,7 @@ did2thread(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (argc != 1)
 		return (DCMD_USAGE);
 
-	did = (kt_did_t)mdb_strtoull(argp->a_un.a_str);
+	did = (kt_did_t)mdb_argtoull(argp);
 
 	if (mdb_walk("thread", (mdb_walk_cb_t)didmatch, (void *)&did) == -1) {
 		mdb_warn("failed to walk thread");

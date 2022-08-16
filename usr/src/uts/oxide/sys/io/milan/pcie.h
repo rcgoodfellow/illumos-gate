@@ -63,7 +63,8 @@ extern uint8_t milan_pcie_port_n_bridges(const uint8_t);
  * implementation, we consider the bridge instance number to also form part of
  * the aperture base rather than treating the size of each port space as the
  * per-bridge register stride.  The upshot of this is that we ignore srd_nents
- * and srd_stride (more pointedly: they must not be set).
+ * and srd_stride (more pointedly: they must not be set); similarly, all these
+ * registers are 32 bits wide, so srd_size must be 0.
  */
 
 static inline smn_reg_t
@@ -74,6 +75,7 @@ milan_pcie_core_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 	const uint32_t ioms32 = (const uint32_t)iomsno;
 	const uint32_t port32 = (const uint32_t)portno;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_PCIE_CORE);
 	ASSERT0(def.srd_nents);
 	ASSERT0(def.srd_stride);
@@ -105,6 +107,7 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 	const uint32_t port32 = (const uint32_t)portno;
 	const uint32_t bridge32 = (const uint32_t)bridgeno;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_PCIE_PORT);
 	ASSERT0(def.srd_nents);
 	ASSERT0(def.srd_stride);

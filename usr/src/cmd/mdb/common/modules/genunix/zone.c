@@ -398,10 +398,7 @@ zsd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		 * The missed argument should be a key.
 		 */
 		argp = &argv[argcindex];
-		if (argp->a_type == MDB_TYPE_IMMEDIATE)
-			cbd.key = argp->a_un.a_val;
-		else
-			cbd.key = mdb_strtoull(argp->a_un.a_str);
+		cbd.key = (zone_key_t)mdb_argtoull(argp);
 		cbd.keygiven = TRUE;
 		cbd.found = FALSE;
 	}

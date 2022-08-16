@@ -676,10 +676,7 @@ threadlist(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		if (i != argc - 1 || !verbose)
 			return (DCMD_USAGE);
 
-		if (argv[i].a_type == MDB_TYPE_IMMEDIATE)
-			count = (uint_t)argv[i].a_un.a_val;
-		else
-			count = (uint_t)mdb_strtoull(argv[i].a_un.a_str);
+		count = (uint_t)mdb_argtoull(&argv[i]);
 	}
 
 	if (DCMD_HDRSPEC(flags)) {

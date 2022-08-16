@@ -28,7 +28,8 @@ extern "C" {
  * registers work a lot like the IOHCDEV registers in that there is a block for
  * each of several other devices: two PCIe ports (even on NBIO0), an NBIF port,
  * and an IOAGR.  The L2 register set only exists on a per-IOMS basis and looks
- * like a standard SMN functional unit.
+ * like a standard SMN functional unit.  All these registers are 32 bits wide;
+ * we check for violations.
  */
 #define	MILAN_MAKE_SMN_IOMMUL1_REG_FN(_unit, _unitlc, _base,		\
     _nunits, _unitshift)	\
@@ -39,6 +40,7 @@ milan_iommul1_ ## _unitlc ## _smn_reg(const uint8_t iommuno,		\
 	const uint32_t iommu32 = (const uint32_t)iommuno;		\
 	const uint32_t unit32 = (const uint32_t)unitno;			\
 									\
+	ASSERT0(def.srd_size);						\
 	ASSERT0(def.srd_nents);						\
 	ASSERT0(def.srd_stride);					\
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_IOMMUL1);			\

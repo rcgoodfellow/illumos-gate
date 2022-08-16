@@ -450,6 +450,8 @@ CHKHDRS=			\
 	pccard.h		\
 	pci.h			\
 	pcie.h			\
+	pciev.h			\
+	pcie_impl.h		\
 	pci_impl.h		\
 	pci_tools.h		\
 	pcmcia.h		\

@@ -1948,8 +1948,7 @@ metaslab_weight(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 			return (DCMD_ERR);
 		}
 	} else if (argc == 1 && !(flags & DCMD_ADDRSPEC)) {
-		weight = (argv[0].a_type == MDB_TYPE_IMMEDIATE) ?
-		    argv[0].a_un.a_val : mdb_strtoull(argv[0].a_un.a_str);
+		weight = (uint64_t)mdb_argtoull(&argv[0]);
 	} else {
 		return (DCMD_USAGE);
 	}

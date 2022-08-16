@@ -22,6 +22,7 @@
  * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <mdb/mdb_modapi.h>
@@ -43,6 +44,7 @@
 #include <sys/x86_archext.h>
 #include <sys/bitmap.h>
 #include <sys/controlregs.h>
+#include <sys/pci_impl.h>
 
 #define	TT_HDLR_WIDTH	17
 
@@ -986,7 +988,141 @@ sysregs_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 
 	return (DCMD_OK);
 }
-#endif
+
+static int
+pcicfg_check_args(uintptr_t bus, uintptr_t dev, uintptr_t func, uintptr_t off,
+    uintptr_t len, uintptr_t val)
+{
+	if (bus >= PCI_MAX_BUS_NUM) {
+		mdb_warn("invalid bus number (must be 0-0x%x)\n",
+		    PCI_MAX_BUS_NUM);
+		return (DCMD_ERR);
+	}
+
+	if (dev >= PCI_MAX_DEVICES) {
+		mdb_warn("invalid device number (must be 0-0x%x)\n",
+		    PCI_MAX_DEVICES);
+		return (DCMD_ERR);
+	}
+
+	if (func >= PCI_MAX_FUNCTIONS) {
+		mdb_warn("invalid function number (must be 0-0x%x)\n",
+		    PCI_MAX_FUNCTIONS);
+		return (DCMD_ERR);
+	}
+
+	if (len != 1 && len != 2 && len != 4) {
+		mdb_warn("invalid operation length (must be {1,2,4})\n");
+		return (DCMD_ERR);
+	}
+
+	if (off >= PCI_CONF_HDR_SIZE) {
+		mdb_warn("invalid register number (must be 0-0x%x)\n",
+		    PCI_CONF_HDR_SIZE);
+		return (DCMD_ERR);
+	}
+
+	if ((off & (len - 1)) != 0) {
+		mdb_warn("register 0x%lx is not aligned to length 0x%lx\n",
+		    off, len);
+		return (DCMD_ERR);
+	}
+
+	if ((val & ~(0xffffffffUL >> ((4 - len) << 3))) != 0) {
+		mdb_warn("value does not fit into the region to be accessed\n");
+		return (DCMD_ERR);
+	}
+
+	return (DCMD_OK);
+}
+
+static int
+rdpcicfg(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	uint32_t val = 0;
+	uintptr_t len = 4;
+	uint_t next_arg;
+	uintptr_t bus, dev, func, off;
+	uint32_t cfgaddr;
+
+	if (!(flags & DCMD_ADDRSPEC))
+		return (DCMD_USAGE);
+
+	next_arg = mdb_getopts(argc, argv,
+	    'L', MDB_OPT_UINTPTR, &len, NULL);
+
+	if (argc - next_arg != 3)
+		return (DCMD_USAGE);
+
+	bus = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	dev = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	func = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	off = addr;
+
+	if (pcicfg_check_args(bus, dev, func, off, len, 0) != DCMD_OK)
+		return (DCMD_ERR);
+
+	cfgaddr = PCI_CADDR1(bus, dev, func, off);
+
+	if (mdb_iowrite(&cfgaddr, sizeof (cfgaddr), PCI_CONFADD) !=
+	    sizeof (cfgaddr)) {
+		mdb_warn("write of PCI_CONFADD failed\n");
+		return (DCMD_ERR);
+	}
+
+	if (mdb_ioread(&val, len, PCI_CONFDATA) != len) {
+		mdb_warn("access to PCI_CONFDATA failed\n");
+		return (DCMD_ERR);
+	}
+
+	mdb_printf("%llx\n", (u_longlong_t)val);
+
+	return (DCMD_OK);
+}
+
+static int
+wrpcicfg(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	uintptr_t val;
+	uintptr_t len = 4;
+	uint_t next_arg;
+	uintptr_t bus, dev, func, off;
+	uint32_t cfgaddr;
+
+	if (!(flags & DCMD_ADDRSPEC))
+		return (DCMD_USAGE);
+
+	next_arg = mdb_getopts(argc, argv,
+	    'L', MDB_OPT_UINTPTR, &len, NULL);
+
+	if (argc - next_arg != 4)
+		return (DCMD_USAGE);
+
+	bus = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	dev = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	func = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	val = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	off = addr;
+
+	if (pcicfg_check_args(bus, dev, func, off, len, val) != DCMD_OK)
+		return (DCMD_ERR);
+
+	cfgaddr = PCI_CADDR1(bus, dev, func, off);
+
+	if (mdb_iowrite(&cfgaddr, sizeof (cfgaddr), PCI_CONFADD) !=
+	    sizeof (cfgaddr)) {
+		mdb_warn("write of PCI_CONFADD failed\n");
+		return (DCMD_ERR);
+	}
+
+	if (mdb_iowrite(&val, len, PCI_CONFDATA) != len) {
+		mdb_warn("access to PCI_CONFDATA failed\n");
+		return (DCMD_ERR);
+	}
+
+	return (DCMD_OK);
+}
+#endif	/* _KMDB */
 
 extern void xcall_help(void);
 extern int xcall_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
@@ -1019,6 +1155,10 @@ static const mdb_dcmd_t dcmds[] = {
 		x86_featureset_dcmd },
 	{ "xcall", ":", "print CPU cross-call state", xcall_dcmd, xcall_help },
 #ifdef _KMDB
+	{ "rdpcicfg", ":[-L len] bus dev func",
+	    "read a register in PCI config space", rdpcicfg },
+	{ "wrpcicfg", ":[-L len] bus dev func val",
+	    "write a register in PCI config space", wrpcicfg },
 	{ "sysregs", NULL, "dump system registers", sysregs_dcmd },
 #endif
 	{ NULL }

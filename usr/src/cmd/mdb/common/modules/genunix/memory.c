@@ -1641,10 +1641,7 @@ vnode2smap(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	if (argc != 0) {
 		const mdb_arg_t *arg = &argv[0];
 
-		if (arg->a_type == MDB_TYPE_IMMEDIATE)
-			offset = arg->a_un.a_val;
-		else
-			offset = (uintptr_t)mdb_strtoull(arg->a_un.a_str);
+		offset = (uintptr_t)mdb_argtoull(arg);
 	}
 
 	hash = SMAP_HASHFUNC(addr, offset);

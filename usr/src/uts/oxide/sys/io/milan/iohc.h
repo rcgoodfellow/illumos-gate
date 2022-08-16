@@ -48,7 +48,8 @@ AMDZEN_MAKE_SMN_REG_FN(milan_ioagr_smn_reg, IOAGR, 0x15b00000,
  * however, the SMN addresses are very different. The aperture number of the
  * first SDPMUX is found where we would expect; however, after that we not only
  * skip the next aperture but also add (1 << 23) to the base address for all
- * SDPMUX instances beyond 0.  It's unclear why this is so.
+ * SDPMUX instances beyond 0.  It's unclear why this is so.  All registers are
+ * 32 bits wide; we check for violations.
  */
 static inline smn_reg_t
 milan_sdpmux_smn_reg(const uint8_t sdpmuxno, const smn_reg_def_t def,
@@ -61,6 +62,7 @@ milan_sdpmux_smn_reg(const uint8_t sdpmuxno, const smn_reg_def_t def,
 	const uint32_t nents = (def.srd_nents == 0) ? 1 :
 	    (const uint32_t) def.srd_nents;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_SDPMUX);
 	ASSERT3U(sdpmux32, <, 4);
 	ASSERT3U(nents, >, reginst32);
@@ -104,6 +106,7 @@ milan_iohcdev_ ## _unitlc ## _smn_reg(const uint8_t iohcno,		\
 	const uint32_t nents = (def.srd_nents == 0) ? 1 :		\
 	    (const uint32_t) def.srd_nents;				\
 									\
+	ASSERT0(def.srd_size);						\
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_IOHCDEV_ ## _unit);		\
 	ASSERT3U(iohc32, <, 4);						\
 	ASSERT3U(unit32, <, _nunits);					\

@@ -1062,10 +1062,7 @@ pt_stack_common(uintptr_t addr, uint_t flags, int argc,
 		if (argv->a_type == MDB_TYPE_CHAR || argc > 1)
 			return (DCMD_USAGE);
 
-		if (argv->a_type == MDB_TYPE_STRING)
-			arg = (void *)(uintptr_t)mdb_strtoull(argv->a_un.a_str);
-		else
-			arg = (void *)(uintptr_t)argv->a_un.a_val;
+		arg = (void *)(uintptr_t)mdb_argtoull(argv);
 	}
 
 	if (t->t_pshandle == NULL || Pstate(t->t_pshandle) == PS_IDLE) {

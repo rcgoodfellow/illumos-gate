@@ -45,6 +45,7 @@
 #include <sys/boot_debug.h>
 #include <sys/pci.h>
 #include <sys/pcie.h>
+#include <sys/pcie_impl.h>
 #include <sys/pci_cfgacc.h>
 #include <sys/pci_cfgspace_impl.h>
 #include <sys/machsystm.h>
@@ -74,19 +75,6 @@ void (*pci_putl_func)(int bus, int dev, int func, int reg, uint32_t val);
 extern void (*pci_cfgacc_acc_p)(pci_cfgacc_req_t *req);
 
 /*
- * Bit offsets for extended configuration space and corresponding masks. One
- * notable thing here is that the PCIE_CFGSPACE_FUNC_MASK is set to be 8 bits
- * instead of the normal three. This is to support ARIs.
- */
-#define	PCIE_CFGSPACE_BUS_OFFSET	20
-#define	PCIE_CFGSPACE_BUS_MASK(x)	((x) & 0xff)
-#define	PCIE_CFGSPACE_DEV_OFFSET	15
-#define	PCIE_CFGSPACE_DEV_MASK(x)	((x) & 0x1f)
-#define	PCIE_CFGSPACE_FUNC_OFFSET	12
-#define	PCIE_CFGSPACE_FUNC_MASK(x)	((x) & 0xff)
-#define	PCIE_CFGSPACE_REG_MASK(x)	((x) & 0xfff)
-
-/*
  * The pci_cfgacc_req
  */
 
@@ -96,7 +84,7 @@ extern void (*pci_cfgacc_acc_p)(pci_cfgacc_req_t *req);
 static uintptr_t pcie_cfgspace_vaddr;
 
 static boolean_t
-pcie_access_check(int bus, int dev, int func, int reg)
+pcie_access_check(int bus, int dev, int func, int reg, size_t len)
 {
 	if (bus < 0 || bus >= PCI_MAX_BUS_NUM) {
 		return (B_FALSE);
@@ -125,33 +113,97 @@ pcie_access_check(int bus, int dev, int func, int reg)
 		return (B_FALSE);
 	}
 
+	if (!IS_P2ALIGNED(reg, len)) {
+#ifdef	DEBUG
+		/*
+		 * While there are legitimate reasons we might try to access
+		 * nonexistent devices and functions, misaligned accesses are at
+		 * least strongly suggestive of kernel bugs.  Let's see what
+		 * this finds.
+		 */
+		cmn_err(CE_WARN, "misaligned PCI config space access at "
+		    "%x/%x/%x reg 0x%x len %lu\n", bus, dev, func, reg, len);
+#endif
+		return (B_FALSE);
+	}
+
 	return (B_TRUE);
 }
 
 static uintptr_t
 pcie_bdfr_to_addr(int bus, int dev, int func, int reg)
 {
-	uintptr_t bdfr;
-
-	bdfr = ((PCIE_CFGSPACE_BUS_MASK(bus) << PCIE_CFGSPACE_BUS_OFFSET) |
-	    (PCIE_CFGSPACE_DEV_MASK(dev) << PCIE_CFGSPACE_DEV_OFFSET) |
-	    (PCIE_CFGSPACE_FUNC_MASK(func) << PCIE_CFGSPACE_FUNC_OFFSET) |
-	    (PCIE_CFGSPACE_REG_MASK(reg)));
+	uintptr_t bdfr = PCIE_CADDR_ECAM(bus, dev, func, reg);
 
 	return (bdfr + pcie_cfgspace_vaddr);
 }
+
+/*
+ * Each of our access functions uses inline assembly to perform the direct
+ * access to memory-mapped config space.  This is necessary to guarantee that
+ * the value to be stored into config space is in %rax or the value to be read
+ * from config space will be placed in %rax.  AMD publication 56255 rev. 3.03
+ * sec. 2.1.4.1 imposes three requirements for memory-mapped (ECAM) config space
+ * accesses:
+ *
+ * 1. "MMIO configuration space accesses must use the uncacheable (UC) memory
+ *    type."
+ * 2. "Instructions used to read MMIO configuration space are required to take
+ *    the following form:
+ *        mov eax/ax/al, any_address_mode;
+ *    Instructions used to write MMIO configuration space are required to take
+ *    the following form:
+ *        mov any_address_mode, eax/ax/al;
+ *    No other source/target registers may be used other than eax/ax/al."
+ * 3. "In addition, all such accesses are required not to cross any naturally
+ *    aligned DW boundary."
+ *
+ * "Access to MMIO configuration space registers that do not meet these
+ * requirements result in undefined behavior."
+ *
+ * These requirements, or substantially identical phrasings of them, have been
+ * carried into all known subsequent PPRs, including those for Rome, Milan, and
+ * Genoa processor families.
+ *
+ * The first of these is guaranteed here by our device mapping (in
+ * pcie_cfgspace_{init,remap}() and by hat_devload()) and in the KDI by
+ * kdi_prw(); see the comment there for additional details.
+ *
+ * The second is guaranteed by our use of inline assembly with the "a"
+ * constraint: if we are storing to config space, we force gcc to first load
+ * from our source buffer into the A register the value to be stored into config
+ * space; if we are loading from config space, we force gcc to perform that load
+ * using the A register as a target, then store the contents to our destination
+ * buffer.
+ *
+ * The third constraint is guaranteed by pcie_access_check(), except with
+ * respect to 64-bit accesses which are not currently used.  Our check is
+ * actually slightly more strict than AMD requires: we enforce natural
+ * alignment.  This guarantees we satisfy the constraint, but it would also be
+ * legal to read a 16-bit quantity at offset 1 from the start of a
+ * 4-byte-aligned region.  We don't allow that because it's very unlikely to be
+ * useful or correct.
+ *
+ * The write (store to cfg space) variants may need the store inline assembly to
+ * be volatile because the output is not used in the function and we cannot be
+ * certain the compiler won't move or eliminate the store.  The read variants
+ * return the output so they don't have this problem.
+ */
 
 uint8_t
 pcie_cfgspace_read_uint8(int bus, int dev, int func, int reg)
 {
 	volatile uint8_t *u8p;
+	uint8_t rv;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (rv))) {
 		return (PCI_EINVAL8);
 	}
 
 	u8p = (uint8_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	return (*u8p);
+	__asm__("movb	%1, %0\n" : "=a" (rv) : "m" (*u8p) :);
+
+	return (rv);
 }
 
 void
@@ -159,25 +211,28 @@ pcie_cfgspace_write_uint8(int bus, int dev, int func, int reg, uint8_t val)
 {
 	volatile uint8_t *u8p;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (val))) {
 		return;
 	}
 
 	u8p = (uint8_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	*u8p = val;
+	__asm__ __volatile__("movb	%1, %0\n" : "=m" (*u8p) : "a" (val) :);
 }
 
 uint16_t
 pcie_cfgspace_read_uint16(int bus, int dev, int func, int reg)
 {
 	volatile uint16_t *u16p;
+	uint16_t rv;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (rv))) {
 		return (PCI_EINVAL16);
 	}
 
 	u16p = (uint16_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	return (*u16p);
+	__asm__("movw	%1, %0\n" : "=a" (rv) : "m" (*u16p) :);
+
+	return (rv);
 }
 
 void
@@ -185,25 +240,28 @@ pcie_cfgspace_write_uint16(int bus, int dev, int func, int reg, uint16_t val)
 {
 	volatile uint16_t *u16p;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (val))) {
 		return;
 	}
 
 	u16p = (uint16_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	*u16p = val;
+	__asm__ __volatile__("movw	%1, %0\n" : "=m" (*u16p) : "a" (val) :);
 }
 
 uint32_t
 pcie_cfgspace_read_uint32(int bus, int dev, int func, int reg)
 {
 	volatile uint32_t *u32p;
+	uint32_t rv;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (rv))) {
 		return (PCI_EINVAL32);
 	}
 
 	u32p = (uint32_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	return (*u32p);
+	__asm__("movl	%1, %0\n" : "=a" (rv) : "m" (*u32p) :);
+
+	return (rv);
 }
 
 void
@@ -211,12 +269,12 @@ pcie_cfgspace_write_uint32(int bus, int dev, int func, int reg, uint32_t val)
 {
 	volatile uint32_t *u32p;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (val))) {
 		return;
 	}
 
 	u32p = (uint32_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	*u32p = val;
+	__asm__ __volatile__("movl	%1, %0\n" : "=m" (*u32p) : "a" (val) :);
 }
 
 /*
@@ -226,13 +284,16 @@ uint64_t
 pcie_cfgspace_read_uint64(int bus, int dev, int func, int reg)
 {
 	volatile uint64_t *u64p;
+	uint64_t rv;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (rv))) {
 		return (PCI_EINVAL64);
 	}
 
 	u64p = (uint64_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	return (*u64p);
+	__asm__("movq	%1, %0\n" : "=a" (rv) : "m" (*u64p) :);
+
+	return (rv);
 }
 
 void
@@ -240,12 +301,12 @@ pcie_cfgspace_write_uint64(int bus, int dev, int func, int reg, uint64_t val)
 {
 	volatile uint64_t *u64p;
 
-	if (!pcie_access_check(bus, dev, func, reg)) {
+	if (!pcie_access_check(bus, dev, func, reg, sizeof (val))) {
 		return;
 	}
 
 	u64p = (uint64_t *)pcie_bdfr_to_addr(bus, dev, func, reg);
-	*u64p = val;
+	__asm__ __volatile__("movq	%1, %0\n" : "=m" (*u64p) : "a" (val) :);
 }
 
 /*

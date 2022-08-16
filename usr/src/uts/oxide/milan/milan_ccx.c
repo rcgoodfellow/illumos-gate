@@ -117,51 +117,51 @@ milan_ccd_reg(const milan_ccd_t *const ccd, const smn_reg_def_t def)
 }
 
 uint32_t
-milan_ccd_read32(milan_ccd_t *ccd, const smn_reg_t reg)
+milan_ccd_read(milan_ccd_t *ccd, const smn_reg_t reg)
 {
 	milan_iodie_t *iodie = ccd->mcd_iodie;
 
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read(iodie, reg));
 }
 
 void
-milan_ccd_write32(milan_ccd_t *ccd, const smn_reg_t reg, const uint32_t val)
+milan_ccd_write(milan_ccd_t *ccd, const smn_reg_t reg, const uint32_t val)
 {
 	milan_iodie_t *iodie = ccd->mcd_iodie;
 
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write(iodie, reg, val);
 }
 
 uint32_t
-milan_ccx_read32(milan_ccx_t *ccx, const smn_reg_t reg)
+milan_ccx_read(milan_ccx_t *ccx, const smn_reg_t reg)
 {
 	milan_iodie_t *iodie = ccx->mcx_ccd->mcd_iodie;
 
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read(iodie, reg));
 }
 
 void
-milan_ccx_write32(milan_ccx_t *ccx, const smn_reg_t reg, const uint32_t val)
+milan_ccx_write(milan_ccx_t *ccx, const smn_reg_t reg, const uint32_t val)
 {
 	milan_iodie_t *iodie = ccx->mcx_ccd->mcd_iodie;
 
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write(iodie, reg, val);
 }
 
 uint32_t
-milan_core_read32(milan_core_t *core, const smn_reg_t reg)
+milan_core_read(milan_core_t *core, const smn_reg_t reg)
 {
 	milan_iodie_t *iodie = core->mc_ccx->mcx_ccd->mcd_iodie;
 
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read(iodie, reg));
 }
 
 void
-milan_core_write32(milan_core_t *core, const smn_reg_t reg, const uint32_t val)
+milan_core_write(milan_core_t *core, const smn_reg_t reg, const uint32_t val)
 {
 	milan_iodie_t *iodie = core->mc_ccx->mcx_ccd->mcd_iodie;
 
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write(iodie, reg, val);
 }
 
 /*
@@ -201,12 +201,12 @@ milan_ccx_start_thread(const milan_thread_t *thread)
 	    MILAN_MAX_CORES_PER_CCX * MILAN_MAX_THREADS_PER_CORE);
 
 	reg = milan_ccd_reg(ccd, D_SMUPWR_THREAD_EN);
-	en = milan_ccd_read32(ccd, reg);
+	en = milan_ccd_read(ccd, reg);
 	if (SMUPWR_THREAD_EN_GET_T(en, thr_ccd_idx) != 0)
 		return (B_FALSE);
 
 	en = SMUPWR_THREAD_EN_SET_T(en, thr_ccd_idx);
-	milan_ccd_write32(ccd, reg, en);
+	milan_ccd_write(ccd, reg, en);
 	return (B_TRUE);
 }
 

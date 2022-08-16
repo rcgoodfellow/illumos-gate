@@ -30,6 +30,10 @@
 extern "C" {
 #endif
 
+#include <sys/ddifm.h>
+#include <sys/dditypes.h>
+#include <sys/types.h>
+
 typedef struct pcie_eh_data {
 	uint16_t minor_ver;	/* Minor data packet version, added data */
 	uint16_t major_ver;	/* Major data packet version, struct change */

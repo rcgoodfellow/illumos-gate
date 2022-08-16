@@ -23,6 +23,7 @@
  * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef	_MDB_MODAPI_H
@@ -211,6 +212,9 @@ extern ssize_t mdb_fwrite(const void *, size_t, uintptr_t);
 extern ssize_t mdb_pread(void *, size_t, uint64_t);
 extern ssize_t mdb_pwrite(const void *, size_t, uint64_t);
 
+extern ssize_t mdb_ioread(void *, size_t, uintptr_t);
+extern ssize_t mdb_iowrite(const void *, size_t, uintptr_t);
+
 extern ssize_t mdb_readstr(char *, size_t, uintptr_t);
 extern ssize_t mdb_writestr(const char *, uintptr_t);
 
@@ -248,6 +252,7 @@ extern int mdb_getareg(mdb_tid_t, const char *, mdb_reg_t *);
 extern int mdb_getopts(int, const mdb_arg_t *, ...) __sentinel(0);
 
 extern u_longlong_t mdb_strtoull(const char *);
+extern u_longlong_t mdb_argtoull(const mdb_arg_t *);
 
 #define	UM_NOSLEEP	0x0	/* Do not call failure handler; may fail */
 #define	UM_SLEEP	0x1	/* Can block for memory; will always succeed */

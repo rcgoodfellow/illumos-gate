@@ -24,6 +24,7 @@
 #include <kmdb/kmdb_modext.h>
 #include <sys/pci.h>
 #include <sys/pcie.h>
+#include <sys/pcie_impl.h>
 #include <sys/sysmacros.h>
 #include <milan/milan_physaddrs.h>
 #include <sys/amdzen/ccx.h>
@@ -153,24 +154,40 @@ pcicfg_space_init(void)
 }
 
 static boolean_t
-pcicfg_validate(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg)
+pcicfg_validate(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg,
+    uint8_t len)
 {
 	if (dev >= PCI_MAX_DEVICES) {
 		mdb_warn("invalid pci device: %x\n", dev);
 		return (B_FALSE);
 	}
 
-	if (func >= PCI_MAX_FUNCTIONS) {
+	/*
+	 * We don't know whether the target uses ARI, but we need to accommodate
+	 * the possibility that it does.  If it does not, we allow the
+	 * possibility of an invalid function number with device 0.  Note that
+	 * we also don't check the function number at all in that case because
+	 * ARI allows function numbers up to 255 which is the entire range of
+	 * the type we're using for func.  As this is supported only in kmdb, we
+	 * really have no choice but to trust the user anyway.
+	 */
+	if (dev != 0 && func >= PCI_MAX_FUNCTIONS) {
 		mdb_warn("invalid pci function: %x\n", func);
-	}
-
-	if (reg >= PCIE_CONF_HDR_SIZE) {
-		mdb_warn("invalid pci register: %x\n", func);
 		return (B_FALSE);
 	}
 
-	if ((reg & 0x3) != 0) {
-		mdb_warn("register much be 4-byte aligned\n", reg);
+	if (reg >= PCIE_CONF_HDR_SIZE) {
+		mdb_warn("invalid pci register: %x\n", reg);
+		return (B_FALSE);
+	}
+
+	if (len != 1 && len != 2 && len != 4) {
+		mdb_warn("invalid register length: %x\n", len);
+		return (B_FALSE);
+	}
+
+	if (!IS_P2ALIGNED(reg, len)) {
+		mdb_warn("register must be naturally aligned\n", reg);
 		return (B_FALSE);
 	}
 
@@ -184,26 +201,25 @@ pcicfg_validate(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg)
 static uint64_t
 pcicfg_mkaddr(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg)
 {
-	return (pcicfg_physaddr + (bus << 20) + (dev << 15) + (func << 12) +
-	    reg);
+	return (pcicfg_physaddr + PCIE_CADDR_ECAM(bus, dev, func, reg));
 }
 
 static boolean_t
-pcicfg_read32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg,
+pcicfg_read(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg, uint8_t len,
     uint32_t *val)
 {
 	ssize_t ret;
 	uint64_t addr;
 
-	if (!pcicfg_validate(bus, dev, func, reg)) {
+	if (!pcicfg_validate(bus, dev, func, reg, len)) {
 		return (B_FALSE);
 	}
 
 	addr = pcicfg_mkaddr(bus, dev, func, reg);
-	ret = mdb_pread(val, sizeof (*val), addr);
-	if (ret != sizeof (*val)) {
-		mdb_warn("failed to read %x/%x/%x reg 0x%x", bus, dev, func,
-		    reg);
+	ret = mdb_pread(val, (size_t)len, addr);
+	if (ret != len) {
+		mdb_warn("failed to read %x/%x/%x reg 0x%x len %u",
+		    bus, dev, func, reg, len);
 		return (B_FALSE);
 	}
 
@@ -211,25 +227,111 @@ pcicfg_read32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg,
 }
 
 static boolean_t
-pcicfg_write32(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg,
+pcicfg_write(uint8_t bus, uint8_t dev, uint8_t func, uint16_t reg, uint8_t len,
     uint32_t val)
 {
 	ssize_t ret;
 	uint64_t addr;
 
-	if (!pcicfg_validate(bus, dev, func, reg)) {
+	if (!pcicfg_validate(bus, dev, func, reg, len)) {
+		return (B_FALSE);
+	}
+
+	if ((val & ~(0xffffffffU >> ((4 - len) << 3))) != 0) {
+		mdb_warn("value 0x%x does not fit in %u bytes\n", val, len);
 		return (B_FALSE);
 	}
 
 	addr = pcicfg_mkaddr(bus, dev, func, reg);
-	ret = mdb_pwrite(&val, sizeof (val), addr);
-	if (ret != sizeof (val)) {
-		mdb_warn("failed to write %x/%x/%x reg 0x%x", bus, dev, func,
-		    reg);
+	ret = mdb_pwrite(&val, (size_t)len, addr);
+	if (ret != len) {
+		mdb_warn("failed to write %x/%x/%x reg 0x%x len %u",
+		    bus, dev, func, reg, len);
 		return (B_FALSE);
 	}
 
 	return (B_TRUE);
+}
+
+typedef enum pcicfg_rw {
+	PCICFG_RD,
+	PCICFG_WR
+} pcicfg_rw_t;
+
+static int
+pcicfg_rw(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv,
+    pcicfg_rw_t rw)
+{
+	u_longlong_t parse_val;
+	uint32_t val = 0;
+	uintptr_t len = 4;
+	uint_t next_arg;
+	uintptr_t bus, dev, func, off;
+	boolean_t res;
+
+	if (!(flags & DCMD_ADDRSPEC))
+		return (DCMD_USAGE);
+
+	next_arg = mdb_getopts(argc, argv,
+	    'L', MDB_OPT_UINTPTR, &len, NULL);
+
+	if (argc - next_arg != (rw == PCICFG_RD ? 3 : 4)) {
+		return (DCMD_USAGE);
+	}
+
+	bus = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	dev = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	func = (uintptr_t)mdb_argtoull(&argv[next_arg++]);
+	if (rw == PCICFG_WR) {
+		parse_val = mdb_argtoull(&argv[next_arg++]);
+		if (parse_val > UINT32_MAX) {
+			mdb_warn("write value must be a 32-bit quantity\n");
+			return (DCMD_ERR);
+		}
+		val = (uint32_t)parse_val;
+	}
+	off = addr;
+
+	if (bus > UINT8_MAX || dev > UINT8_MAX || func > UINT8_MAX ||
+	    off > UINT16_MAX) {
+		mdb_warn("b/d/f/r does not fit in 1/1/1/2 bytes\n");
+		return (DCMD_ERR);
+	}
+
+	switch (rw) {
+	case PCICFG_RD:
+		res = pcicfg_read((uint8_t)bus, (uint8_t)dev, (uint8_t)func,
+		    (uint16_t)off, (uint8_t)len, &val);
+		break;
+	case PCICFG_WR:
+		res = pcicfg_write((uint8_t)bus, (uint8_t)dev, (uint8_t)func,
+		    (uint16_t)off, (uint8_t)len, val);
+		break;
+	default:
+		mdb_warn("internal error: unreachable PCI R/W type %d\n", rw);
+		return (DCMD_ERR);
+	}
+
+	if (!res)
+		return (DCMD_ERR);
+
+	if (rw == PCICFG_RD) {
+		mdb_printf("%llx\n", (u_longlong_t)val);
+	}
+
+	return (DCMD_OK);
+}
+
+int
+rdpcicfg_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	return (pcicfg_rw(addr, flags, argc, argv, PCICFG_RD));
+}
+
+int
+wrpcicfg_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	return (pcicfg_rw(addr, flags, argc, argv, PCICFG_WR));
 }
 
 static const char *dfhelp =
@@ -276,8 +378,8 @@ df_dcmd_check(uintptr_t addr, uint_t flags, boolean_t inst_set, uintptr_t inst,
 		 * however, the theoretical max is 8 (2P naples with 4 dies);
 		 * however, on the Oxide architecture there'll only ever be 2.
 		 */
-		if (*sock > 2) {
-			mdb_warn("invalid socket ID: %lu", sock);
+		if (*sock > 1) {
+			mdb_warn("invalid socket ID: %lu\n", *sock);
 			return (DCMD_ERR);
 		}
 	} else {
@@ -288,7 +390,7 @@ df_dcmd_check(uintptr_t addr, uint_t flags, boolean_t inst_set, uintptr_t inst,
 		mdb_warn("-f is required\n");
 		return (DCMD_ERR);
 	} else if (func >= 8) {
-		mdb_warn("only functions 0-7 are required: %lu", func);
+		mdb_warn("only functions 0-7 are allowed: %lu\n", func);
 		return (DCMD_ERR);
 	}
 
@@ -305,13 +407,15 @@ df_dcmd_check(uintptr_t addr, uint_t flags, boolean_t inst_set, uintptr_t inst,
 static boolean_t
 df_read32(uint64_t sock, const df_reg_def_t df, uint32_t *valp)
 {
-	return (pcicfg_read32(0, 0x18 + sock, df.drd_func, df.drd_reg, valp));
+	return (pcicfg_read(0, 0x18 + sock, df.drd_func, df.drd_reg,
+	    sizeof (*valp), valp));
 }
 
 static boolean_t
-df_write32(uint64_t sock, const df_reg_def_t df, uint32_t valp)
+df_write32(uint64_t sock, const df_reg_def_t df, uint32_t val)
 {
-	return (pcicfg_write32(0, 0x18 + sock, df.drd_func, df.drd_reg, valp));
+	return (pcicfg_write(0, 0x18 + sock, df.drd_func, df.drd_reg,
+	    sizeof (val), val));
 }
 
 static boolean_t
@@ -327,8 +431,8 @@ df_read32_indirect_raw(uint64_t sock, uintptr_t inst, uintptr_t func,
 	val = DF_FICAA_V2_SET_64B(val, 0);
 	val = DF_FICAA_V2_SET_REG(val, reg >> 2);
 
-	if (!pcicfg_write32(0, 0x18 + sock, ficaa.drd_func, ficaa.drd_reg,
-	    val)) {
+	if (!pcicfg_write(0, 0x18 + sock, ficaa.drd_func, ficaa.drd_reg,
+	    sizeof (val), val)) {
 		return (B_FALSE);
 	}
 
@@ -383,7 +487,8 @@ rddf_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	 * FICAA register.
 	 */
 	if (broadcast) {
-		if (!pcicfg_read32(0, 0x18 + sock, func, addr, &val)) {
+		if (!pcicfg_read(0, 0x18 + sock, func, addr, sizeof (val),
+		    &val)) {
 			return (DCMD_ERR);
 		}
 	} else {
@@ -416,11 +521,7 @@ wrdf_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		return (DCMD_USAGE);
 	}
 
-	if (argv[argc - 1].a_type == MDB_TYPE_STRING) {
-		parse_val = mdb_strtoull(argv[argc - 1].a_un.a_str);
-	} else {
-		parse_val = argv[argc - 1].a_un.a_val;
-	}
+	parse_val = mdb_argtoull(&argv[argc - 1]);
 	if (parse_val > UINT32_MAX) {
 		mdb_warn("write value must be a 32-bit quantity\n");
 		return (DCMD_ERR);
@@ -434,7 +535,8 @@ wrdf_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	}
 
 	if (broadcast) {
-		if (!pcicfg_write32(0, 0x18 + sock, func, addr, val)) {
+		if (!pcicfg_write(0, 0x18 + sock, func, addr, sizeof (val),
+		    val)) {
 			return (DCMD_ERR);
 		}
 	} else {
@@ -465,6 +567,7 @@ static const char *smnhelp =
 "instance to use is determined based on what the DF indicates. The following\n"
 "options are supported:\n"
 "\n"
+"  -L len	use access size {1,2,4} bytes, default 4\n"
 "  -s socket	direct the I/O to the specified I/O die, generally a socket\n";
 
 void
@@ -479,27 +582,75 @@ wrsmn_dcmd_help(void)
 	mdb_printf(smnhelp, "Write", "to");
 }
 
-int
-rdsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+typedef enum smn_rw {
+	SMN_RD,
+	SMN_WR
+} smn_rw_t;
+
+static int
+smn_rw(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv,
+    smn_rw_t rw)
 {
-	uint64_t sock = 0;
-	uint32_t df_busctl, smn_val;
+	uint32_t df_busctl;
 	uint8_t smn_busno;
+	boolean_t res;
+	uint64_t sock = 0;
+	size_t len = 4;
+	u_longlong_t parse_val;
+	uint32_t smn_val = 0;
 
 	if (!(flags & DCMD_ADDRSPEC)) {
 		mdb_warn("a register must be specified via an address\n");
 		return (DCMD_USAGE);
 	}
 
-	if (mdb_getopts(argc, argv, 's', MDB_OPT_UINT64, &sock, NULL) !=
-	    argc) {
+	if (mdb_getopts(argc, argv, 'L', MDB_OPT_UINTPTR, (uintptr_t *)&len,
+	    's', MDB_OPT_UINT64, &sock, NULL) !=
+	    ((rw == SMN_RD) ? argc : (argc - 1))) {
 		return (DCMD_USAGE);
 	}
 
-	if (sock > 2) {
+	if (rw == SMN_WR) {
+		parse_val = mdb_argtoull(&argv[argc - 1]);
+		if (parse_val > UINT32_MAX) {
+			mdb_warn("write value must be a 32-bit quantity\n");
+			return (DCMD_ERR);
+		}
+		smn_val = (uint32_t)parse_val;
+	}
+
+	if (sock > 1) {
 		mdb_warn("invalid socket ID: %lu", sock);
 		return (DCMD_ERR);
 	}
+
+	if (addr > UINT32_MAX) {
+		mdb_warn("address %lx is out of range [0, 0xffffffff]\n", addr);
+		return (DCMD_ERR);
+	}
+
+	const smn_reg_t reg = SMN_MAKE_REG_SIZED(addr, len);
+
+	if (!SMN_REG_SIZE_IS_VALID(reg)) {
+		mdb_warn("invalid read length %lu (allowed: {1,2,4})\n", len);
+		return (DCMD_ERR);
+	}
+
+	if (!SMN_REG_IS_NATURALLY_ALIGNED(reg)) {
+		mdb_warn("address %lx is not aligned on a %lu-byte boundary\n",
+		    addr, len);
+		return (DCMD_ERR);
+	}
+
+	if (rw == SMN_WR && !SMN_REG_VALUE_FITS(reg, smn_val)) {
+		mdb_warn("write value %lx does not fit in size %lu\n", smn_val,
+		    len);
+		return (DCMD_ERR);
+	}
+
+	const uint32_t regaddr = SMN_REG_ADDR(reg);
+	const uint32_t base_addr = regaddr & ~3;
+	const uint32_t addr_off = regaddr & 3;
 
 	if (!df_read32(sock, DF_CFG_ADDR_CTL_V2, &df_busctl)) {
 		mdb_warn("failed to read DF config address\n");
@@ -512,81 +663,51 @@ rdsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	}
 
 	smn_busno = DF_CFG_ADDR_CTL_GET_BUS_NUM(df_busctl);
-	if (!pcicfg_write32(smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, addr)) {
+	if (!pcicfg_write(smn_busno, AMDZEN_NB_SMN_DEVNO,
+	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, sizeof (base_addr),
+	    base_addr)) {
 		mdb_warn("failed to write to IOHC SMN address register\n");
 		return (DCMD_ERR);
 	}
 
-	if (!pcicfg_read32(smn_busno, AMDZEN_NB_SMN_DEVNO, AMDZEN_NB_SMN_FUNCNO,
-	    AMDZEN_NB_SMN_DATA, &smn_val)) {
+	switch (rw) {
+	case SMN_RD:
+		res = pcicfg_read(smn_busno, AMDZEN_NB_SMN_DEVNO,
+		    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA + addr_off,
+		    SMN_REG_SIZE(reg), &smn_val);
+		break;
+	case SMN_WR:
+		res = pcicfg_write(smn_busno, AMDZEN_NB_SMN_DEVNO,
+		    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA + addr_off,
+		    SMN_REG_SIZE(reg), smn_val);
+		break;
+	default:
+		mdb_warn("internal error: unreachable SMN R/W type %d\n", rw);
+		return (DCMD_ERR);
+	}
+
+	if (!res) {
 		mdb_warn("failed to read from IOHC SMN data register\n");
 		return (DCMD_ERR);
 	}
 
-	mdb_printf("%lx\n", smn_val);
+	if (rw == SMN_RD) {
+		mdb_printf("%lx\n", smn_val);
+	}
+
 	return (DCMD_OK);
+}
+
+int
+rdsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	return (smn_rw(addr, flags, argc, argv, SMN_RD));
 }
 
 int
 wrsmn_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
-	uintptr_t sock = 0;
-	uint32_t df_busctl, smn_val;
-	uint8_t smn_busno;
-	u_longlong_t parse_val;
-
-	if (!(flags & DCMD_ADDRSPEC)) {
-		mdb_warn("a register must be specified via an address\n");
-		return (DCMD_USAGE);
-	}
-
-	if (mdb_getopts(argc, argv, 's', MDB_OPT_UINTPTR, &sock, NULL) !=
-	    argc - 1) {
-		return (DCMD_USAGE);
-	}
-
-	if (argv[argc - 1].a_type == MDB_TYPE_STRING) {
-		parse_val = mdb_strtoull(argv[argc - 1].a_un.a_str);
-	} else {
-		parse_val = argv[argc - 1].a_un.a_val;
-	}
-	if (parse_val > UINT32_MAX) {
-		mdb_warn("write value must be a 32-bit quantity\n");
-		return (DCMD_ERR);
-	}
-	smn_val = (uint32_t)parse_val;
-
-
-	if (sock > 2) {
-		mdb_warn("invalid socket ID: %lu", sock);
-		return (DCMD_ERR);
-	}
-
-	if (!df_read32(sock, DF_CFG_ADDR_CTL_V2, &df_busctl)) {
-		mdb_warn("failed to read DF config address\n");
-		return (DCMD_ERR);
-	}
-
-	if (df_busctl == PCI_EINVAL32) {
-		mdb_warn("got back PCI_EINVAL32 when reading from the df\n");
-		return (DCMD_ERR);
-	}
-
-	smn_busno = DF_CFG_ADDR_CTL_GET_BUS_NUM(df_busctl);
-	if (!pcicfg_write32(smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, addr)) {
-		mdb_warn("failed to write to IOHC SMN address register\n");
-		return (DCMD_ERR);
-	}
-
-	if (!pcicfg_write32(smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA, smn_val)) {
-		mdb_warn("failed to write to IOHC SMN data register\n");
-		return (DCMD_ERR);
-	}
-
-	return (DCMD_OK);
+	return (smn_rw(addr, flags, argc, argv, SMN_WR));
 }
 
 static boolean_t
@@ -883,12 +1004,12 @@ df_route_dcmd(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		mdb_warn("one of -b, -d, -I, and -m must be specified\n");
 		return (DCMD_ERR);
 	} else if (count > 1) {
-		mdb_warn("only one of -b -d, -I, and -m may be specified");
+		mdb_warn("only one of -b -d, -I, and -m may be specified\n");
 		return (DCMD_ERR);
 	}
 
-	if (sock > 2) {
-		mdb_warn("invalid socket ID: %lu", sock);
+	if (sock > 1) {
+		mdb_warn("invalid socket ID: %lu\n", sock);
 		return (DCMD_ERR);
 	}
 

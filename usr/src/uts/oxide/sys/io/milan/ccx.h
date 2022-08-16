@@ -66,10 +66,10 @@ extern apicid_t milan_thread_apicid(const milan_thread_t *);
 
 extern smn_reg_t milan_core_reg(const milan_core_t *const, const smn_reg_def_t);
 extern smn_reg_t milan_ccd_reg(const milan_ccd_t *const, const smn_reg_def_t);
-extern uint32_t milan_ccd_read32(milan_ccd_t *, const smn_reg_t);
-extern void milan_ccd_write32(milan_ccd_t *, const smn_reg_t, const uint32_t);
-extern uint32_t milan_core_read32(milan_core_t *, const smn_reg_t);
-extern void milan_core_write32(milan_core_t *, const smn_reg_t, const uint32_t);
+extern uint32_t milan_ccd_read(milan_ccd_t *, const smn_reg_t);
+extern void milan_ccd_write(milan_ccd_t *, const smn_reg_t, const uint32_t);
+extern uint32_t milan_core_read(milan_core_t *, const smn_reg_t);
+extern void milan_core_write(milan_core_t *, const smn_reg_t, const uint32_t);
 
 /*
  * SMU::PWR registers, per-CCD.  Note that there is another aperture at

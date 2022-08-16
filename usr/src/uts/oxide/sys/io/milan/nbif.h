@@ -58,6 +58,8 @@ typedef int (*milan_nbif_cb_f)(milan_nbif_t *, void *);
  * There is no way to pretend that the NBIF addressing schemes fit any kind of
  * coherent plan.  We model them as well as we practically can with completely
  * custom register calculation routines because that's just how the hardware is.
+ *
+ * All NBIF registers are 32 bits wide; we check for violations.
  */
 
 static inline smn_reg_t
@@ -87,6 +89,7 @@ milan_nbif_func_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 	const uint32_t dev32 = (const uint32_t)devno;
 	const uint32_t func32 = (const uint32_t)funcno;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_NBIF_FUNC);
 	ASSERT0(def.srd_nents);
 	ASSERT0(def.srd_stride);
@@ -124,6 +127,7 @@ milan_nbif_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 	const uint32_t nents = (def.srd_nents == 0) ? 1 :
 	    (const uint32_t)def.srd_nents;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_NBIF);
 	ASSERT3U(ioms32, <, 4);
 	ASSERT3U(nbif32, <, MILAN_IOMS_MAX_NBIF);
@@ -156,6 +160,7 @@ milan_nbif_alt_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 	const uint32_t nents = (def.srd_nents == 0) ? 1 :
 	    (const uint32_t)def.srd_nents;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_NBIF_ALT);
 	ASSERT3U(ioms32, <, 4);
 	ASSERT3U(nbif32, <, MILAN_IOMS_MAX_NBIF_ALT);

@@ -24,6 +24,7 @@
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #include <mdb/mdb_modapi.h>
@@ -170,6 +171,23 @@ ssize_t
 mdb_pwrite(const void *buf, size_t nbytes, physaddr_t addr)
 {
 	return (mdb_tgt_pwrite(mdb.m_target, buf, nbytes, addr));
+}
+
+ssize_t
+mdb_ioread(void *buf, size_t nbytes, uintptr_t addr)
+{
+	ssize_t rbytes = mdb_tgt_ioread(mdb.m_target, buf, nbytes, addr);
+
+	if (rbytes > 0 && rbytes < nbytes)
+		return (set_errbytes(rbytes, nbytes));
+
+	return (rbytes);
+}
+
+ssize_t
+mdb_iowrite(const void *buf, size_t nbytes, uintptr_t addr)
+{
+	return (mdb_tgt_iowrite(mdb.m_target, buf, nbytes, addr));
 }
 
 ssize_t

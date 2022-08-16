@@ -771,6 +771,7 @@ milan_df_read32(milan_iodie_t *iodie, uint8_t inst, const df_reg_def_t def)
 	val = DF_FICAA_V2_SET_64B(val, 0);
 	val = DF_FICAA_V2_SET_REG(val, def.drd_reg >> 2);
 
+	ASSERT0(ficaa.drd_reg & 3);
 	pci_putl_func(0, iodie->mi_dfno, ficaa.drd_func, ficaa.drd_reg, val);
 	val = pci_getl_func(0, iodie->mi_dfno, ficad.drd_func, ficad.drd_reg);
 	mutex_exit(&iodie->mi_df_ficaa_lock);
@@ -787,6 +788,7 @@ milan_df_read32(milan_iodie_t *iodie, uint8_t inst, const df_reg_def_t def)
 static uint32_t
 milan_df_bcast_read32(milan_iodie_t *iodie, const df_reg_def_t def)
 {
+	ASSERT0(def.drd_reg & 3);
 	return (pci_getl_func(0, iodie->mi_dfno, def.drd_func, def.drd_reg));
 }
 
@@ -794,6 +796,7 @@ static void
 milan_df_bcast_write32(milan_iodie_t *iodie, const df_reg_def_t def,
     uint32_t val)
 {
+	ASSERT0(def.drd_reg & 3);
 	pci_putl_func(0, iodie->mi_dfno, def.drd_func, def.drd_reg, val);
 }
 
@@ -805,23 +808,46 @@ milan_df_bcast_write32(milan_iodie_t *iodie, const df_reg_def_t def,
 static uint32_t
 milan_df_early_read32(const df_reg_def_t def)
 {
+	ASSERT0(def.drd_reg & 3);
 	return (pci_getl_func(AMDZEN_DF_BUSNO, AMDZEN_DF_FIRST_DEVICE,
 	    def.drd_func, def.drd_reg));
 }
 
 uint32_t
-milan_smn_read32(milan_iodie_t *iodie, const smn_reg_t reg)
+milan_smn_read(milan_iodie_t *iodie, const smn_reg_t reg)
 {
+	const uint32_t addr = SMN_REG_ADDR(reg);
+	const uint32_t base_addr = addr & ~3;
+	const uint32_t addr_off = addr & 3;
 	uint32_t val;
+
+	ASSERT(SMN_REG_IS_NATURALLY_ALIGNED(reg));
+	ASSERT(SMN_REG_SIZE_IS_VALID(reg));
 
 	mutex_enter(&iodie->mi_smn_lock);
 	pci_putl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, SMN_REG_ADDR(reg));
-	val = pci_getl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA);
+	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, base_addr);
+	switch (SMN_REG_SIZE(reg)) {
+	case 1:
+		val = (uint32_t)pci_getb_func(iodie->mi_smn_busno,
+		    AMDZEN_NB_SMN_DEVNO, AMDZEN_NB_SMN_FUNCNO,
+		    AMDZEN_NB_SMN_DATA + addr_off);
+		break;
+	case 2:
+		val = (uint32_t)pci_getw_func(iodie->mi_smn_busno,
+		    AMDZEN_NB_SMN_DEVNO, AMDZEN_NB_SMN_FUNCNO,
+		    AMDZEN_NB_SMN_DATA + addr_off);
+		break;
+	case 4:
+		val = pci_getl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
+		    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA);
+		break;
+	default:
+		panic("unreachable invalid SMN register size %u",
+		    SMN_REG_SIZE(reg));
+	}
 	if (milan_smn_log != 0) {
-		cmn_err(CE_NOTE, "SMN R reg 0x%x: 0x%x",
-		    SMN_REG_ADDR(reg), val);
+		cmn_err(CE_NOTE, "SMN R reg 0x%x: 0x%x", addr, val);
 	}
 	mutex_exit(&iodie->mi_smn_lock);
 
@@ -829,17 +855,42 @@ milan_smn_read32(milan_iodie_t *iodie, const smn_reg_t reg)
 }
 
 void
-milan_smn_write32(milan_iodie_t *iodie, const smn_reg_t reg, const uint32_t val)
+milan_smn_write(milan_iodie_t *iodie, const smn_reg_t reg, const uint32_t val)
 {
+	const uint32_t addr = SMN_REG_ADDR(reg);
+	const uint32_t base_addr = addr & ~3;
+	const uint32_t addr_off = addr & 3;
+
+	ASSERT(SMN_REG_IS_NATURALLY_ALIGNED(reg));
+	ASSERT(SMN_REG_SIZE_IS_VALID(reg));
+	ASSERT(SMN_REG_VALUE_FITS(reg, val));
+
 	mutex_enter(&iodie->mi_smn_lock);
 	if (milan_smn_log != 0) {
-		cmn_err(CE_NOTE, "SMN W reg 0x%x: 0x%x",
-		    SMN_REG_ADDR(reg), val);
+		cmn_err(CE_NOTE, "SMN W reg 0x%x: 0x%x", addr, val);
 	}
 	pci_putl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, SMN_REG_ADDR(reg));
-	pci_putl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
-	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA, val);
+	    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_ADDR, base_addr);
+	switch (SMN_REG_SIZE(reg)) {
+	case 1:
+		pci_putb_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
+		    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA + addr_off,
+		    (uint8_t)val);
+		break;
+	case 2:
+		pci_putw_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
+		    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA + addr_off,
+		    (uint16_t)val);
+		break;
+	case 4:
+		pci_putl_func(iodie->mi_smn_busno, AMDZEN_NB_SMN_DEVNO,
+		    AMDZEN_NB_SMN_FUNCNO, AMDZEN_NB_SMN_DATA, val);
+		break;
+	default:
+		panic("unreachable invalid SMN register size %u",
+		    SMN_REG_SIZE(reg));
+	}
+
 	mutex_exit(&iodie->mi_smn_lock);
 }
 
@@ -894,20 +945,20 @@ milan_pcie_bridge_reg(const milan_pcie_bridge_t *const bridge,
 }
 
 static uint32_t
-milan_pcie_bridge_read32(milan_pcie_bridge_t *bridge, const smn_reg_t reg)
+milan_pcie_bridge_read(milan_pcie_bridge_t *bridge, const smn_reg_t reg)
 {
 	milan_iodie_t *iodie = bridge->mpb_port->mpp_ioms->mio_iodie;
 
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read(iodie, reg));
 }
 
 static void
-milan_pcie_bridge_write32(milan_pcie_bridge_t *bridge, const smn_reg_t reg,
+milan_pcie_bridge_write(milan_pcie_bridge_t *bridge, const smn_reg_t reg,
     const uint32_t val)
 {
 	milan_iodie_t *iodie = bridge->mpb_port->mpp_ioms->mio_iodie;
 
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write(iodie, reg, val);
 }
 
 static smn_reg_t
@@ -939,20 +990,20 @@ milan_pcie_port_reg(const milan_pcie_port_t *const port,
 }
 
 static uint32_t
-milan_pcie_port_read32(milan_pcie_port_t *port, const smn_reg_t reg)
+milan_pcie_port_read(milan_pcie_port_t *port, const smn_reg_t reg)
 {
 	milan_iodie_t *iodie = port->mpp_ioms->mio_iodie;
 
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read(iodie, reg));
 }
 
 static void
-milan_pcie_port_write32(milan_pcie_port_t *port, const smn_reg_t reg,
+milan_pcie_port_write(milan_pcie_port_t *port, const smn_reg_t reg,
     const uint32_t val)
 {
 	milan_iodie_t *iodie = port->mpp_ioms->mio_iodie;
 
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write(iodie, reg, val);
 }
 
 /*
@@ -1017,19 +1068,19 @@ milan_ioms_reg(const milan_ioms_t *const ioms, const smn_reg_def_t def,
 }
 
 uint32_t
-milan_ioms_read32(milan_ioms_t *ioms, const smn_reg_t reg)
+milan_ioms_read(milan_ioms_t *ioms, const smn_reg_t reg)
 {
 	milan_iodie_t *iodie = ioms->mio_iodie;
 
-	return (milan_smn_read32(iodie, reg));
+	return (milan_smn_read(iodie, reg));
 }
 
 void
-milan_ioms_write32(milan_ioms_t *ioms, const smn_reg_t reg, const uint32_t val)
+milan_ioms_write(milan_ioms_t *ioms, const smn_reg_t reg, const uint32_t val)
 {
 	milan_iodie_t *iodie = ioms->mio_iodie;
 
-	milan_smn_write32(iodie, reg, val);
+	milan_smn_write(iodie, reg, val);
 }
 
 static smn_reg_t
@@ -1057,15 +1108,15 @@ milan_nbif_reg(const milan_nbif_t *const nbif, const smn_reg_def_t def,
 }
 
 static uint32_t
-milan_nbif_read32(milan_nbif_t *nbif, const smn_reg_t reg)
+milan_nbif_read(milan_nbif_t *nbif, const smn_reg_t reg)
 {
-	return (milan_smn_read32(nbif->mn_ioms->mio_iodie, reg));
+	return (milan_smn_read(nbif->mn_ioms->mio_iodie, reg));
 }
 
 static void
-milan_nbif_write32(milan_nbif_t *nbif, const smn_reg_t reg, const uint32_t val)
+milan_nbif_write(milan_nbif_t *nbif, const smn_reg_t reg, const uint32_t val)
 {
-	milan_smn_write32(nbif->mn_ioms->mio_iodie, reg, val);
+	milan_smn_write(nbif->mn_ioms->mio_iodie, reg, val);
 }
 
 static smn_reg_t
@@ -1090,16 +1141,16 @@ milan_nbif_func_reg(const milan_nbif_func_t *const func,
 }
 
 static uint32_t
-milan_nbif_func_read32(milan_nbif_func_t *func, const smn_reg_t reg)
+milan_nbif_func_read(milan_nbif_func_t *func, const smn_reg_t reg)
 {
-	return (milan_smn_read32(func->mne_nbif->mn_ioms->mio_iodie, reg));
+	return (milan_smn_read(func->mne_nbif->mn_ioms->mio_iodie, reg));
 }
 
 static void
-milan_nbif_func_write32(milan_nbif_func_t *func, const smn_reg_t reg,
+milan_nbif_func_write(milan_nbif_func_t *func, const smn_reg_t reg,
     const uint32_t val)
 {
-	milan_smn_write32(func->mne_nbif->mn_ioms->mio_iodie, reg, val);
+	milan_smn_write(func->mne_nbif->mn_ioms->mio_iodie, reg, val);
 }
 
 milan_ioms_flag_t
@@ -1272,21 +1323,21 @@ milan_smu_rpc(milan_iodie_t *iodie, milan_smu_rpc_t *rpc)
 	uint32_t resp;
 
 	mutex_enter(&iodie->mi_smu_lock);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_RESP, MILAN_SMU_RPC_NOTDONE);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG0, rpc->msr_arg0);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG1, rpc->msr_arg1);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG2, rpc->msr_arg2);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG3, rpc->msr_arg3);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG4, rpc->msr_arg4);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_ARG5, rpc->msr_arg5);
-	milan_smn_write32(iodie, MILAN_SMU_SMN_RPC_REQ, rpc->msr_req);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_RESP, MILAN_SMU_RPC_NOTDONE);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG0, rpc->msr_arg0);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG1, rpc->msr_arg1);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG2, rpc->msr_arg2);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG3, rpc->msr_arg3);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG4, rpc->msr_arg4);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG5, rpc->msr_arg5);
+	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_REQ, rpc->msr_req);
 
 	/*
 	 * XXX Infinite spins are bad, but we don't even have drv_usecwait yet.
 	 * When we add a timeout this should then return an int.
 	 */
 	for (;;) {
-		resp = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_RESP);
+		resp = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_RESP);
 		if (resp != MILAN_SMU_RPC_NOTDONE) {
 			break;
 		}
@@ -1294,12 +1345,12 @@ milan_smu_rpc(milan_iodie_t *iodie, milan_smu_rpc_t *rpc)
 
 	rpc->msr_resp = resp;
 	if (rpc->msr_resp == MILAN_SMU_RPC_OK) {
-		rpc->msr_arg0 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG0);
-		rpc->msr_arg1 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG1);
-		rpc->msr_arg2 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG2);
-		rpc->msr_arg3 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG3);
-		rpc->msr_arg4 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG4);
-		rpc->msr_arg5 = milan_smn_read32(iodie, MILAN_SMU_SMN_RPC_ARG5);
+		rpc->msr_arg0 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG0);
+		rpc->msr_arg1 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG1);
+		rpc->msr_arg2 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG2);
+		rpc->msr_arg3 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG3);
+		rpc->msr_arg4 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG4);
+		rpc->msr_arg5 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG5);
 	}
 	mutex_exit(&iodie->mi_smu_lock);
 }
@@ -1859,7 +1910,7 @@ milan_ccx_init_core(milan_ccx_t *ccx, uint8_t lidx, uint8_t pidx)
 	core->mc_physical_coreno = pidx;
 
 	reg = milan_core_reg(core, D_SCFCTP_PMREG_INITPKG0);
-	val = milan_core_read32(core, reg);
+	val = milan_core_read(core, reg);
 	VERIFY3U(val, !=, 0xffffffffU);
 
 	core->mc_logical_coreno = SCFCTP_PMREG_INITPKG0_GET_LOG_CORE(val);
@@ -1984,11 +2035,11 @@ milan_ccx_init_soc(milan_soc_t *soc)
 
 		/* XXX avoid panicking on bad data from firmware */
 		reg = milan_ccd_reg(ccd, D_SMUPWR_CCD_DIE_ID);
-		val = milan_ccd_read32(ccd, reg);
+		val = milan_ccd_read(ccd, reg);
 		VERIFY3U(val, ==, ccdpno);
 
 		reg = milan_ccd_reg(ccd, D_SMUPWR_THREAD_CFG);
-		val = milan_ccd_read32(ccd, reg);
+		val = milan_ccd_read(ccd, reg);
 		ccd->mcd_nccxs = SMUPWR_THREAD_CFG_GET_COMPLEX_COUNT(val) + 1;
 		VERIFY3U(ccd->mcd_nccxs, <=, MILAN_MAX_CCXS_PER_CCD);
 
@@ -2005,7 +2056,7 @@ milan_ccx_init_soc(milan_soc_t *soc)
 		 * if that happens?
 		 */
 		reg = milan_ccd_reg(ccd, D_SMUPWR_CORE_EN);
-		val = milan_ccd_read32(ccd, reg);
+		val = milan_ccd_read(ccd, reg);
 		VERIFY3U(SMUPWR_CORE_EN_GET(val), ==, cores_enabled);
 
 		/*
@@ -2042,7 +2093,7 @@ milan_ccx_init_soc(milan_soc_t *soc)
 		VERIFY3U(pcore, <, MILAN_MAX_CORES_PER_CCX);
 
 		reg = SCFCTP_PMREG_INITPKG7(ccdpno, pcore);
-		val = milan_smn_read32(iodie, reg);
+		val = milan_smn_read(iodie, reg);
 		VERIFY3U(val, !=, 0xffffffffU);
 
 		ccx->mcx_ncores = SCFCTP_PMREG_INITPKG7_GET_N_CORES(val) + 1;
@@ -2251,25 +2302,25 @@ milan_fabric_init_tom(milan_ioms_t *ioms, void *arg)
 	 * enable it in an incomplete fashion.
 	 */
 	reg = milan_ioms_reg(ioms, D_IOHC_DRAM_TOM2_HI, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_DRAM_TOM2_HI_SET_TOM2(val, bitx64(tom2, 40, 32));
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	reg = milan_ioms_reg(ioms, D_IOHC_DRAM_TOM2_LOW, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_DRAM_TOM2_LOW_SET_EN(val, 1);
 	val = IOHC_DRAM_TOM2_LOW_SET_TOM2(val, bitx64(tom2, 31, 23));
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	if (tom3 == 0) {
 		return (0);
 	}
 
 	reg = milan_ioms_reg(ioms, D_IOHC_DRAM_TOM3, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_DRAM_TOM3_SET_EN(val, 1);
 	val = IOHC_DRAM_TOM3_SET_LIMIT(val, bitx64(tom3, 51, 22));
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2291,14 +2342,14 @@ milan_fabric_init_iohc_fch_link(milan_ioms_t *ioms, void *arg)
 		smn_reg_t iommureg;
 		uint32_t val;
 
-		val = milan_ioms_read32(ioms, reg);
+		val = milan_ioms_read(ioms, reg);
 		iommureg = milan_ioms_reg(ioms, D_IOMMUL1_SB_LOCATION,
 		    MIL1SU_IOAGR);
-		milan_ioms_write32(ioms, iommureg, val);
+		milan_ioms_write(ioms, iommureg, val);
 		iommureg = milan_ioms_reg(ioms, D_IOMMUL2_SB_LOCATION, 0);
-		milan_ioms_write32(ioms, iommureg, val);
+		milan_ioms_write(ioms, iommureg, val);
 	} else {
-		milan_ioms_write32(ioms, reg, 0);
+		milan_ioms_write(ioms, reg, 0);
 	}
 
 	return (0);
@@ -2315,11 +2366,11 @@ milan_fabric_init_pcie_refclk(milan_ioms_t *ioms, void *arg)
 	uint32_t val;
 
 	reg = milan_ioms_reg(ioms, D_IOHC_REFCLK_MODE, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_REFCLK_MODE_SET_27MHZ(val, 0);
 	val = IOHC_REFCLK_MODE_SET_25MHZ(val, 0);
 	val = IOHC_REFCLK_MODE_SET_100MHZ(val, 1);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2335,10 +2386,10 @@ milan_fabric_init_pci_to(milan_ioms_t *ioms, void *arg)
 	uint32_t val;
 
 	reg = milan_ioms_reg(ioms, D_IOHC_PCIE_CRS_COUNT, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_PCIE_CRS_COUNT_SET_LIMIT(val, 0x262);
 	val = IOHC_PCIE_CRS_COUNT_SET_DELAY(val, 0x6);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2359,11 +2410,11 @@ milan_fabric_init_iohc_features(milan_ioms_t *ioms, void *arg)
 	uint32_t val;
 
 	reg = milan_ioms_reg(ioms, D_IOHC_FCTL, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_FCTL_SET_ARI(val, 1);
 	/* XXX Wants to be IOHC_FCTL_P2P_DISABLE? */
 	val = IOHC_FCTL_SET_P2P(val, IOHC_FCTL_P2P_DROP_NMATCH);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2383,22 +2434,22 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 		uint32_t tsval;
 
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S0_CLIREQ_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S0_CLIREQ_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S1_CLIREQ_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S1_CLIREQ_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_CLIREQ_BURST_VAL);
 
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S0_RDRSP_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S0_RDRSP_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S1_RDRSP_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S1_RDRSP_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOHC_SION_RDRSP_BURST_VAL);
 
 		switch (i) {
 		case 0:
@@ -2418,9 +2469,9 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 		}
 
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S0_CLIREQ_TIME_LOW, i);
-		milan_ioms_write32(ioms, reg, tsval);
+		milan_ioms_write(ioms, reg, tsval);
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_S0_CLIREQ_TIME_HI, i);
-		milan_ioms_write32(ioms, reg, tsval);
+		milan_ioms_write(ioms, reg, tsval);
 	}
 
 	/*
@@ -2431,10 +2482,10 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 	for (uint_t i = 0; i < 4; i++) {
 		reg = milan_ioms_reg(ioms, D_IOHC_SION_Sn_CLI_NP_DEFICIT, i);
 
-		val = milan_ioms_read32(ioms, reg);
+		val = milan_ioms_read(ioms, reg);
 		val = IOHC_SION_CLI_NP_DEFICIT_SET(val,
 		    IOHC_SION_CLI_NP_DEFICIT_VAL);
-		milan_ioms_write32(ioms, reg, val);
+		milan_ioms_write(ioms, reg, val);
 	}
 
 	/*
@@ -2442,9 +2493,9 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 	 * IOHC.
 	 */
 	reg = milan_ioms_reg(ioms, D_IOHC_SION_LLWD_THRESH, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_SION_LLWD_THRESH_SET(val, IOHC_SION_LLWD_THRESH_VAL);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	/*
 	 * Next on our list is the IOAGR. While there are 5 entries, only 4 are
@@ -2454,22 +2505,22 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 		uint32_t tsval;
 
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S0_CLIREQ_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S0_CLIREQ_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S1_CLIREQ_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S1_CLIREQ_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_CLIREQ_BURST_VAL);
 
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S0_RDRSP_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S0_RDRSP_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S1_RDRSP_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S1_RDRSP_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, IOAGR_SION_RDRSP_BURST_VAL);
 
 		switch (i) {
 		case 0:
@@ -2485,9 +2536,9 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 		}
 
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S0_CLIREQ_TIME_LOW, i);
-		milan_ioms_write32(ioms, reg, tsval);
+		milan_ioms_write(ioms, reg, tsval);
 		reg = milan_ioms_reg(ioms, D_IOAGR_SION_S0_CLIREQ_TIME_HI, i);
-		milan_ioms_write32(ioms, reg, tsval);
+		milan_ioms_write(ioms, reg, tsval);
 	}
 
 	/*
@@ -2495,9 +2546,9 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 	 */
 
 	reg = milan_ioms_reg(ioms, D_IOAGR_SION_LLWD_THRESH, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOAGR_SION_LLWD_THRESH_SET(val, IOAGR_SION_LLWD_THRESH_VAL);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	/*
 	 * Finally, the SDPMUX variant, which is surprisingly consistent
@@ -2506,34 +2557,34 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 	for (uint_t i = 0; i < SDPMUX_SION_MAX_ENTS; i++) {
 		reg = milan_ioms_reg(ioms,
 		    D_SDPMUX_SION_S0_CLIREQ_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S0_CLIREQ_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms,
 		    D_SDPMUX_SION_S1_CLIREQ_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S1_CLIREQ_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_CLIREQ_BURST_VAL);
 
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S0_RDRSP_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S0_RDRSP_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S1_RDRSP_BURST_LOW, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S1_RDRSP_BURST_HI, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_RDRSP_BURST_VAL);
 
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S0_CLIREQ_TIME_LOW, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_CLIREQ_TIME_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_CLIREQ_TIME_VAL);
 		reg = milan_ioms_reg(ioms, D_SDPMUX_SION_S0_CLIREQ_TIME_HI, i);
-		milan_ioms_write32(ioms, reg, SDPMUX_SION_CLIREQ_TIME_VAL);
+		milan_ioms_write(ioms, reg, SDPMUX_SION_CLIREQ_TIME_VAL);
 	}
 
 	reg = milan_ioms_reg(ioms, D_SDPMUX_SION_LLWD_THRESH, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = SDPMUX_SION_LLWD_THRESH_SET(val, SDPMUX_SION_LLWD_THRESH_VAL);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	/*
 	 * XXX We probably don't need this since we don't have USB. But until we
@@ -2541,14 +2592,14 @@ milan_fabric_init_arbitration_ioms(milan_ioms_t *ioms, void *arg)
 	 * to use the bus, probably something we need to consider.
 	 */
 	reg = milan_ioms_reg(ioms, D_IOHC_USB_QOS_CTL, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_USB_QOS_CTL_SET_UNID1_EN(val, 0x1);
 	val = IOHC_USB_QOS_CTL_SET_UNID1_PRI(val, 0x0);
 	val = IOHC_USB_QOS_CTL_SET_UNID1_ID(val, 0x30);
 	val = IOHC_USB_QOS_CTL_SET_UNID0_EN(val, 0x1);
 	val = IOHC_USB_QOS_CTL_SET_UNID0_PRI(val, 0x0);
 	val = IOHC_USB_QOS_CTL_SET_UNID0_ID(val, 0x2f);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2560,15 +2611,15 @@ milan_fabric_init_arbitration_nbif(milan_nbif_t *nbif, void *arg)
 	uint32_t val;
 
 	reg = milan_nbif_reg(nbif, D_NBIF_GMI_WRR_WEIGHT2, 0);
-	milan_nbif_write32(nbif, reg, NBIF_GMI_WRR_WEIGHTn_VAL);
+	milan_nbif_write(nbif, reg, NBIF_GMI_WRR_WEIGHTn_VAL);
 	reg = milan_nbif_reg(nbif, D_NBIF_GMI_WRR_WEIGHT3, 0);
-	milan_nbif_write32(nbif, reg, NBIF_GMI_WRR_WEIGHTn_VAL);
+	milan_nbif_write(nbif, reg, NBIF_GMI_WRR_WEIGHTn_VAL);
 
 	reg = milan_nbif_reg(nbif, D_NBIF_BIFC_MISC_CTL0, 0);
-	val = milan_nbif_read32(nbif, reg);
+	val = milan_nbif_read(nbif, reg);
 	val = NBIF_BIFC_MISC_CTL0_SET_PME_TURNOFF(val,
 	    NBIF_BIFC_MISC_CTL0_PME_TURNOFF_FW);
-	milan_nbif_write32(nbif, reg, val);
+	milan_nbif_write(nbif, reg, val);
 
 	return (0);
 }
@@ -2587,27 +2638,27 @@ milan_fabric_init_sdp_control(milan_ioms_t *ioms, void *arg)
 	uint32_t val;
 
 	reg = milan_ioms_reg(ioms, D_IOHC_SDP_PORT_CTL, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_SDP_PORT_CTL_SET_PORT_HYSTERESIS(val, 0xff);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	reg = milan_ioms_reg(ioms, D_IOHC_SDP_EARLY_WAKE_UP, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_SDP_EARLY_WAKE_UP_SET_HOST_ENABLE(val, 0xffff);
 	val = IOHC_SDP_EARLY_WAKE_UP_SET_DMA_ENABLE(val, 0x1);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	reg = milan_ioms_reg(ioms, D_IOAGR_EARLY_WAKE_UP, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOAGR_EARLY_WAKE_UP_SET_DMA_ENABLE(val, 0x1);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	reg = milan_ioms_reg(ioms, D_SDPMUX_SDP_PORT_CTL, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = SDPMUX_SDP_PORT_CTL_SET_HOST_ENABLE(val, 0xffff);
 	val = SDPMUX_SDP_PORT_CTL_SET_DMA_ENABLE(val, 0x1);
 	val = SDPMUX_SDP_PORT_CTL_SET_PORT_HYSTERESIS(val, 0xff);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2634,9 +2685,9 @@ milan_fabric_init_nbif_syshub_dma(milan_nbif_t *nbif, void *arg)
 		return (0);
 	}
 	reg = milan_nbif_reg(nbif, D_NBIF_ALT_BGEN_BYP_SOC, 0);
-	val = milan_nbif_read32(nbif, reg);
+	val = milan_nbif_read(nbif, reg);
 	val = NBIF_ALT_BGEN_BYP_SOC_SET_DMA_SW0(val, 1);
-	milan_nbif_write32(nbif, reg, val);
+	milan_nbif_write(nbif, reg, val);
 	return (0);
 }
 
@@ -2661,7 +2712,7 @@ milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 
 	for (uint_t i = 0; i < ARRAY_SIZE(milan_ioapic_routes); i++) {
 		smn_reg_t reg = milan_ioms_reg(ioms, D_IOAPIC_ROUTE, i);
-		uint32_t route = milan_ioms_read32(ioms, reg);
+		uint32_t route = milan_ioms_read(ioms, reg);
 
 		route = IOAPIC_ROUTE_SET_BRIDGE_MAP(route,
 		    milan_ioapic_routes[i].mii_map);
@@ -2670,7 +2721,7 @@ milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 		route = IOAPIC_ROUTE_SET_INTX_GROUP(route,
 		    milan_ioapic_routes[i].mii_group);
 
-		milan_ioms_write32(ioms, reg, route);
+		milan_ioms_write(ioms, reg, route);
 	}
 
 	/*
@@ -2680,17 +2731,17 @@ milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 	 * lock primary?
 	 */
 	reg = milan_ioms_reg(ioms, D_IOHC_IOAPIC_ADDR_HI, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = IOHC_IOAPIC_ADDR_HI_SET_ADDR(val,
 		    bitx64(MILAN_PHYSADDR_IOHC_IOAPIC, 47, 32));
 	} else {
 		val = IOHC_IOAPIC_ADDR_HI_SET_ADDR(val, 0);
 	}
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	reg = milan_ioms_reg(ioms, D_IOHC_IOAPIC_ADDR_LO, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = IOHC_IOAPIC_ADDR_LO_SET_ADDR(val,
 		    bitx64(MILAN_PHYSADDR_IOHC_IOAPIC, 31, 8));
@@ -2701,7 +2752,7 @@ milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 		val = IOHC_IOAPIC_ADDR_LO_SET_LOCK(val, 1);
 		val = IOHC_IOAPIC_ADDR_LO_SET_EN(val, 0);
 	}
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	/*
 	 * Every IOAPIC requires that we enable 8-bit addressing and that it be
@@ -2710,7 +2761,7 @@ milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 	 * subordinate to another.
 	 */
 	reg = milan_ioms_reg(ioms, D_IOAPIC_FEATURES, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	if ((ioms->mio_flags & MILAN_IOMS_F_HAS_FCH) != 0) {
 		val = IOAPIC_FEATURES_SET_SECONDARY(val, 0);
 	} else {
@@ -2718,7 +2769,7 @@ milan_fabric_init_ioapic(milan_ioms_t *ioms, void *arg)
 	}
 	val = IOAPIC_FEATURES_SET_FCH(val, 1);
 	val = IOAPIC_FEATURES_SET_ID_EXT(val, 1);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2735,10 +2786,10 @@ milan_fabric_init_bus_num(milan_ioms_t *ioms, void *arg)
 	uint32_t val;
 
 	reg = milan_ioms_reg(ioms, D_IOHC_BUS_NUM_CTL, 0);
-	val = milan_ioms_read32(ioms, reg);
+	val = milan_ioms_read(ioms, reg);
 	val = IOHC_BUS_NUM_CTL_SET_EN(val, 1);
 	val = IOHC_BUS_NUM_CTL_SET_BUS(val, ioms->mio_pci_busno);
-	milan_ioms_write32(ioms, reg, val);
+	milan_ioms_write(ioms, reg, val);
 
 	return (0);
 }
@@ -2763,7 +2814,7 @@ milan_fabric_init_nbif_dev_straps(milan_nbif_t *nbif, void *arg)
 	uint32_t intr;
 
 	reg = milan_nbif_reg(nbif, D_NBIF_INTR_LINE_EN, 0);
-	intr = milan_nbif_read32(nbif, reg);
+	intr = milan_nbif_read(nbif, reg);
 	for (uint8_t funcno = 0; funcno < nbif->mn_nfuncs; funcno++) {
 		smn_reg_t strapreg;
 		uint32_t strap;
@@ -2780,7 +2831,7 @@ milan_fabric_init_nbif_dev_straps(milan_nbif_t *nbif, void *arg)
 		}
 
 		strapreg = milan_nbif_func_reg(func, D_NBIF_FUNC_STRAP0);
-		strap = milan_nbif_func_read32(func, strapreg);
+		strap = milan_nbif_func_read(func, strapreg);
 
 		if ((func->mne_flags & MILAN_NBIF_F_ENABLED) != 0) {
 			strap = NBIF_FUNC_STRAP0_SET_EXIST(strap, 1);
@@ -2800,10 +2851,10 @@ milan_fabric_init_nbif_dev_straps(milan_nbif_t *nbif, void *arg)
 			    func->mne_dev, func->mne_func, 0);
 		}
 
-		milan_nbif_func_write32(func, strapreg, strap);
+		milan_nbif_func_write(func, strapreg, strap);
 	}
 
-	milan_nbif_write32(nbif, reg, intr);
+	milan_nbif_write(nbif, reg, intr);
 
 	/*
 	 * Each nBIF has up to three devices on them, though not all of them
@@ -2815,9 +2866,9 @@ milan_fabric_init_nbif_dev_straps(milan_nbif_t *nbif, void *arg)
 		uint32_t val;
 
 		reg = milan_nbif_reg(nbif, D_NBIF_PORT_STRAP3, devno);
-		val = milan_nbif_read32(nbif, reg);
+		val = milan_nbif_read(nbif, reg);
 		val = NBIF_PORT_STRAP3_SET_COMP_TO(val, 1);
-		milan_nbif_write32(nbif, reg, val);
+		milan_nbif_write(nbif, reg, val);
 	}
 
 	return (0);
@@ -2843,9 +2894,9 @@ milan_fabric_init_nbif_bridge(milan_ioms_t *ioms, void *arg)
 	};
 
 	for (uint_t i = 0; i < ARRAY_SIZE(smn_regs); i++) {
-		val = milan_ioms_read32(ioms, smn_regs[i]);
+		val = milan_ioms_read(ioms, smn_regs[i]);
 		val = IOHCDEV_BRIDGE_CTL_SET_CRS_ENABLE(val, 1);
-		milan_ioms_write32(ioms, smn_regs[i], val);
+		milan_ioms_write(ioms, smn_regs[i], val);
 	}
 	return (0);
 }
@@ -3380,8 +3431,8 @@ milan_fabric_write_pcie_strap(milan_pcie_port_t *port,
 	d_reg = milan_pcie_port_reg(port, D_PCIE_RSMU_STRAP_DATA);
 
 	mutex_enter(&port->mpp_strap_lock);
-	milan_pcie_port_write32(port, a_reg, MILAN_STRAP_PCIE_ADDR_UPPER + reg);
-	milan_pcie_port_write32(port, d_reg, data);
+	milan_pcie_port_write(port, a_reg, MILAN_STRAP_PCIE_ADDR_UPPER + reg);
+	milan_pcie_port_write(port, d_reg, data);
 	mutex_exit(&port->mpp_strap_lock);
 }
 
@@ -3553,13 +3604,13 @@ milan_dxio_state_machine(milan_iodie_t *iodie, void *arg)
 			 * FCH::RMTGPIO::GPIO_266
 			 * FCH::RMTGPIO::GPIO_267
 			 */
-			milan_smn_write32(iodie, SMN_MAKE_REG(0x2d02568),
+			milan_smn_write(iodie, SMN_MAKE_REG(0x2d02568),
 			    0xc40000);
-			milan_smn_write32(iodie, SMN_MAKE_REG(0x2d0256c),
+			milan_smn_write(iodie, SMN_MAKE_REG(0x2d0256c),
 			    0xc40000);
-			milan_smn_write32(iodie, SMN_MAKE_REG(0x2d02228),
+			milan_smn_write(iodie, SMN_MAKE_REG(0x2d02228),
 			    0xc40000);
-			milan_smn_write32(iodie, SMN_MAKE_REG(0x2d0222c),
+			milan_smn_write(iodie, SMN_MAKE_REG(0x2d0222c),
 			    0xc40000);
 			break;
 		case MILAN_DXIO_DATA_TYPE_NONE:
@@ -3935,7 +3986,7 @@ milan_route_mmio(milan_fabric_t *fabric)
 	uint64_t mmio64_size;
 	uint_t nioms32;
 	milan_route_mmio_t mrm;
-	const uint32_t mmio_gran = 1 << DF_MMIO_SHIFT;
+	const uint32_t mmio_gran = DF_MMIO_LIMIT_EXCL;
 
 	VERIFY(IS_P2ALIGNED(fabric->mf_tom, mmio_gran));
 	VERIFY3U(MILAN_PHYSADDR_COMPAT_MMIO, >, fabric->mf_tom);
@@ -3949,7 +4000,7 @@ milan_route_mmio(milan_fabric_t *fabric)
 	mmio64_size = MILAN_PHYSADDR_MMIO_END - fabric->mf_mmio64_base;
 	VERIFY3U(mmio64_size, >,  fabric->mf_total_ioms * mmio_gran);
 
-	CTASSERT(IS_P2ALIGNED(MILAN_PHYSADDR_COMPAT_MMIO, mmio_gran));
+	CTASSERT(IS_P2ALIGNED(MILAN_PHYSADDR_COMPAT_MMIO, DF_MMIO_LIMIT_EXCL));
 
 	bzero(&mrm, sizeof (mrm));
 	mrm.mrm_mmio32_base = fabric->mf_tom;
@@ -4103,7 +4154,7 @@ milan_fabric_init_bridges(milan_pcie_bridge_t *bridge, void *arg)
 	}
 
 	reg = milan_pcie_bridge_reg(bridge, D_IOHCDEV_PCIE_BRIDGE_CTL);
-	val = milan_pcie_bridge_read32(bridge, reg);
+	val = milan_pcie_bridge_read(bridge, reg);
 	val = IOHCDEV_BRIDGE_CTL_SET_CRS_ENABLE(val, 1);
 	if (hide) {
 		val = IOHCDEV_BRIDGE_CTL_SET_BRIDGE_DISABLE(val, 1);
@@ -4114,12 +4165,12 @@ milan_fabric_init_bridges(milan_pcie_bridge_t *bridge, void *arg)
 		val = IOHCDEV_BRIDGE_CTL_SET_DISABLE_BUS_MASTER(val, 0);
 		val = IOHCDEV_BRIDGE_CTL_SET_DISABLE_CFG(val, 0);
 	}
-	milan_pcie_bridge_write32(bridge, reg, val);
+	milan_pcie_bridge_write(bridge, reg, val);
 
 	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_TX_CTL);
-	val = milan_pcie_bridge_read32(bridge, reg);
+	val = milan_pcie_bridge_read(bridge, reg);
 	val = PCIE_PORT_TX_CTL_SET_TLP_FLUSH_DOWN_DIS(val, 0);
-	milan_pcie_bridge_write32(bridge, reg, val);
+	milan_pcie_bridge_write(bridge, reg, val);
 
 	/*
 	 * Software expects to see the PCIe slot implemented bit when a slot
@@ -4129,10 +4180,10 @@ milan_fabric_init_bridges(milan_pcie_bridge_t *bridge, void *arg)
 	if ((bridge->mpb_flags & MILAN_PCIE_BRIDGE_F_MAPPED) != 0) {
 		uint16_t reg;
 
-		reg = pci_getl_func(ioms->mio_pci_busno, bridge->mpb_device,
+		reg = pci_getw_func(ioms->mio_pci_busno, bridge->mpb_device,
 		    bridge->mpb_func, MILAN_BRIDGE_R_PCI_PCIE_CAP);
 		reg |= PCIE_PCIECAP_SLOT_IMPL;
-		pci_putl_func(ioms->mio_pci_busno, bridge->mpb_device,
+		pci_putw_func(ioms->mio_pci_busno, bridge->mpb_device,
 		    bridge->mpb_func, MILAN_BRIDGE_R_PCI_PCIE_CAP, reg);
 	}
 
@@ -4152,19 +4203,19 @@ milan_fabric_init_pcie_ports(milan_pcie_port_t *port, void *arg)
 	uint32_t val;
 
 	reg = milan_pcie_port_reg(port, D_PCIE_CORE_CI_CTL);
-	val = milan_pcie_port_read32(port, reg);
+	val = milan_pcie_port_read(port, reg);
 	val = PCIE_CORE_CI_CTL_SET_LINK_DOWN_CTO_EN(val, 1);
 	val = PCIE_CORE_CI_CTL_SET_IGN_LINK_DOWN_CTO_ERR(val, 1);
-	milan_pcie_port_write32(port, reg, val);
+	milan_pcie_port_write(port, reg, val);
 
 	/*
 	 * Program the unit ID for this device's SDP port.
 	 */
 	reg = milan_pcie_port_reg(port, D_PCIE_CORE_SDP_CTL);
-	val = milan_pcie_port_read32(port, reg);
+	val = milan_pcie_port_read(port, reg);
 	val = PCIE_CORE_SDP_CTL_SET_PORT_ID(val, port->mpp_sdp_port);
 	val = PCIE_CORE_SDP_CTL_SET_UNIT_ID(val, port->mpp_sdp_unit);
-	milan_pcie_port_write32(port, reg, val);
+	milan_pcie_port_write(port, reg, val);
 
 	/*
 	 * The IOMMUL1 does not have an instance for the on-the side WAFL lanes.
@@ -4174,9 +4225,9 @@ milan_fabric_init_pcie_ports(milan_pcie_port_t *port, void *arg)
 		return (0);
 
 	reg = milan_pcie_port_reg(port, D_IOMMUL1_CTL1);
-	val = milan_pcie_port_read32(port, reg);
+	val = milan_pcie_port_read(port, reg);
 	val = IOMMUL1_CTL1_SET_ORDERING(val, 1);
-	milan_pcie_port_write32(port, reg, val);
+	milan_pcie_port_write(port, reg, val);
 
 	return (0);
 }
@@ -4444,35 +4495,35 @@ milan_hotplug_bridge_init(milan_pcie_bridge_t *bridge, void *arg)
 	 * it'll do something useful for the SMU.
 	 */
 	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_HP_CTL);
-	val = milan_pcie_bridge_read32(bridge, reg);
+	val = milan_pcie_bridge_read(bridge, reg);
 	val = PCIE_PORT_HP_CTL_SET_SLOT(val, bridge->mpb_hp_slotno);
 	val = PCIE_PORT_HP_CTL_SET_ACTIVE(val, 1);
-	milan_pcie_bridge_write32(bridge, reg, val);
+	milan_pcie_bridge_write(bridge, reg, val);
 
 	/*
 	 * This register is apparently set to ensure that we don't remain in the
 	 * detect state machine state.
 	 */
 	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_CTL5);
-	val = milan_pcie_bridge_read32(bridge, reg);
+	val = milan_pcie_bridge_read(bridge, reg);
 	val = PCIE_PORT_LC_CTL5_SET_WAIT_DETECT(val, 0);
-	milan_pcie_bridge_write32(bridge, reg, val);
+	milan_pcie_bridge_write(bridge, reg, val);
 
 	/*
 	 * This ensures the port can't enter loopback mode.
 	 */
 	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_TRAIN_CTL);
-	val = milan_pcie_bridge_read32(bridge, reg);
+	val = milan_pcie_bridge_read(bridge, reg);
 	val = PCIE_PORT_LC_TRAIN_CTL_SET_TRAIN_DIS(val, 1);
-	milan_pcie_bridge_write32(bridge, reg, val);
+	milan_pcie_bridge_write(bridge, reg, val);
 
 	/*
 	 * Make sure that power faults can actually work (in theory).
 	 */
 	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_PCTL);
-	val = milan_pcie_bridge_read32(bridge, reg);
+	val = milan_pcie_bridge_read(bridge, reg);
 	val = PCIE_PORT_PCTL_SET_PWRFLT_EN(val, 1);
-	milan_pcie_bridge_write32(bridge, reg, val);
+	milan_pcie_bridge_write(bridge, reg, val);
 
 	/*
 	 * Go through and set up the slot capabilities register. In our case
@@ -4527,12 +4578,12 @@ milan_hotplug_port_init(milan_pcie_port_t *port, void *arg)
 	 * reserved bits are ignored and always set to zero.
 	 */
 	reg = milan_pcie_port_reg(port, D_PCIE_CORE_SWRST_CTL6);
-	milan_pcie_port_write32(port, reg, 0);
+	milan_pcie_port_write(port, reg, 0);
 
 	reg = milan_pcie_port_reg(port, D_PCIE_CORE_PRES);
-	val = milan_pcie_port_read32(port, reg);
+	val = milan_pcie_port_read(port, reg);
 	val = PCIE_CORE_PRES_SET_MODE(val, PCIE_CORE_PRES_MODE_OR);
-	milan_pcie_port_write32(port, reg, val);
+	milan_pcie_port_write(port, reg, val);
 
 	return (0);
 }

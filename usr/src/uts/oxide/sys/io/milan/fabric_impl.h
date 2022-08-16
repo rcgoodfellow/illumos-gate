@@ -166,8 +166,8 @@ struct milan_fabric {
 	milan_soc_t	mf_socs[MILAN_FABRIC_MAX_SOCS];
 };
 
-extern uint32_t milan_smn_read32(struct milan_iodie *, const smn_reg_t);
-extern void milan_smn_write32(struct milan_iodie *, const smn_reg_t,
+extern uint32_t milan_smn_read(struct milan_iodie *, const smn_reg_t);
+extern void milan_smn_write(struct milan_iodie *, const smn_reg_t,
     const uint32_t);
 
 #ifdef __cplusplus

@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2021 Oxide Computer Company
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef _ZEN_KMDB_H
@@ -25,6 +25,9 @@ extern "C" {
 #endif
 
 #ifdef	_KMDB
+
+extern int rdpcicfg_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
+extern int wrpcicfg_dcmd(uintptr_t, uint_t, int, const mdb_arg_t *);
 
 extern void rddf_dcmd_help(void);
 extern void wrdf_dcmd_help(void);

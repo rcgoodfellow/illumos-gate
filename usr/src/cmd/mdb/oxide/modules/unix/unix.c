@@ -1017,12 +1017,16 @@ static const mdb_dcmd_t dcmds[] = {
 	    "route tables", df_route_dcmd, df_route_dcmd_help },
 	{ "rddf", ":[-b | -i inst] [-f func] [-s socket]", "read df register",
 	    rddf_dcmd, rddf_dcmd_help },
-	{ "rdsmn", ":[-s socket]", "read smn register", rdsmn_dcmd,
+	{ "rdpcicfg", ":[-L len] bus dev func",
+	    "read a register in PCI config space", rdpcicfg_dcmd },
+	{ "rdsmn", ":[-L len] [-s socket]", "read smn register", rdsmn_dcmd,
 	    rdsmn_dcmd_help },
 	{ "sysregs", NULL, "dump system registers", sysregs_dcmd },
 	{ "wrdf", ":[-b | -i inst] [-f func] [-s socket] value",
 	    "write df register", wrdf_dcmd, wrdf_dcmd_help },
-	{ "wrsmn", ":[-s socket]", "write smn register", wrsmn_dcmd,
+	{ "wrpcicfg", ":[-L len] bus dev func val",
+	    "write a register in PCI config space", wrpcicfg_dcmd },
+	{ "wrsmn", ":[-L len] [-s socket]", "write smn register", wrsmn_dcmd,
 	    wrsmn_dcmd_help },
 #endif
 	{ NULL }

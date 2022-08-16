@@ -1,6 +1,7 @@
 #
 # Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, 2015 by Delphix. All rights reserved.
+# Copyright 2022 Oxide Computer Co.
 #
 # CDDL HEADER START
 #
@@ -54,6 +55,7 @@ SYMBOL_SCOPE {
 		mdb_add_walker			{ FLAGS = EXTERN };
 		mdb_alloc			{ FLAGS = EXTERN };
 		mdb_aread			{ FLAGS = EXTERN };
+		mdb_argtoull			{ FLAGS = EXTERN };
 		mdb_awrite			{ FLAGS = EXTERN };
 		mdb_call_dcmd			{ FLAGS = EXTERN };
 		mdb_callback_add		{ FLAGS = EXTERN };
@@ -114,6 +116,8 @@ SYMBOL_SCOPE {
 		mdb_iob_getflags		{ FLAGS = EXTERN };
 		mdb_iob_resize			{ FLAGS = EXTERN };
 		mdb_iob_setflags		{ FLAGS = EXTERN };
+		mdb_ioread			{ FLAGS = EXTERN };
+		mdb_iowrite			{ FLAGS = EXTERN };
 		mdb_layered_walk		{ FLAGS = EXTERN };
 		mdb_lookup_by_addr		{ FLAGS = EXTERN };
 		mdb_lookup_by_name		{ FLAGS = EXTERN };

@@ -41,7 +41,7 @@ extern "C" {
  * srd_nents and srd_stride (more pointedly: they must not be set); each
  * register in this block has a number of instances that depend upon the unit (1
  * per IOMS) and the aperture base is effectively formed by both the unit and
- * register instance numbers.
+ * register instance numbers.  Registers are 32 bits wide, however.
  */
 
 static inline smn_reg_t
@@ -52,6 +52,7 @@ milan_pcie_rsmu_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 	const uint32_t ioms32 = (const uint32_t)iomsno;
 	const uint32_t reginst32 = (const uint32_t)reginst;
 
+	ASSERT0(def.srd_size);
 	ASSERT3S(def.srd_unit, ==, SMN_UNIT_PCIE_RSMU);
 	ASSERT0(def.srd_nents);
 	ASSERT0(def.srd_stride);

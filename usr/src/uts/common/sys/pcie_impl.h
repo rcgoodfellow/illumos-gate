@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 #ifndef	_SYS_PCIE_IMPL_H
@@ -33,6 +34,9 @@ extern "C" {
 #include <sys/pcie.h>
 #include <sys/pciev.h>
 #include <sys/taskq_impl.h>
+#include <sys/dditypes.h>
+#include <sys/cred.h>
+#include <sys/devops.h>
 
 #define	PCI_GET_BDF(dip)	\
 	PCIE_DIP2BUS(dip)->bus_bdf
@@ -176,6 +180,32 @@ extern "C" {
 #define	PFD_IS_ROOT(pfd_p)	   PCIE_IS_ROOT(PCIE_PFD2BUS(pfd_p))
 #define	PFD_IS_RC(pfd_p)	   PCIE_IS_RC(PCIE_PFD2BUS(pfd_p))
 #define	PFD_IS_RP(pfd_p)	   PCIE_IS_RP(PCIE_PFD2BUS(pfd_p))
+
+/*
+ * Bit offsets for extended configuration space and corresponding masks. One
+ * notable thing here is that the PCIE_CFGSPACE_FUNC_MASK is set to be 8 bits
+ * instead of the normal three. This is to support ARIs.
+ */
+#define	PCIE_CFGSPACE_BUS_OFFSET	20
+#define	PCIE_CFGSPACE_BUS_MASK(x)	((x) & 0xff)
+#define	PCIE_CFGSPACE_DEV_OFFSET	15
+#define	PCIE_CFGSPACE_DEV_MASK(x)	((x) & 0x1f)
+#define	PCIE_CFGSPACE_FUNC_OFFSET	12
+#define	PCIE_CFGSPACE_FUNC_MASK(x)	((x) & 0xff)
+#define	PCIE_CFGSPACE_REG_MASK(x)	((x) & 0xfff)
+
+/*
+ * Compute the offset into config space per ECAM rules.  Analogous to PCI_CADDR1
+ * and PCI_CADDR2 for legacy access mechanisms.  This value must be added to the
+ * base address of extended configuration space after verifying that it fits;
+ * i.e., the size of ECS must accommodate the supplied bus number, and the
+ * caller is responsible for ensuring that prior to using the result.
+ */
+#define	PCIE_CADDR_ECAM(bus, dev, func, reg)	\
+	((PCIE_CFGSPACE_BUS_MASK(bus) << PCIE_CFGSPACE_BUS_OFFSET) |	\
+	(PCIE_CFGSPACE_DEV_MASK(dev) << PCIE_CFGSPACE_DEV_OFFSET) |	\
+	(PCIE_CFGSPACE_FUNC_MASK(func) << PCIE_CFGSPACE_FUNC_OFFSET) |	\
+	(PCIE_CFGSPACE_REG_MASK(reg)))
 
 /* bus_hp_mode field */
 typedef enum {

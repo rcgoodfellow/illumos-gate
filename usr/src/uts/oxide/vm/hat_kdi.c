@@ -24,6 +24,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Co.
  */
 
 /*
@@ -182,7 +183,7 @@ kdi_prw(caddr_t buf, size_t nbytes, uint64_t pa, size_t *ncopiedp, int doread)
 		pgoff = pa & MMU_PAGEOFFSET;
 		sz = MIN(nbytes, MMU_PAGESIZE - pgoff);
 		va = (caddr_t)hat_kdi_page + pgoff;
-		pte = kdi_ptom(mmu_ptob(mmu_btop(pa))) | PT_VALID;
+		pte = kdi_ptom(mmu_ptob(mmu_btop(pa))) | PT_NOCACHE | PT_VALID;
 		if (doread) {
 			from = va;
 			to = buf;
@@ -203,7 +204,54 @@ kdi_prw(caddr_t buf, size_t nbytes, uint64_t pa, size_t *ncopiedp, int doread)
 			*(x86pte32_t *)hat_kdi_pte = pte;
 		mmu_flush_tlb_kpage(hat_kdi_page);
 
-		bcopy(from, to, sz);
+		/*
+		 * As a special case, kdi_prw() can end up being used to access
+		 * PCIe config space via ECAM.  At least some processors require
+		 * that these accesses store the value in %rax into memory or
+		 * load the value from memory into %rax.  To accommodate such
+		 * accesses, we manually handle the access sizes that might
+		 * correspond to PCIe config space and use the correct register.
+		 *
+		 * These are volatile because I cannot be certain whether gcc
+		 * considers stores to a memory output operand to be side
+		 * effects.  Each of these statements is equivalent to saying
+		 * "*to = opaque();".  The contents of *to are not subsequently
+		 * referenced by this function, and to is not a pointer into
+		 * locally-allocated stack space (at least not generally such
+		 * that the compiler could be aware of it).  Does that mean gcc
+		 * could eliminate them?  Certainly that would be a surprising
+		 * and very usually incorrect optimisation!  But nothing in the
+		 * manual seems to guarantee us that such an optimisation
+		 * *won't* be made, either, so volatile it is.
+		 */
+		switch (sz) {
+		case 1:
+			__asm__ __volatile__(
+			    "movb	%1, %0\n" :
+			    "=m" (*(uint8_t *)to) :
+			    "a" (*(uint8_t *)from) :);
+			break;
+		case 2:
+			__asm__ __volatile__(
+			    "movw	%1, %0\n" :
+			    "=m" (*(uint16_t *)to) :
+			    "a" (*(uint16_t *)from) :);
+			break;
+		case 4:
+			__asm__ __volatile__(
+			    "movl	%1, %0\n" :
+			    "=m" (*(uint32_t *)to) :
+			    "a" (*(uint32_t *)from) :);
+			break;
+		case 8:
+			__asm__ __volatile__(
+			    "movq	%1, %0\n" :
+			    "=m" (*(uint64_t *)to) :
+			    "a" (*(uint64_t *)from) :);
+			break;
+		default:
+			bcopy(from, to, sz);
+		}
 
 		/*
 		 * erase the mapping

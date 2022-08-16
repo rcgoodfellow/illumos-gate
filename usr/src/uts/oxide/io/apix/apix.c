@@ -518,12 +518,12 @@ ioms_enable_nmi_cb(milan_ioms_t *ioms, void *arg __unused)
 	if ((milan_ioms_flags(ioms) & MILAN_IOMS_F_HAS_FCH) != 0) {
 		reg = milan_ioms_reg(ioms, D_IOHC_PIN_CTL, 0);
 		v = IOHC_PIN_CTL_SET_MODE_NMI(0);
-		milan_ioms_write32(ioms, reg, v);
+		milan_ioms_write(ioms, reg, v);
 	}
 
 	reg = milan_ioms_reg(ioms, D_IOHC_MISC_RAS_CTL, 0);
 	v = IOHC_MISC_RAS_CTL_SET_NMI_SYNCFLOOD_EN(0, 1);
-	milan_ioms_write32(ioms, reg, v);
+	milan_ioms_write(ioms, reg, v);
 
 	return (0);
 }
