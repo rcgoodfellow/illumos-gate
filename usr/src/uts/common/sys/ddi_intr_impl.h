@@ -53,7 +53,7 @@ extern "C" {
  * responsible node, the node to which the operation applies.  In general it is
  * possible for dip == rdip.  Often, rdip is a child node of dip, but as
  * requests may be passed up the tree, it is possible for rdip to be an indirect
- * descendent of dip, so implementers cannot always assume that the properties
+ * descendant of dip, so implementers cannot always assume that the properties
  * or private data attached to rdip conform to the conventions the receiving
  * nexus implements with respect to its immediate children.
  *
@@ -62,11 +62,14 @@ extern "C" {
  * ddi_intr_alloc(), but for some operations this is not the case.  These
  * exceptions are noted in the description of each operation to which they
  * apply; additionally, when operations are passed up the tree, the state of the
- * handler may not always match the way the receiving nexus would have
+ * handle may not always match the way the receiving nexus would have
  * initialised it even if it was previously initialised by a child nexus's ALLOC
  * endpoint.  These inconsistencies are generally bugs in child nexus drivers
  * encouraged by general weaknesses in the NDI, but we highlight them here as
  * they are often behind various special cases in nexus drivers.
+ *
+ * There is some additional useful background on the interrupt allocation state
+ * machine and other aspects of this interface in PSARC 2004/253.
  */
 typedef enum {
 	/*
@@ -76,8 +79,34 @@ typedef enum {
 	 * Final contents of *result upon success: a bitmask of supported
 	 * interrupt types DDI_INTR_TYPE_XXX
 	 * Handle properties: ih_dip == rdip, otherwise undefined
+	 *
+	 * This endpoint indirectly implements ddi_intr_get_supported_types(9f).
+	 * Prior to performing other interrupt operations on rdip, the DDI
+	 * invokes this operation and caches the value of *result iff it is
+	 * nonzero and the nexus returns DDI_SUCCESS.  Otherwise, the DDI will
+	 * invoke this operation prior to invoking the NINTRS, NAVAIL, or ALLOC
+	 * operations to determine whether the requested type is supported.
+	 * Thus, the *result value effectively gates the interrupt state machine
+	 * for all interrupts of a given type for rdip.
+	 *
+	 * If no interrupts of any kind are supported for the device indicated
+	 * by rdip, the nexus must return a failure code (i.e., something other
+	 * than DDI_SUCCESS).  Do not return DDI_SUCCESS with *result == 0.
+	 *
+	 * The semantics of this operation are poorly specified in the case
+	 * where interrupts of a particular type are (or could be) supported for
+	 * rdip but no interrupts of that type are actually supported.  To
+	 * address this, we will state that the responding nexus is responsible
+	 * for collapsing this case at the time of a call to SUPPORTED_TYPES
+	 * into the case where interrupts of that type are never supported for
+	 * rdip.  This holds for the existing relevant consumer (pci) with
+	 * respect to both MSI and MSI-X.  It also implies that the nexus must
+	 * always provide the same result and return status for both
+	 * SUPPORTED_TYPES and NINTRS (see below) for a given value of rdip as
+	 * long as that descendant node exists.
 	 */
 	DDI_INTROP_SUPPORTED_TYPES = 1,
+
 	/*
 	 * Get the number of interrupts of hdl->ih_type available for rdip.
 	 * True type of result: int *
@@ -85,8 +114,27 @@ typedef enum {
 	 * Final contents of *result upon success: the number of interrupts
 	 * available
 	 * Handle properties: ih_dip == rdip, ih_type == DDI_INTR_TYPE_XXX
+	 *
+	 * The DDI guarantees that hdl->ih_type is supported for rdip as
+	 * determined by a previous successful invocation of SUPPORTED_TYPES.
+	 * The nexus will not be invoked to determine the number of interrupts
+	 * of a type that is never supported for rdip.
+	 *
+	 * As discussed above, the semantics of this operation are poorly
+	 * specified when an interrupt type is supported for rdip but no
+	 * interrupts of that type are actually supported for that node.
+	 * Additionally, a quirk (probably a bug) in the DDI implementation
+	 * allows the return value of the nexus's endpoint to be given directly
+	 * to callers of ddi_intr_get_nintrs(9f) even if that return status code
+	 * is not among those documented.  Therefore, a conservative nexus must:
+	 *
+	 * - always return one of those status codes for this operation, and
+	 * - not return DDI_SUCCESS with *result == 0, and
+	 * - always provide the same return status code and value of *result for
+	 *   given values of ih_type and ih_dip/rdip for as long as rdip exists.
 	 */
 	DDI_INTROP_NINTRS,
+
 	/*
 	 * Allocate interrupts as documented for ddi_intr_alloc(9f).
 	 * True type of result: int *
@@ -103,12 +151,20 @@ typedef enum {
 	 * framework.  The nexus endpoint is allowed to modify the contents of
 	 * the handle but the modified contents are not generally preserved into
 	 * the child's handle(s); see the ddi_intr_alloc() implementation.
+	 *
+	 * The framework guarantees that ih_type is among those included in the
+	 * result of a previous SUPPORTED_TYPES call and that ih_inum +
+	 * ih_scratch1 <= the result of a previous NINTRS call for that type.
+	 * That is, the framework will not invoke the nexus to allocate an
+	 * interrupt for a descendant node that has no supported interrupts of
+	 * the specified type.
 	 */
 	DDI_INTROP_ALLOC,
+
 	/*
 	 * Get the priority level (ipl/pil) of the interrupt belonging to rdip
 	 * and described by hdl.
-	 * True type of result: int *
+	 * True type of result: uint_t *
 	 * Initial contents of *result: undefined
 	 * Final contents of *result upon success: the priority level
 	 * Handle properties: ih_{dip, type, inum} may be relied upon, and
@@ -117,10 +173,11 @@ typedef enum {
 	 * ih_pri is valid, but this is not guaranteed either.
 	 */
 	DDI_INTROP_GETPRI,
+
 	/*
 	 * Set the priority level (ipl/pil) of the interrupt belonging to rdip
 	 * and described by hdl.
-	 * True type of result: int *
+	 * True type of result: uint_t *
 	 * Initial contents of *result: the desired priority level
 	 * Final contents of *result upon success: the actual priority level set
 	 * Handle properties: Attributes set during the ddi_intr_alloc() path
@@ -128,6 +185,7 @@ typedef enum {
 	 * with *result == hdl->ih_pri but that may not be guaranteed.
 	 */
 	DDI_INTROP_SETPRI,
+
 	/*
 	 * Implementation for ddi_intr_add_handler(9f).
 	 * True type of result: void
@@ -137,12 +195,14 @@ typedef enum {
 	 * ADDISR has already succeeded.
 	 */
 	DDI_INTROP_ADDISR,
+
 	/*
 	 * Implementation for ddi_intr_dup_handler(9f), which is used only on
 	 * SPARC and therefore obsolete.  Just return DDI_FAILURE; DDI_ENOTSUP
 	 * would make more sense but is not documented in the manual.
 	 */
 	DDI_INTROP_DUPVEC,
+
 	/*
 	 * Implementation for ddi_intr_enable(9f).
 	 * True type of result: void
@@ -154,6 +214,7 @@ typedef enum {
 	 * GETPRI, and ADDISR endpoints, and is still used by several drivers.
 	 */
 	DDI_INTROP_ENABLE,
+
 	/*
 	 * Implementation for ddi_intr_block_enable(9f).
 	 * True type of result: void
@@ -164,6 +225,7 @@ typedef enum {
 	 * for MSI interrupts with the BLOCK capability.
 	 */
 	DDI_INTROP_BLOCKENABLE,
+
 	/*
 	 * Implementation for ddi_intr_block_disable(9f).
 	 * True type of result: void
@@ -171,6 +233,7 @@ typedef enum {
 	 * invoked for interrupts that were not previously enabled.
 	 */
 	DDI_INTROP_BLOCKDISABLE,
+
 	/*
 	 * Implementation for ddi_intr_disable(9f).
 	 * True type of result: void
@@ -178,6 +241,7 @@ typedef enum {
 	 * interrupts that were not previously enabled.
 	 */
 	DDI_INTROP_DISABLE,
+
 	/*
 	 * Implementation for ddi_intr_add_handler(9f).
 	 * True type of result: void
@@ -185,18 +249,20 @@ typedef enum {
 	 * interrupts that have not previously had an ADDISR call succeed.
 	 */
 	DDI_INTROP_REMISR,
+
 	/*
 	 * Implementation for ddi_intr_free(9f).
 	 * True type of result: void
-	 * Handle properties: This endpoint will not be invoked for interrupts
-	 * that have not previously:
+	 * Handle properties: This endpoint will be invoked only for interrupts
+	 * that have previously:
 	 * 1. Had a successful call to ALLOC, and
 	 * 2a. Have either never had a successful call to ADDISR or
-	 * 2b. Have had a successful call to REMISR.
+	 * 2b. Have had a subsequent successful call to REMISR.
 	 * ih_scratch1 == 1, always, even if this interrupt was allocated as
 	 * part of a contiguous region of multiple interrupts.
 	 */
 	DDI_INTROP_FREE,
+
 	/*
 	 * Implementation for ddi_intr_get_cap(9f).
 	 * True type of result: int *
@@ -209,6 +275,7 @@ typedef enum {
 	 * valid and cannot be returned blindly.
 	 */
 	DDI_INTROP_GETCAP,
+
 	/*
 	 * Implementation for ddi_intr_set_cap(9f).
 	 * True type of result: int *
@@ -218,6 +285,7 @@ typedef enum {
 	 * Handle properties: Same as GETCAP.
 	 */
 	DDI_INTROP_SETCAP,
+
 	/*
 	 * Implementation for ddi_intr_set_mask(9f).
 	 * True type of result: void
@@ -226,12 +294,14 @@ typedef enum {
 	 * be invoked for interrupts that do not have the MASKABLE capability.
 	 */
 	DDI_INTROP_SETMASK,
+
 	/*
 	 * Implementation for ddi_intr_clr_mask(9f).
 	 * True type of result: void
 	 * Handle properties: Same as for SETMASK.
 	 */
 	DDI_INTROP_CLRMASK,
+
 	/*
 	 * Implementation for ddi_intr_get_pending(9f).
 	 * True type of result: int * (see manual)
@@ -248,6 +318,7 @@ typedef enum {
 	 * can assume only what their own ALLOC endpoint has done.
 	 */
 	DDI_INTROP_GETPENDING,
+
 	/*
 	 * Implementation for ddi_intr_get_navail(9f) and internal consumers.
 	 * True type of result: uint_t *
@@ -256,8 +327,18 @@ typedef enum {
 	 * hdl->ih_type that are available to be allocated for rdip
 	 * Handle properties: May be real or temporary.  Only ih_dip and ih_type
 	 * are guaranteed to be valid.
+	 *
+	 * The DDI implementation quirk discussed in the section on NINTRS above
+	 * does not apply to NAVAIL; in general, the DDI treats *result == 0 the
+	 * same as a non-DDI_SUCCESS return status code from this endpoint, and
+	 * will replace all such return status codes with DDI_INTR_NOTFOUND to
+	 * satisfy the documented behaviour of ddi_intr_get_navail(9f)
+	 * indirectly implemented by this entry point.  However, a conservative
+	 * nexus's entry point should satisfy the same constraints as for NINTRS
+	 * above; doing so is also likely to improve allocation performance.
 	 */
 	DDI_INTROP_NAVAIL,
+
 	/*
 	 * Obtain the interrupt resource management (IRM) pool that supplies
 	 * interrupts of type hdl->ih_type to rdip via this nexus.  IRM pools
@@ -270,6 +351,7 @@ typedef enum {
 	 * are guaranteed to be valid.
 	 */
 	DDI_INTROP_GETPOOL,
+
 	/*
 	 * Obtain the target CPU for the interrupt described by hdl.
 	 * True type of result: processorid_t *
@@ -282,6 +364,7 @@ typedef enum {
 	 * invoked only via get_intr_affinity(), which currently has no callers.
 	 */
 	DDI_INTROP_GETTARGET,
+
 	/*
 	 * Set the target CPU for the interrupt described by hdl.
 	 * True type of result: processorid_t *

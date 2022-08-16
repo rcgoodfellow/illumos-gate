@@ -214,22 +214,21 @@ extern apic_irq_t *apic_irq_table[APIC_MAX_VECTOR+1];
 
 /*
  * This architecture does not have ACPI nor does it support the concept of
- * interrupt bus types, so instead we use these flags to indicate trigger type
- * and polarity.  Really these are part of the local APIC itself but we choose
- * not to expose those definitions.
+ * interrupt bus types, so instead of having a single intr_flags that matches
+ * the old MPS definition, we have an enum for each of polarity and trigger
+ * mode, and we keep them as small as possible since they're really only a
+ * single bit each.  These are not flags: each describes a choose-exactly-one
+ * value.
  */
-typedef enum intr_flags {
-	IF_NONE,
-	IF_LEVEL = (1 << 0),
-	IF_ACTIVE_HIGH = (1 << 1)
-} intr_flags_t;
+typedef enum intr_polarity {
+	IP_HIGH,
+	IP_LOW
+} intr_polarity_t;
 
-/*
- * These are the inverse of their enumerated flags, not real values of their
- * own.
- */
-#define	IF_EDGE		IF_NONE
-#define	IF_ACTIVE_LOW	IF_NONE
+typedef enum intr_trigger_mode {
+	ITM_EDGE,
+	ITM_LEVEL
+} intr_trigger_mode_t;
 
 /*
  * From mp_platform_common.c

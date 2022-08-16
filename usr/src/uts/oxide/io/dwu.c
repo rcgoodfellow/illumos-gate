@@ -243,6 +243,10 @@ boolean_t	asy_nosuspend = B_FALSE;
  * Baud rate table. Indexed by #defines found in sys/termios.h
  *
  * XXX For now we support only the fast baud clock.
+ *
+ * As in asy.c, not all baud rates have exact divisors.  Those that are inexact
+ * have their errors noted in parentheses below.  Baud rates that would have
+ * errors > 1% are not supported, though possibly a few could be.
  */
 ushort_t asyspdtab[] = {
 	0,	/* 0 baud rate */

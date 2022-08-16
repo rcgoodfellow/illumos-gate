@@ -30,6 +30,69 @@
  * I/O paths.
  *
  * XXX More on physical organization, terms, and related. ASCII art.
+ *
+ * -------------------
+ * Resource Allocation
+ * -------------------
+ *
+ * We route and allocate/reserve a variety of resources to either PCIe or
+ * generic devices.  These include PCI bus numbers (PCIe only, obviously),
+ * memory-mapped IO address spaces both above and below the 32-bit boundary, and
+ * legacy I/O space ("ports" in x86 parlance).  Resources allocated to non-PCIe
+ * devices are referred to as "gen" or generic; these resources are used by
+ * peripherals inside the FCH as well as potentially by others that are neither
+ * PCI-like nor part of the FCH; e.g., the PSP or SMU mailbox apertures which
+ * can be assigned resources via BARs.  The Milan PPR 13.1.4.4 imposes certain
+ * requirements on where this generic space is located and provides an
+ * incomplete list of such consumers.  Note that the requirement that all
+ * non-PCI resources of a particular type on an IOMS must be contiguous is
+ * believed not to be a real requirement but rather an artefact of the way AMD's
+ * firmware works; the true requirement is the one that's explicitly stated:
+ * each IOMS's allocation of a resource type must be contiguous.  Nevertheless,
+ * it's convenient to allocate each kind of consumer its own contiguous space as
+ * this allows for allocations of the largest possible size by those consumers
+ * (e.g., PCI bridges).
+ *
+ * On the fabric's primary IOMS (the IOMS on the primary IO die to which the FCH
+ * is attached), we always reserve the compatibility legacy I/O and 32-bit MMIO
+ * spaces for generic consumers on that IOMS.  These are:
+ *
+ * - MILAN_IOPORT_COMPAT_SIZE ports beginning at 0 for legacy I/O
+ * - MILAN_COMPAT_MMIO_SIZE bytes beginning at MILAN_PHYSADDR_COMPAT_MMIO for
+ * 32-bit MMIO
+ *
+ * These reservations are unconditional for the primary IOMS; they are intended
+ * mainly for accessing peripherals in the primary FCH that are located at fixed
+ * addresses, including the ixbar at fixed legacy I/O ports.
+ *
+ * Currently the size of the generic-device reservation of each type of resource
+ * on secondary IOMSs (those that do not have the FCH attached and/or are not on
+ * the primary IO die) is governed by fixed compile-time constants:
+ *
+ * MILAN_SEC_IOMS_GEN_IO_SPACE is the number of contiguous legacy I/O ports to
+ * reserve for non-PCI consumers.  While not currently used, the remote FCH has
+ * a unit called the A-Link/B-Link bridge accessed via legacy I/O space at a
+ * group of ports programmable via an FCH BAR; to access this, we would need to
+ * reserve space routed to the secondary FCH's IOMS, so we try to do that.
+ *
+ * MILAN_SEC_IOMS_GEN_MMIO32_SPACE is the size in bytes of the contiguous MMIO
+ * region below the 32-bit boundary to reserve for non-PCI consumers.
+ *
+ * MILAN_SEC_IOMS_GEN_MMIO64_SPACE is the corresponding figure for MMIO space
+ * above the 32-bit boundary.
+ *
+ * These will be reduced (possibly resulting in FCH peripherals not working) if
+ * the amount of space specified by the corresponding macro would be half or
+ * more of the total resources routed to the IOMS; that is, we prioritise PCIe,
+ * as other than the FCH we do not currently use any of the generic devices.
+ *
+ * These allocations/reservations do not affect routing so the division between
+ * PCI and generic for a given IOMS does not have to be expressed in terms of DF
+ * granularity.  It's unclear whether this should be tunable at runtime, or
+ * whether we want to be more clever by allowing it to be dynamic and altering
+ * the routing tables at runtime.  Either would be challenging, and can
+ * undoubtedly wait until we have a real need for any of this.  See
+ * milan_xx_allocate() for the implementation of these allocations/reservations.
  */
 
 #include <sys/types.h>
@@ -3928,6 +3991,8 @@ milan_route_pci_bus(milan_fabric_t *fabric)
 	}
 }
 
+#define	MILAN_SEC_IOMS_GEN_IO_SPACE	0x1000
+
 typedef struct milan_route_io {
 	uint32_t	mri_per_ioms;
 	uint32_t	mri_next_base;
@@ -3955,6 +4020,12 @@ milan_io_ports_allocate(milan_ioms_t *ioms, void *arg)
 	    (ioms->mio_iodie->mi_flags & MILAN_IODIE_F_PRIMARY) != 0) {
 		mri->mri_bases[mri->mri_cur] = 0;
 		pci_base = MILAN_IOPORT_COMPAT_SIZE;
+	} else if (mri->mri_per_ioms > 2 * MILAN_SEC_IOMS_GEN_IO_SPACE) {
+		mri->mri_bases[mri->mri_cur] = mri->mri_next_base;
+		pci_base = mri->mri_bases[mri->mri_cur] +
+		    MILAN_SEC_IOMS_GEN_IO_SPACE;
+
+		mri->mri_last_ioms = mri->mri_cur;
 	} else {
 		pci_base = mri->mri_bases[mri->mri_cur] = mri->mri_next_base;
 		mri->mri_next_base += mri->mri_per_ioms;
@@ -4075,6 +4146,9 @@ milan_route_io_ports(milan_fabric_t *fabric)
 	(void) milan_fabric_walk_iodie(fabric, milan_io_ports_assign, &mri);
 }
 
+#define	MILAN_SEC_IOMS_GEN_MMIO32_SPACE 0x10000
+#define	MILAN_SEC_IOMS_GEN_MMIO64_SPACE 0x10000
+
 typedef struct milan_route_mmio {
 	uint32_t	mrm_cur;
 	uint32_t	mrm_mmio32_base;
@@ -4102,6 +4176,8 @@ milan_mmio_allocate(milan_ioms_t *ioms, void *arg)
 	milan_route_mmio_t *mrm = arg;
 	const uint32_t mmio_gran = 1 << DF_MMIO_SHIFT;
 	ioms_memlists_t *imp = &ioms->mio_memlists;
+	uint32_t gen_base32 = 0;
+	uint64_t gen_base64 = 0;
 
 	/*
 	 * The primary FCH is treated as a special case so that its 32-bit MMIO
@@ -4127,13 +4203,41 @@ milan_mmio_allocate(milan_ioms_t *ioms, void *arg)
 		    mmio_gran - 1;
 		mrm->mrm_mmio32_base += mrm->mrm_mmio32_chunks *
 		    mmio_gran;
+
+		if (mrm->mrm_mmio32_chunks * mmio_gran >
+		    2 * MILAN_SEC_IOMS_GEN_MMIO32_SPACE) {
+			gen_base32 = mrm->mrm_limits[mrm->mrm_cur] -
+			    (MILAN_SEC_IOMS_GEN_MMIO32_SPACE - 1);
+		}
 	}
 
+	/*
+	 * For secondary FCHs (and potentially any other non-PCI destination) we
+	 * reserve a small amount of space for general use and give the rest to
+	 * PCI.  If there's not enough, we give it all to PCI.
+	 */
 	mrm->mrm_dests[mrm->mrm_cur] = ioms->mio_fabric_id;
-	ret = xmemlist_add_span(&imp->im_pool, mrm->mrm_bases[mrm->mrm_cur],
-	    mrm->mrm_limits[mrm->mrm_cur] - mrm->mrm_bases[mrm->mrm_cur] + 1,
-	    &imp->im_mmio_avail_pci, 0);
-	VERIFY3S(ret, ==, MEML_SPANOP_OK);
+	if (gen_base32 != 0) {
+		ret = xmemlist_add_span(&imp->im_pool,
+		    mrm->mrm_bases[mrm->mrm_cur],
+		    mrm->mrm_limits[mrm->mrm_cur] -
+		    mrm->mrm_bases[mrm->mrm_cur] -
+		    MILAN_SEC_IOMS_GEN_MMIO32_SPACE + 1,
+		    &imp->im_mmio_avail_pci, 0);
+		VERIFY3S(ret, ==, MEML_SPANOP_OK);
+
+		ret = xmemlist_add_span(&imp->im_pool, gen_base32,
+		    MILAN_SEC_IOMS_GEN_MMIO32_SPACE,
+		    &imp->im_mmio_avail_gen, 0);
+		VERIFY3S(ret, ==, MEML_SPANOP_OK);
+	} else {
+		ret = xmemlist_add_span(&imp->im_pool,
+		    mrm->mrm_bases[mrm->mrm_cur],
+		    mrm->mrm_limits[mrm->mrm_cur] -
+		    mrm->mrm_bases[mrm->mrm_cur] + 1,
+		    &imp->im_mmio_avail_pci, 0);
+		VERIFY3S(ret, ==, MEML_SPANOP_OK);
+	}
 
 	mrm->mrm_cur++;
 
@@ -4147,10 +4251,31 @@ milan_mmio_allocate(milan_ioms_t *ioms, void *arg)
 	mrm->mrm_mmio64_base += mrm->mrm_mmio64_chunks * mmio_gran;
 	mrm->mrm_dests[mrm->mrm_cur] = ioms->mio_fabric_id;
 
-	ret = xmemlist_add_span(&imp->im_pool, mrm->mrm_bases[mrm->mrm_cur],
-	    mrm->mrm_limits[mrm->mrm_cur] - mrm->mrm_bases[mrm->mrm_cur] + 1,
-	    &imp->im_pmem_avail, 0);
-	VERIFY3S(ret, ==, MEML_SPANOP_OK);
+	if (mrm->mrm_mmio64_chunks * mmio_gran >
+	    2 * MILAN_SEC_IOMS_GEN_MMIO64_SPACE) {
+		gen_base64 = mrm->mrm_limits[mrm->mrm_cur] -
+		    (MILAN_SEC_IOMS_GEN_MMIO64_SPACE - 1);
+
+		ret = xmemlist_add_span(&imp->im_pool,
+		    mrm->mrm_bases[mrm->mrm_cur],
+		    mrm->mrm_limits[mrm->mrm_cur] -
+		    mrm->mrm_bases[mrm->mrm_cur] -
+		    MILAN_SEC_IOMS_GEN_MMIO64_SPACE + 1,
+		    &imp->im_pmem_avail, 0);
+		VERIFY3S(ret, ==, MEML_SPANOP_OK);
+
+		ret = xmemlist_add_span(&imp->im_pool, gen_base64,
+		    MILAN_SEC_IOMS_GEN_MMIO64_SPACE,
+		    &imp->im_mmio_avail_gen, 0);
+		VERIFY3S(ret, ==, MEML_SPANOP_OK);
+	} else {
+		ret = xmemlist_add_span(&imp->im_pool,
+		    mrm->mrm_bases[mrm->mrm_cur],
+		    mrm->mrm_limits[mrm->mrm_cur] -
+		    mrm->mrm_bases[mrm->mrm_cur] + 1,
+		    &imp->im_pmem_avail, 0);
+		VERIFY3S(ret, ==, MEML_SPANOP_OK);
+	}
 
 	mrm->mrm_cur++;
 

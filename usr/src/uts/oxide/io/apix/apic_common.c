@@ -637,87 +637,62 @@ apic_record_rdt_entry(apic_irq_t *irqptr, int irq)
 	case AIRQK_FIXED:
 		/*
 		 * XXX This code is wrong and needs to be removed.  To
-		 * understand why, a history lesson is required.
+		 * understand why, the discussion of interrupts in io/fch/fch.c
+		 * may be helpful.
 		 *
-		 * In the early days, before MSIs and before SoCs and processor
-		 * families with but a single supported PCH or FCH, every
-		 * board might have had many different fixed interrupt sources
-		 * and each would have had its own unique routing of those
-		 * sources as physical wires into an IOAPIC (or even before
-		 * that, a PIC).  To understand these sources and their routings
-		 * each OS would have needed some kind of lookup table.  That
-		 * might have been fine, except that the only people who knew
-		 * what those tables should have contained were the board
-		 * manufacturers; they could have added to such tables in open
-		 * source OSs, but support of Microsoft Windows and other
-		 * proprietary OSs necessitated putting this somewhere else,
-		 * somewhere that could be controlled by the board vendor's
-		 * code.  Out of this pair of needs eventually arose the MPS
-		 * tables and later ACPI.
-		 *
-		 * Part of the contents of those tables has (almost) always been
-		 * the polarity of each fixed interrupt and whether assertion of
-		 * it is level- or edge-triggered.  There was, realistically, no
-		 * reliable way to know this other than having designed the
-		 * board and read the datasheets of the components on it.  So
-		 * this information, too, was encoded in the vendor-supplied
-		 * tables.
+		 * On PCs, the polarity of each fixed interrupt and whether
+		 * assertion of it is level- or edge-triggered comes from ACPI
+		 * (newer machines) or MPS tables (ancient).  There was, and
+		 * realistically is, no reliable way to know this other than
+		 * having designed the board or SoC and read the associated
+		 * datasheets for most non-PCI/-X/e devices.
 		 *
 		 * Today, there is basically no reason for any PCI/-X/e device
-		 * to need or use fixed interrupts; MSI has been mandatory
-		 * since PCI 2.2.  So the only fixed sources we have are those
-		 * from devices inside the SoC itself, which means that their
-		 * attributes are no longer board-specific but rather generic
-		 * across every board (regardless of machine architecture!) with
-		 * the same SoC on it.  These sources are mostly from FCH
-		 * peripherals, though some can originate from parts of the NBIO
-		 * logic.  The one exception is INTx-emulation, which NBIO
-		 * translates into virtual wire interrupts to the FCH IOAPIC
-		 * as specified by the mapping table accessed via legacy I/O
-		 * ports 0xC00 and 0xC01.  The oxide architecture does not
-		 * support INTx emulation and all such sources are mapped to
-		 * the IOAPIC's catch-all (spurious) virtual input pin.
+		 * to need or use fixed interrupts; MSI and/or MSI-X is
+		 * mandatory for all PCIe devices and MSI has been part of the
+		 * PCI Local Bus spec since version 2.2.  So the only fixed
+		 * sources we have are those from devices inside the SoC itself,
+		 * which means that their attributes are no longer
+		 * board-specific but rather generic across every board
+		 * (regardless of machine architecture!) with the same SoC on
+		 * it.  These sources are mostly from FCH peripherals, though
+		 * some can originate from parts of the NBIO logic.  The one
+		 * exception is INTx-emulation, which the ixbar translates into
+		 * virtual wire interrupts (again, see io/fch/fch.c).  The oxide
+		 * architecture does not support INTx emulation and all such
+		 * sources are mapped to the IOAPIC's catch-all (spurious)
+		 * virtual input pin.
 		 *
-		 * As such, the polarity and trigger type are known and fixed
-		 * for each interrupt source; in the fullness of time, when we
-		 * support multiple SoCs (and/or if we ever choose/need to
-		 * support an external FCH), we may need a lookup table here
-		 * for each processor family or external FCH.  Critically,
-		 * there are only a few ways to get here (all via
-		 * apix_intx_set_vector()):
+		 * With that in mind, how can we get here?  There are only two
+		 * paths: apix_alloc_intx() and apix_intx_rebind().  The latter
+		 * attempts to preserve the polarity and trigger mode that was
+		 * previously established, and is of no further interest.  The
+		 * other always assumes that we've previously been asked to
+		 * allocate the interrupt via PSM_INTR_OP_ALLOC_VECTORS and thus
+		 * apix_intx_alloc_vector() which, contrary to their names, have
+		 * absolutely nothing to do with vectors but actually allocate
+		 * what should be private to the PSM: an IRQ.
 		 *
-		 * - ioapix_init_intr() via apix_alloc_intx(), only for SCI and
-		 *   HPET interrupts which we currently do not set up.
-		 * - the apix_rebind() path, which deals with interrupts that
-		 *   have already been set up and must already have a known
-		 *   polarity and trigger mode.
-		 * - the other apix_alloc_intx() path, which is the interesting
-		 *   one because it's how drivers request interrupts; this
-		 *   path always starts with apix_intx_xlate_irq(), which
-		 *   enforces the constraints described above and always sets
-		 *   the polarity and trigger mode to fixed values before we
-		 *   get here.
-		 *
-		 * We'd like to detect incorrect polarity and trigger mode, but
-		 * this is not the place to do it because there's no way to
-		 * know what's correct; only calling code can do that.  That is,
-		 * the SoC-specific lookup table, if one is needed, must be used
-		 * before we get here.  All we can do here, and what we should
-		 * do here, is ensure that these attributes have been
-		 * initialised... which is impossible given the possible range
-		 * of values we've temporarily inherited from i86pc (and
-		 * ultimately MPS): there is no sentinel value.
-		 *
-		 * It should now be clear that we should never be setting the
-		 * level or trigger mode here, and that we should adopt a
-		 * simpler way for callers to specify them here, one that does
-		 * not require any interpretation other than guaranteeing that
-		 * they have been initialised.  That is the code that belongs
-		 * here in place of this.  Fix this when apix_intx_xlate_irq()
-		 * is fixed, with the introduction of the huashan nexus driver
-		 * for FCH legacy peripherals.  That driver is where this
-		 * knowledge ought best to live, at least for now.
+		 * The PSM was designed for PCs, where polarity and trigger mode
+		 * metadata for each IRQ come from firmware, so there is no
+		 * (good) way to pass that information from the fch nexus driver
+		 * (which knows it for all devices that can ever have FIXED
+		 * interrupts) into apix; instead, it's assumed to come from
+		 * "elsewhere".  Fixing this requires either making the PSM
+		 * itself more general and preserving our ability to share it
+		 * with other x86 implementations or modifying it for oxide only
+		 * so that this metadata can be plumbed through from nexus
+		 * drivers into apix.  Unfortunately, there is also code in the
+		 * "common" DDI that assumes the information stored in the
+		 * devinfo tree for each interrupt doesn't need to include this,
+		 * and there is "common" code in pci_intr_lib.c that relies on
+		 * it; together, this makes it very difficult to make this
+		 * change without either making more "common" code
+		 * machine-specific or breaking existing interfaces.  For now,
+		 * this assumes that all FIXED interrupts are edge-triggered and
+		 * active high.
 		 */
+
 		level = po = 0;
 		break;
 	default:
