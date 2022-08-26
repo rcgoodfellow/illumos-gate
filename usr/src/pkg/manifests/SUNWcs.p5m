@@ -861,6 +861,7 @@ dir  path=usr/lib/devfsadm/linkmod group=sys
 file path=usr/lib/devfsadm/linkmod/SUNW_audio_link.so group=sys
 file path=usr/lib/devfsadm/linkmod/SUNW_cfg_link.so group=sys
 file path=usr/lib/devfsadm/linkmod/SUNW_disk_link.so group=sys
+file path=usr/lib/devfsadm/linkmod/SUNW_dpio_link.so group=sys
 file path=usr/lib/devfsadm/linkmod/SUNW_fssnap_link.so group=sys
 file path=usr/lib/devfsadm/linkmod/SUNW_ieee1394_link.so group=sys
 file path=usr/lib/devfsadm/linkmod/SUNW_lofi_link.so group=sys
@@ -1359,6 +1360,7 @@ file path=usr/sbin/fstyp group=sys mode=0555
 file path=usr/sbin/fuser mode=0555
 file path=usr/sbin/getdevpolicy group=sys mode=0555
 file path=usr/sbin/getmajor group=sys mode=0755
+file path=usr/sbin/gpioadm mode=0555
 file path=usr/sbin/groupadd group=sys mode=0555
 file path=usr/sbin/groupdel group=sys mode=0555
 file path=usr/sbin/groupmod group=sys mode=0555

@@ -23,6 +23,7 @@ file path=usr/share/man/man4d/devinfo.4d
 file path=usr/share/man/man4d/full.4d
 file path=usr/share/man/man4d/gld.4d
 file path=usr/share/man/man4d/ipnet.4d
+file path=usr/share/man/man4d/kgpio.4d
 file path=usr/share/man/man4d/kmdb.4d
 link path=usr/share/man/man4d/kmem.4d target=mem.4d
 file path=usr/share/man/man4d/llc1.4d

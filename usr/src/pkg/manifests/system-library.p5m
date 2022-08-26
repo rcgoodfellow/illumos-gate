@@ -715,6 +715,8 @@ link path=usr/lib/$(ARCH64)/libxnet.so \
     target=../../../lib/$(ARCH64)/libxnet.so.1
 link path=usr/lib/$(ARCH64)/libxnet.so.1 \
     target=../../../lib/$(ARCH64)/libxnet.so.1
+link path=usr/lib/$(ARCH64)/libxpio.so target=libxpio.so.1
+file path=usr/lib/$(ARCH64)/libxpio.so.1
 link path=usr/lib/$(ARCH64)/liby.so target=liby.so.1
 file path=usr/lib/$(ARCH64)/liby.so.1
 link path=usr/lib/$(ARCH64)/libzoneinfo.so target=./libzoneinfo.so.1
@@ -975,6 +977,8 @@ link path=usr/lib/libwrap.so.1 target=libwrap.so.1.0
 file path=usr/lib/libwrap.so.1.0
 link path=usr/lib/libxnet.so target=../../lib/libxnet.so.1
 link path=usr/lib/libxnet.so.1 target=../../lib/libxnet.so.1
+link path=usr/lib/libxpio.so target=libxpio.so.1
+file path=usr/lib/libxpio.so.1
 link path=usr/lib/liby.so target=./liby.so.1
 file path=usr/lib/liby.so.1
 link path=usr/lib/libzoneinfo.so target=./libzoneinfo.so.1

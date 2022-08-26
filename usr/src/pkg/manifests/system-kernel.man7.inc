@@ -12,7 +12,9 @@
 # Copyright 2011, Richard Lowe
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 
+link path=usr/share/man/man7/dpio.7 target=gpio.7
 file path=usr/share/man/man7/epoll.7
 file path=usr/share/man/man7/fsattr.7
+file path=usr/share/man/man7/gpio.7
 file path=usr/share/man/man7/ieee802.11.7
 file path=usr/share/man/man7/ieee802.3.7

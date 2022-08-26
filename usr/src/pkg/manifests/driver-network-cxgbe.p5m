@@ -29,6 +29,8 @@ file path=kernel/drv/$(ARCH64)/cxgbe group=sys
 file path=kernel/drv/$(ARCH64)/t4nex group=sys
 file path=kernel/drv/$(ARCH64)/t6mfg group=sys
 dir  path=usr group=sys
+dir  path=usr/bin
+file path=usr/bin/t6mfgadm mode=0555
 dir  path=usr/sbin
 file path=usr/sbin/cxgbetool mode=0555
 driver name=cxgbe perms="* 0666 root sys" clone_perms="cxgbe 0666 root sys"
