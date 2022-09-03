@@ -2399,7 +2399,7 @@ milan_fabric_init_pci_to(milan_ioms_t *ioms, void *arg)
  * messages are all set up correctly. XXX We're using lazy defaults of what the
  * system default has historically been here for some of these. We should test
  * and forcibly disable in hardware. Probably want to manipulate
- * IOHC::PCIE_VDM_CNTL2 at some point to beter figure out the VDM story. XXX
+ * IOHC::PCIE_VDM_CNTL2 at some point to better figure out the VDM story. XXX
  * Also, ARI entablement is being done earlier than otherwise because we want to
  * only touch this reg in one place if we can.
  */
@@ -4173,6 +4173,68 @@ milan_fabric_init_bridges(milan_pcie_bridge_t *bridge, void *arg)
 	milan_pcie_bridge_write(bridge, reg, val);
 
 	/*
+	 * Make sure the hardware knows the corresponding b/d/f for this bridge.
+	 */
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_TX_ID);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_TX_ID_SET_BUS(val, ioms->mio_pci_busno);
+	val = PCIE_PORT_TX_ID_SET_DEV(val, bridge->mpb_device);
+	val = PCIE_PORT_TX_ID_SET_FUNC(val, bridge->mpb_func);
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	/*
+	 * Next, we have to go through and set up a bunch of the lane controller
+	 * configuration controls for the individual bridge. These include
+	 * various settings around how idle transitions occur, how it replies to
+	 * certain messages, and related.
+	 */
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_CTL);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_LC_CTL_SET_L1_IMM_ACK(val, 1);
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_TRAIN_CTL);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_LC_TRAIN_CTL_SET_L0S_L1_TRAIN(val, 1);
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_WIDTH_CTL);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_LC_WIDTH_CTL_SET_DUAL_RECONFIG(val, 1);
+	val = PCIE_PORT_LC_WIDTH_CTL_SET_RENEG_EN(val, 1);
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_CTL2);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_LC_CTL2_SET_ELEC_IDLE(val,
+	    PCIE_PORT_LC_CTL2_ELEC_IDLE_M1);
+	/*
+	 * This is supposed to be set as part of some workaround for ports that
+	 * support at least PCIe Gen 3.0 speeds. As all supported platforms
+	 * (gimlet, Ethanol-X, etc.) always support that on the port unless this
+	 * is one of the WAFL related lanes, we always set this.
+	 */
+	if (port->mpp_portno != MILAN_IOMS_WAFL_PCIE_PORT) {
+		val = PCIE_PORT_LC_CTL2_SET_TS2_CHANGE_REQ(val,
+		    PCIE_PORT_LC_CTL2_TS2_CHANGE_128);
+	}
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_LC_CTL3);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_LC_CTL3_SET_DOWN_SPEED_CHANGE(val, 1);
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	/*
+	 * Lucky Hardware Debug 15. Why is it lucky? Because all we know is
+	 * we've been told to set it.
+	 */
+	reg = milan_pcie_bridge_reg(bridge, D_PCIE_PORT_HW_DBG);
+	val = milan_pcie_bridge_read(bridge, reg);
+	val = PCIE_PORT_HW_DBG_SET_DBG15(val, 1);
+	milan_pcie_bridge_write(bridge, reg, val);
+
+	/*
 	 * Software expects to see the PCIe slot implemented bit when a slot
 	 * actually exists. For us, this is basically anything that actually is
 	 * considered MAPPED. Set that now on the bridge.
@@ -4194,7 +4256,9 @@ milan_fabric_init_bridges(milan_pcie_bridge_t *bridge, void *arg)
  * This is a companion to milan_fabric_init_bidges, that operates on the PCIe
  * port level before we get to the individual bridge. This initialization
  * generally is required to ensure that each port (regardless of whether it's
- * hidden or not) is able to properly generate an all 1s response.
+ * hidden or not) is able to properly generate an all 1s response. In addition
+ * we have to take care of things like atomics, idling defaults, certain
+ * receiver completion buffer checks, etc.
  */
 static int
 milan_fabric_init_pcie_ports(milan_pcie_port_t *port, void *arg)
@@ -4215,6 +4279,43 @@ milan_fabric_init_pcie_ports(milan_pcie_port_t *port, void *arg)
 	val = milan_pcie_port_read(port, reg);
 	val = PCIE_CORE_SDP_CTL_SET_PORT_ID(val, port->mpp_sdp_port);
 	val = PCIE_CORE_SDP_CTL_SET_UNIT_ID(val, port->mpp_sdp_unit);
+	milan_pcie_port_write(port, reg, val);
+
+	/*
+	 * Ensure that RCB checking is what's seemingly expected.
+	 */
+	reg = milan_pcie_port_reg(port, D_PCIE_CORE_PCIE_CTL);
+	val = milan_pcie_port_read(port, reg);
+	val = PCIE_CORE_PCIE_CTL_SET_RCB_BAD_ATTR_DIS(val, 1);
+	val = PCIE_CORE_PCIE_CTL_SET_RCB_BAD_SIZE_DIS(val, 0);
+	milan_pcie_port_write(port, reg, val);
+
+	/*
+	 * Enabling atomics in the core requires a few different registers. Both
+	 * a strap has to be overridden and then corresponding control bits.
+	 */
+	reg = milan_pcie_port_reg(port, D_PCIE_CORE_STRAP_F0);
+	val = milan_pcie_port_read(port, reg);
+	val = PCIE_CORE_STRAP_F0_SET_ATOMIC_ROUTE(val, 1);
+	val = PCIE_CORE_STRAP_F0_SET_ATOMIC_EN(val, 1);
+	milan_pcie_port_write(port, reg, val);
+
+	reg = milan_pcie_port_reg(port, D_PCIE_CORE_PCIE_CTL2);
+	val = milan_pcie_port_read(port, reg);
+	val = PCIE_CORE_PCIE_CTL2_TX_ATOMIC_ORD_DIS(val, 1);
+	val = PCIE_CORE_PCIE_CTL2_TX_ATOMIC_OPS_DIS(val, 0);
+	milan_pcie_port_write(port, reg, val);
+
+	/*
+	 * Ensure the correct electrical idle mode detection is set. In
+	 * addition, it's been recommended we ignore the K30.7 EDB (EnD Bad)
+	 * special symbol errors.
+	 */
+	reg = milan_pcie_port_reg(port, D_PCIE_CORE_PCIE_P_CTL);
+	val = milan_pcie_port_read(port, reg);
+	val = PCIE_CORE_PCIE_P_CTL_SET_ELEC_IDLE(val,
+	    PCIE_CORE_PCIE_P_CTL_ELEC_IDLE_M1);
+	val = PCIE_CORE_PCIE_P_CTL_SET_IGN_EDB_ERR(val, 1);
 	milan_pcie_port_write(port, reg, val);
 
 	/*
@@ -4298,7 +4399,7 @@ milan_fabric_hack_bridges(milan_fabric_t *fabric)
 
 /*
  * If this assertion fails, fix the definition in dxio_impl.h or increase the
- * size of the configuous mapping below.
+ * size of the contiguous mapping below.
  */
 CTASSERT(sizeof (smu_hotplug_table_t) <= MMU_PAGESIZE);
 
@@ -4529,8 +4630,8 @@ milan_hotplug_bridge_init(milan_pcie_bridge_t *bridge, void *arg)
 	 * Go through and set up the slot capabilities register. In our case
 	 * we've already filtered out the non-hotplug capable bridges. To
 	 * determine the set of hotplug features that should be set here we
-	 * derive that from the acutal hoptlug entities. Because one is required
-	 * to give the SMU a list of functions to mask, the umasked bits tells
+	 * derive that from the actual hoptlug entities. Because one is required
+	 * to give the SMU a list of functions to mask, the unmasked bits tells
 	 * us what to enable as features here.
 	 */
 	slot_mask = PCIE_SLOTCAP_ATTN_BUTTON | PCIE_SLOTCAP_POWER_CONTROLLER |

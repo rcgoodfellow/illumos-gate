@@ -135,6 +135,19 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 }
 
 /*
+ * PCIEPORT::PCIEP_HW_DEBUG - A bunch of mysterious bits that are used to
+ * correct or override various hardware behaviors presumably.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_HW_DBG	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x08	\
+}
+#define	PCIE_PORT_HW_DBG(n, p, b)	\
+    milan_pcie_port_smn_reg(n, D_PCIE_PORT_HW_DBG, p, b)
+#define	PCIE_PORT_HW_DBG_SET_DBG15(r, v)	bitset32(r, 15, 15, v)
+
+/*
  * PCIEPORT::PCIEP_PORT_CNTL - General PCIe port controls. This is a register
  * that exists in 'Port Space' and is specific to a bridge.
  */
@@ -162,6 +175,34 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 #define	PCIE_PORT_TX_CTL_SET_TLP_FLUSH_DOWN_DIS(r, v)	bitset32(r, 15, 15, v)
 
 /*
+ * PCIEPORT::PCIE_TX_REQUESTER_ID - Encodes information about the bridge's PCI
+ * b/d/f.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_TX_ID	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x84	\
+}
+#define	PCIE_PORT_TX_ID(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_TX_ID, (p), (b))
+#define	PCIE_PORT_TX_ID_SET_BUS(r, v)	bitset32(r, 15, 8, v)
+#define	PCIE_PORT_TX_ID_SET_DEV(r, v)	bitset32(r, 7, 3, v)
+#define	PCIE_PORT_TX_ID_SET_FUNC(r, v)	bitset32(r, 2, 0, v)
+
+/*
+ * PCIEPORT::PCIE_LC_CNTL - The first of several link controller control
+ * registers.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_CTL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x280	\
+}
+#define	PCIE_PORT_LC_CTL(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_CTL, (p), (b))
+#define	PCIE_PORT_LC_CTL_SET_L1_IMM_ACK(r, v)	bitset32(r, 23, 23, v)
+
+/*
  * PCIEPORT::PCIE_LC_TRAINING_CNTL - Port Link Training Control. This register
  * seems to control some amount of the general aspects of link training.
  */
@@ -173,6 +214,164 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 #define	PCIE_PORT_LC_TRAIN_CTL(n, p, b)	\
     milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_TRAIN_CTL, (p), (b))
 #define	PCIE_PORT_LC_TRAIN_CTL_SET_TRAIN_DIS(r, v)	bitset32(r, 13, 13, v)
+#define	PCIE_PORT_LC_TRAIN_CTL_SET_L0S_L1_TRAIN(r, v)	bitset32(r, 6, 6, v)
+
+/*
+ * PCIEPORT::PCIE_LC_LINK_WIDTH_CNTL - Port Link Width Control Register. This
+ * register is used as part of controlling the width during training.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_WIDTH_CTL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x288	\
+}
+#define	PCIE_PORT_LC_WIDTH_CTL(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_WIDTH_CTL, (p), (b))
+#define	PCIE_PORT_LC_WIDTH_CTL_SET_DUAL_RECONFIG(r, v)	bitset32(r, 19, 19, v)
+#define	PCIE_PORT_LC_WIDTH_CTL_SET_RENEG_EN(r, v)	bitset32(r, 10, 10, v)
+
+/*
+ * PCIEPORT::PCIE_LC_SPEED_CNTL - Link speed control register. This is used to
+ * see what has happened with training and could in theory be used to control
+ * things. This is generally used for observability / debugging.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_SPEED_CTL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x290	\
+}
+#define	PCIE_PORT_LC_SPEED_CTL(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_SPEED_CTL, (p), (b))
+#define	PCIE_PORT_LC_SPEED_CTL_GET_L1_NEG_EN(r)		bitx(r, 31, 31)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_L0S_NEG_EN(r)	bitx(r, 30, 30)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_UPSTREAM_AUTO(r)	bitx(r, 29, 29)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_CHECK_RATE(r)	bitx(r, 28, 28)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_ADV_RATE(r)		bitx(r, 27, 26)
+#define	PCIE_PORT_LC_SPEED_CTL_ADV_RATE_2P5	0
+#define	PCIE_PORT_LC_SPEED_CTL_ADV_RATE_5P0	1
+#define	PCIE_PORT_LC_SPEED_CTL_ADV_RATE_8P0	2
+#define	PCIE_PORT_LC_SPEED_CTL_ADV_RATE_16P0	3
+#define	PCIE_PORT_LC_SPEED_CTL_GET_SPEED_CHANGE(r)	bitx(r, 25, 25)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_REM_SUP_GEN4(r)	bitx(r, 24, 24)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_REM_SENT_GEN4(r)	bitx(r, 23, 23)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_REM_SUP_GEN3(r)	bitx(r, 22, 22)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_REM_SENT_GEN3(r)	bitx(r, 21, 21)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_REM_SUP_GEN2(r)	bitx(r, 20, 20)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_REM_SENT_GEN2(r)	bitx(r, 19, 19)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_PART_TS2_EN(r)	bitx(r, 18, 18)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_NO_CLEAR_FAIL(r)	bitx(r, 16, 16)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_CUR_RATE(r)		bitx(r, 15, 14)
+#define	PCIE_PORT_LC_SPEED_CTL_CUR_RATE_2P5	0
+#define	PCIE_PORT_LC_SPEED_CTL_CUR_RATE_5P0	1
+#define	PCIE_PORT_LC_SPEED_CTL_CUR_RATE_8P0	2
+#define	PCIE_PORT_LC_SPEED_CTL_CUR_RATE_16P0	3
+#define	PCIE_PORT_LC_SPEED_CTL_GET_CHANGE_FAILED(r)	bitx(r, 13, 13)
+#define	PCIE_PORT_LC_SPEED_CTL_GET_MAX_ATTEMPTS(r)	bitx(r, 12, 11)
+#define	PCIE_PORT_LC_SPEED_CTL_MAX_ATTEMPTS_BASE	1
+#define	PCIE_PORT_LC_SPEED_CTL_GET_OVR_RATE(r)		bitx(r, 5, 4)
+#define	PCIE_PORT_LC_SPEED_CTL_OVR_RATE_2P5	0
+#define	PCIE_PORT_LC_SPEED_CTL_OVR_RATE_5P0	1
+#define	PCIE_PORT_LC_SPEED_CTL_OVR_RATE_8P0	2
+#define	PCIE_PORT_LC_SPEED_CTL_OVR_RATE_16P0	3
+#define	PCIE_PORT_LC_SPEED_CTL_GET_OVR_EN(r)		bitx(r, 3, 3)
+
+/*
+ * PCIEPORT::PCIE_LC_STATE0 - Link Controller State 0 register. All the various
+ * Link Controller state registers follow the same pattern, just keeping older
+ * and older things in them. That is, you can calculate a given state by
+ * multiplying the register number by four. Unfortunately, the meanings of the
+ * states are more unknown, but we have reason to expect that at least 0x10 is
+ * one of several successful training states.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_STATE0	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x294	\
+}
+#define	PCIE_PORT_LC_STATE0(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_STATE0, (p), (b))
+#define	PCIE_PORT_LC_STATE_GET_PREV3(r)		bitx32(r, 29, 24)
+#define	PCIE_PORT_LC_STATE_GET_PREV2(r)		bitx32(r, 21, 16)
+#define	PCIE_PORT_LC_STATE_GET_PREV1(r)		bitx32(r, 13, 8)
+#define	PCIE_PORT_LC_STATE_GET_CUR(r)		bitx32(r, 5, 0)
+
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_STATE1	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x298	\
+}
+#define	PCIE_PORT_LC_STATE1(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_STATE1, (p), (b))
+
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_STATE2	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x29c	\
+}
+#define	PCIE_PORT_LC_STATE2(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_STATE2, (p), (b))
+
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_STATE3	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x2a0	\
+}
+#define	PCIE_PORT_LC_STATE3(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_STATE3, (p), (b))
+
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_STATE4	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x2a4	\
+}
+#define	PCIE_PORT_LC_STATE4(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_STATE4, (p), (b))
+
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_STATE5	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x2a8	\
+}
+#define	PCIE_PORT_LC_STATE5(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_STATE5, (p), (b))
+
+/*
+ * PCIEPORT::PCIE_LC_CNTL2 - Port Link Control Register 2.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_CTL2	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x2c4	\
+}
+#define	PCIE_PORT_LC_CTL2(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_CTL2, (p), (b))
+#define	PCIE_PORT_LC_CTL2_SET_ELEC_IDLE(r, v)	bitset32(r, 15, 14, v)
+/*
+ * These all have the same values as the corresponding
+ * PCIE_CORE_PCIE_P_CTL_ELEC_IDLE_<num> values.
+ */
+#define	PCIE_PORT_LC_CTL2_ELEC_IDLE_M0	0
+#define	PCIE_PORT_LC_CTL2_ELEC_IDLE_M1	1
+#define	PCIE_PORT_LC_CTL2_ELEC_IDLE_M2	2
+#define	PCIE_PORT_LC_CTL2_ELEC_IDLE_M3	3
+#define	PCIE_PORT_LC_CTL2_SET_TS2_CHANGE_REQ(r, v)	bitset32(r, 8, 8, v)
+#define	PCIE_PORT_LC_CTL2_TS2_CHANGE_16		0
+#define	PCIE_PORT_LC_CTL2_TS2_CHANGE_128	1
+
+/*
+ * PCIEPORT::PCIE_LC_CNTL3 - Port Link Control Register 3. This isn't the last
+ * of these and is a bunch of different settings.
+ */
+/*CSTYLED*/
+#define	D_PCIE_PORT_LC_CTL3	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_PORT,	\
+	.srd_reg = 0x2d4	\
+}
+#define	PCIE_PORT_LC_CTL3(n, p, b)	\
+    milan_pcie_port_smn_reg((n), D_PCIE_PORT_LC_CTL3, (p), (b))
+#define	PCIE_PORT_LC_CTL3_SET_DOWN_SPEED_CHANGE(r, v)	bitset32(r, 12, 12, v)
+#define	PCIE_PORT_LC_CTL3_RCVR_DET_OVR(r, v)		bitset32(r, 11, 11, v)
+#define	PCIE_PORT_LC_CTL3_ENH_HP_EN(r, v)		bitset32(r, 10, 10, v)
 
 /*
  * PCIEPORT::PCIE_LC_CNTL5 - Port Link Control Register 5. There are several
@@ -203,6 +402,37 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 #define	PCIE_PORT_HP_CTL_SET_SLOT(r, v)		bitset32(r, 5, 0, v)
 
 /*
+ * PCIECORE::PCIE_CNTL - PCIe port level controls, generally around reordering,
+ * error reporting, and additional fields.
+ */
+/*CSTYLED*/
+#define	D_PCIE_CORE_PCIE_CTL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_CORE,	\
+	.srd_reg = 0x40	\
+}
+#define	PCIE_CORE_PCIE_CTL(n, p)	\
+    milan_pcie_core_smn_reg((n), D_PCIE_CORE_PCIE_CTL, (p))
+#define	PCIE_CORE_PCIE_CTL_SET_RCB_BAD_FUNC_DIS(r, v)	bitset32(r, 22, 22, v)
+#define	PCIE_CORE_PCIE_CTL_SET_RCB_BAD_ATTR_DIS(r, v)	bitset32(r, 21, 21, v)
+#define	PCIE_CORE_PCIE_CTL_SET_RCB_BAD_PREFIX_DIS(r, v)	bitset32(r, 20, 20, v)
+#define	PCIE_CORE_PCIE_CTL_SET_RCB_BAD_SIZE_DIS(r, v)	bitset32(r, 17, 17, v)
+#define	PCIE_CORE_PCIE_CTL_SET_HW_LOCK(r, v)		bitset32(r, 0, 0, v)
+
+/*
+ * PCIECORE::PCIE_CNTL2 - Additional PCIe port level controls. Covers power,
+ * atomics, and some amount of transmit.
+ */
+/*CSTYLED*/
+#define	D_PCIE_CORE_PCIE_CTL2	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_CORE,	\
+	.srd_reg = 0x70	\
+}
+#define	PCIE_CORE_PCIE_CTL2(n, p)	\
+    milan_pcie_core_smn_reg((n), D_PCIE_CORE_PCIE_CTL2, (p))
+#define	PCIE_CORE_PCIE_CTL2_TX_ATOMIC_ORD_DIS(r, v)	bitset32(r, 14, 14, v)
+#define	PCIE_CORE_PCIE_CTL2_TX_ATOMIC_OPS_DIS(r, v)	bitset32(r, 13, 13, v)
+
+/*
  * PCIECORE::PCIE_CI_CNTL - PCIe Port level TX controls. Note, this register is
  * in 'core' space and is specific to the overall milan_pcie_port_t, as opposed
  * to the bridge. XXX Add in other bits.
@@ -219,6 +449,41 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
 #define	PCIE_CORE_CI_CTL_SET_LINK_DOWN_CTO_EN(r, v)	bitset32(r, 29, 29, v)
 
 /*
+ * PCIECORE::PCIE_P_CNTL - Various controls around the phy.
+ */
+/*CSTYLED*/
+#define	D_PCIE_CORE_PCIE_P_CTL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_CORE,	\
+	.srd_reg = 0x100	\
+}
+#define	PCIE_CORE_PCIE_P_CTL(n, p)	\
+    milan_pcie_core_smn_reg((n), D_PCIE_CORE_PCIE_P_CTL, (p))
+#define	PCIE_CORE_PCIE_P_CTL_SET_ELEC_IDLE(r, v)	bitset32(r, 15, 14, v)
+/*
+ * 2.5G Entry uses phy detector.
+ * 5.0+ Entry uses inference logic
+ * Exit always uses phy detector
+ */
+#define	PCIE_CORE_PCIE_P_CTL_ELEC_IDLE_M0	0
+/*
+ * Electrical idle always uses inference logic, exit always uses phy.
+ */
+#define	PCIE_CORE_PCIE_P_CTL_ELEC_IDLE_M1	1
+/*
+ * Electrical idle entry/exit always uses phy detector
+ */
+#define	PCIE_CORE_PCIE_P_CTL_ELEC_IDLE_M2	2
+/*
+ * 8.0+ entry uses inference, everything else uses phy detector
+ */
+#define	PCIE_CORE_PCIE_P_CTL_ELEC_IDLE_M3	3
+#define	PCIE_CORE_PCIE_P_CTL_SET_IGN_TOK_ERR(r, v)	bitset32(r, 8, 8, v)
+#define	PCIE_CORE_PCIE_P_CTL_SET_IGN_IDL_ERR(r, v)	bitset32(r, 7, 7, v)
+#define	PCIE_CORE_PCIE_P_CTL_SET_IGN_EDB_ERR(r, v)	bitset32(r, 6, 6, v)
+#define	PCIE_CORE_PCIE_P_CTL_SET_IGN_LEN_ERR(r, v)	bitset32(r, 5, 5, v)
+#define	PCIE_CORE_PCIE_P_CTL_SET_IGN_CRC_ERR(r, v)	bitset32(r, 4, 4, v)
+
+/*
  * PCIECORE::PCIE_SDP_CTRL - PCIe port SDP Control. This register seems to be
  * used to tell the system how to map a given port to the data fabric and
  * related.
@@ -232,6 +497,22 @@ milan_pcie_port_smn_reg(const uint8_t iomsno, const smn_reg_def_t def,
     milan_pcie_core_smn_reg((n), D_PCIE_CORE_SDP_CTL, (p))
 #define	PCIE_CORE_SDP_CTL_SET_PORT_ID(r, v)	bitset32(r, 28, 26, v)
 #define	PCIE_CORE_SDP_CTL_SET_UNIT_ID(r, v)	bitset32(r, 3, 0, v)
+
+/*
+ * PCIECORE::PCIE_STRAP_F0 - PCIe Strap registers for function 0. As this
+ * register is in the core, it's a little unclear if function 0 here refers to
+ * the dummy device that is usually found on function 0, for the actual root
+ * complex itself, or something else.
+ */
+/*CSTYLED*/
+#define	D_PCIE_CORE_STRAP_F0	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_PCIE_CORE,	\
+	.srd_reg = 0x2c0	\
+}
+#define	PCIE_CORE_STRAP_F0(n, p)	\
+    milan_pcie_core_smn_reg((n), D_PCIE_CORE_STRAP_F0, (p))
+#define	PCIE_CORE_STRAP_F0_SET_ATOMIC_ROUTE(r, v)	bitset32(r, 20, 20, v)
+#define	PCIE_CORE_STRAP_F0_SET_ATOMIC_EN(r, v)		bitset32(r, 18, 18, v)
 
 /*
  * PCIECORE::SWRST_CONTROL_6 - PCIe Software Reset Control #6. This is in 'Core
