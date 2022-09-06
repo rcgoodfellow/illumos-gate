@@ -4564,6 +4564,61 @@ milan_hotplug_bridge_features(milan_pcie_bridge_t *bridge)
 }
 
 /*
+ * At this point we have finished telling the SMU and its hotplug system to get
+ * started. In particular, there are a few things that we do to try and
+ * synchronize the PCIe slot and the SMU state, because they are not the same.
+ * In particular, we have reason to believe that without a write to the slot
+ * control register, the SMU will not write to the GPIO expander and therefore
+ * all the outputs will remain at their hardware device's default. The most
+ * important part of this is to ensure that we put the slot's power into a
+ * defined state.
+ */
+static int
+milan_hotplug_bridge_post_start(milan_pcie_bridge_t *bridge, void *arg)
+{
+	uint16_t ctl, sts;
+	milan_ioms_t *ioms = bridge->mpb_port->mpp_ioms;
+
+	sts = pci_getw_func(ioms->mio_pci_busno, bridge->mpb_device,
+	    bridge->mpb_func, MILAN_BRIDGE_R_PCI_SLOT_STS);
+
+	/*
+	 * At this point, surprisingly enough, it is expected that all the
+	 * notification and fault detection bits be turned on at the SMU as part
+	 * of turning on and off the slot. This is a little surprising. Power
+	 * was one thing, but at this point it expects to have hotplug
+	 * interrupts enabled and all the rest of the features that the hardware
+	 * supports (e.g. no MRL sensor changed). Note, we have explicitly left
+	 * out setting the following that it does:
+	 *
+	 *   o The power indicator to on when a device is present
+	 */
+	ctl = pci_getw_func(ioms->mio_pci_busno, bridge->mpb_device,
+	    bridge->mpb_func, MILAN_BRIDGE_R_PCI_SLOT_CTL);
+	ctl |= PCIE_SLOTCTL_ATTN_BTN_EN;
+	ctl |= PCIE_SLOTCTL_PWR_FAULT_EN;
+	ctl |= PCIE_SLOTCTL_PRESENCE_CHANGE_EN;
+	ctl |= PCIE_SLOTCTL_HP_INTR_EN;
+
+	/*
+	 * Finally we need to initialize the power state based on slot presence
+	 * at this time. Reminder: slot power is enabled when the bit is zero.
+	 * It is possible that this may still be creating a race downstream of
+	 * this, but in that case, that'll be on the pcieb hotplug logic rather
+	 * than us to set up that world here.
+	 */
+	if ((sts & PCIE_SLOTSTS_PRESENCE_DETECTED) != 0) {
+		ctl &= ~PCIE_SLOTCTL_PWR_CONTROL;
+	} else {
+		ctl |= PCIE_SLOTCTL_PWR_CONTROL;
+	}
+	pci_putw_func(ioms->mio_pci_busno, bridge->mpb_device,
+	    bridge->mpb_func, MILAN_BRIDGE_R_PCI_SLOT_CTL, ctl);
+
+	return (0);
+}
+
+/*
  * At this point we need to go through and prep all hotplug-capable bridges.
  * This means setting up the following:
  *
@@ -4579,7 +4634,8 @@ milan_hotplug_bridge_init(milan_pcie_bridge_t *bridge, void *arg)
 	smn_reg_t reg;
 	uint32_t val;
 	uint32_t slot_mask;
-	milan_ioms_t *ioms = bridge->mpb_port->mpp_ioms;
+	milan_pcie_port_t *port = bridge->mpb_port;
+	milan_ioms_t *ioms = port->mpp_ioms;
 
 	/*
 	 * Skip over all non-hotplug slots and the simple presence mode. Though
@@ -4650,6 +4706,17 @@ milan_hotplug_bridge_init(milan_pcie_bridge_t *bridge, void *arg)
 	pci_putl_func(ioms->mio_pci_busno, bridge->mpb_device,
 	    bridge->mpb_func, MILAN_BRIDGE_R_PCI_SLOT_CAP, val);
 
+	/*
+	 * Finally we need to go through and unblock training now that we've set
+	 * everything else on the slot. Note, this is done before we tell the
+	 * SMU about hotplug configuration, so strictly speaking devices will
+	 * unlikely start suddenly training.
+	 */
+	reg = milan_pcie_port_reg(port, D_PCIE_CORE_SWRST_CTL6);
+	val = milan_pcie_port_read(port, reg);
+	val = bitset32(val, bridge->mpb_bridgeno, bridge->mpb_bridgeno, 0);
+	milan_pcie_port_write(port, reg, val);
+
 	return (0);
 }
 
@@ -4673,13 +4740,6 @@ milan_hotplug_port_init(milan_pcie_port_t *port, void *arg)
 	if ((port->mpp_flags & MILAN_PCIE_PORT_F_HAS_HOTPLUG) == 0) {
 		return (0);
 	}
-
-	/*
-	 * While there are reserved bits in this register, it appears that
-	 * reserved bits are ignored and always set to zero.
-	 */
-	reg = milan_pcie_port_reg(port, D_PCIE_CORE_SWRST_CTL6);
-	milan_pcie_port_write(port, reg, 0);
 
 	reg = milan_pcie_port_reg(port, D_PCIE_CORE_PRES);
 	val = milan_pcie_port_read(port, reg);
@@ -4796,9 +4856,12 @@ milan_hotplug_init(milan_fabric_t *fabric)
 	}
 
 	/*
-	 * XXX We should probably reset the slot a little bit before we end up
-	 * handing things over to others.
+	 * Now that this is done, we need to go back through and do some final
+	 * pieces of slot initialization which are probably necessary to get the
+	 * SMU into the same place as we are with everything else.
 	 */
+	(void) milan_fabric_walk_bridge(fabric, milan_hotplug_bridge_post_start,
+	    NULL);
 
 	return (B_TRUE);
 }
