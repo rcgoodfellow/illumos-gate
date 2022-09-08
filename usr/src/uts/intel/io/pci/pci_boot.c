@@ -70,6 +70,17 @@
  *				property on the ppb device. Later, as children
  *				are found for this bridge, resources will be
  *				removed from these avail lists as necessary.
+ *
+ *				If the IO or memory ranges have not been
+ *				programmed by this point, indicated by the
+ *				appropriate bit in the control register being
+ *				unset or, in the memory case only, by the base
+ *				address being 0, then the range is explicitly
+ *				disabled here by setting base > limit for
+ *				the resource. The reason that the base address
+ *				is not checked for the IO case is that a zero
+ *				address is technically valid there.
+ *
  *				This is an initial pass so the ppb devices can
  *				still be reprogrammed later in fix_ppb_res().
  *		    <else>
@@ -3045,7 +3056,7 @@ add_ppb_props(dev_info_t *dip, uchar_t bus, uchar_t dev, uchar_t func,
 {
 	char *dev_type;
 	int i;
-	uint_t val;
+	uint_t val, cmd_reg;
 	uint64_t io_range[2], mem_range[2], pmem_range[2];
 	uchar_t secbus = pci_getb(bus, dev, func, PCI_BCNF_SECBUS);
 	uchar_t subbus = pci_getb(bus, dev, func, PCI_BCNF_SUBBUS);
@@ -3122,6 +3133,8 @@ add_ppb_props(dev_info_t *dip, uchar_t bus, uchar_t dev, uchar_t func,
 	 * prefetchable memory.
 	 */
 
+	cmd_reg = (uint_t)pci_getw(bus, dev, func, PCI_CONF_COMM);
+
 	/*
 	 * io range
 	 * We determine i/o windows that are left unconfigured by BIOS
@@ -3129,8 +3142,7 @@ add_ppb_props(dev_info_t *dip, uchar_t bus, uchar_t dev, uchar_t func,
 	 * If it is unset, we disable i/o and mark it for reconfiguration in
 	 * later passes by setting the base > limit
 	 */
-	val = (uint_t)pci_getw(bus, dev, func, PCI_CONF_COMM);
-	if (val & PCI_COMM_IO) {
+	if (cmd_reg & PCI_COMM_IO) {
 		val = (uint_t)pci_getb(bus, dev, func, PCI_BCNF_IO_LIMIT_LOW);
 		io_range[1]  = ((val & PCI_BCNF_IO_MASK) << PCI_BCNF_IO_SHIFT) |
 		    0xfff;
@@ -3176,7 +3188,17 @@ add_ppb_props(dev_info_t *dip, uchar_t bus, uchar_t dev, uchar_t func,
 	val = (uint_t)pci_getw(bus, dev, func, PCI_BCNF_MEM_LIMIT);
 	mem_range[1] = ((val & PCI_BCNF_MEM_MASK) << PCI_BCNF_MEM_SHIFT) |
 	    0xfffff;
-	if (mem_range[0] != 0 && mem_range[0] < mem_range[1]) {
+
+	if ((cmd_reg & PCI_COMM_MAE) == 0 || mem_range[0] == 0) {
+		mem_range[0] = 0x9ff00000;
+		mem_range[1] = 0x100fffff;
+		pci_putw(bus, dev, func, PCI_BCNF_MEM_BASE,
+		    (uint16_t)((mem_range[0] >> PCI_BCNF_MEM_SHIFT) &
+		    PCI_BCNF_MEM_MASK));
+		pci_putw(bus, dev, func, PCI_BCNF_MEM_LIMIT,
+		    (uint16_t)((mem_range[1] >> PCI_BCNF_MEM_SHIFT) &
+		    PCI_BCNF_MEM_MASK));
+	} else if (mem_range[0] < mem_range[1]) {
 		memlist_insert(&pci_bus_res[secbus].mem_avail,
 		    mem_range[0], mem_range[1] - mem_range[0] + 1);
 		memlist_insert(&pci_bus_res[bus].mem_used,
@@ -3203,7 +3225,19 @@ add_ppb_props(dev_info_t *dip, uchar_t bus, uchar_t dev, uchar_t func,
 		pmem_range[0] |= (uint64_t)pf_addr_hi << 32;
 		pmem_range[1] |= (uint64_t)pf_limit_hi << 32;
 	}
-	if (pmem_range[0] != 0 && pmem_range[0] < pmem_range[1]) {
+
+	if ((cmd_reg & PCI_COMM_MAE) == 0 || pmem_range[0] == 0) {
+		pmem_range[0] = 0x9ff00000;
+		pmem_range[1] = 0x100fffff;
+		pci_putw(bus, dev, func, PCI_BCNF_PF_BASE_LOW,
+		    (uint16_t)((pmem_range[0] >> PCI_BCNF_MEM_SHIFT) &
+		    PCI_BCNF_MEM_MASK));
+		pci_putw(bus, dev, func, PCI_BCNF_PF_LIMIT_LOW,
+		    (uint16_t)((mem_range[1] >> PCI_BCNF_MEM_SHIFT) &
+		    PCI_BCNF_MEM_MASK));
+		pci_putw(bus, dev, func, PCI_BCNF_PF_BASE_HIGH, 0);
+		pci_putw(bus, dev, func, PCI_BCNF_PF_LIMIT_HIGH, 0);
+	} else if (pmem_range[0] < pmem_range[1]) {
 		memlist_insert(&pci_bus_res[secbus].pmem_avail,
 		    pmem_range[0], pmem_range[1] - pmem_range[0] + 1);
 		memlist_insert(&pci_bus_res[bus].pmem_used,
