@@ -1153,6 +1153,36 @@ milan_nbif_func_write(milan_nbif_func_t *func, const smn_reg_t reg,
 	milan_smn_write(func->mne_nbif->mn_ioms->mio_iodie, reg, val);
 }
 
+smn_reg_t
+milan_iodie_reg(const milan_iodie_t *const iodie, const smn_reg_def_t def,
+    const uint16_t reginst)
+{
+	smn_reg_t reg;
+
+	switch (def.srd_unit) {
+	case SMN_UNIT_SMU_RPC:
+		reg = milan_smu_smn_reg(0, def, reginst);
+		break;
+	default:
+		cmn_err(CE_PANIC, "invalid SMN register type %d for IO die",
+		    def.srd_unit);
+	}
+
+	return (reg);
+}
+
+uint32_t
+milan_iodie_read(milan_iodie_t *iodie, const smn_reg_t reg)
+{
+	return (milan_smn_read(iodie, reg));
+}
+
+void
+milan_iodie_write(milan_iodie_t *iodie, const smn_reg_t reg, const uint32_t val)
+{
+	milan_smn_write(iodie, reg, val);
+}
+
 milan_ioms_flag_t
 milan_ioms_flags(const milan_ioms_t *ioms)
 {
@@ -1323,21 +1353,21 @@ milan_smu_rpc(milan_iodie_t *iodie, milan_smu_rpc_t *rpc)
 	uint32_t resp;
 
 	mutex_enter(&iodie->mi_smu_lock);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_RESP, MILAN_SMU_RPC_NOTDONE);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG0, rpc->msr_arg0);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG1, rpc->msr_arg1);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG2, rpc->msr_arg2);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG3, rpc->msr_arg3);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG4, rpc->msr_arg4);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_ARG5, rpc->msr_arg5);
-	milan_smn_write(iodie, MILAN_SMU_SMN_RPC_REQ, rpc->msr_req);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_RESP(), MILAN_SMU_RPC_NOTDONE);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_ARG0(), rpc->msr_arg0);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_ARG1(), rpc->msr_arg1);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_ARG2(), rpc->msr_arg2);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_ARG3(), rpc->msr_arg3);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_ARG4(), rpc->msr_arg4);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_ARG5(), rpc->msr_arg5);
+	milan_iodie_write(iodie, MILAN_SMU_RPC_REQ(), rpc->msr_req);
 
 	/*
 	 * XXX Infinite spins are bad, but we don't even have drv_usecwait yet.
 	 * When we add a timeout this should then return an int.
 	 */
 	for (;;) {
-		resp = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_RESP);
+		resp = milan_iodie_read(iodie, MILAN_SMU_RPC_RESP());
 		if (resp != MILAN_SMU_RPC_NOTDONE) {
 			break;
 		}
@@ -1345,12 +1375,12 @@ milan_smu_rpc(milan_iodie_t *iodie, milan_smu_rpc_t *rpc)
 
 	rpc->msr_resp = resp;
 	if (rpc->msr_resp == MILAN_SMU_RPC_OK) {
-		rpc->msr_arg0 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG0);
-		rpc->msr_arg1 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG1);
-		rpc->msr_arg2 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG2);
-		rpc->msr_arg3 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG3);
-		rpc->msr_arg4 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG4);
-		rpc->msr_arg5 = milan_smn_read(iodie, MILAN_SMU_SMN_RPC_ARG5);
+		rpc->msr_arg0 = milan_iodie_read(iodie, MILAN_SMU_RPC_ARG0());
+		rpc->msr_arg1 = milan_iodie_read(iodie, MILAN_SMU_RPC_ARG1());
+		rpc->msr_arg2 = milan_iodie_read(iodie, MILAN_SMU_RPC_ARG2());
+		rpc->msr_arg3 = milan_iodie_read(iodie, MILAN_SMU_RPC_ARG3());
+		rpc->msr_arg4 = milan_iodie_read(iodie, MILAN_SMU_RPC_ARG4());
+		rpc->msr_arg5 = milan_iodie_read(iodie, MILAN_SMU_RPC_ARG5());
 	}
 	mutex_exit(&iodie->mi_smu_lock);
 }

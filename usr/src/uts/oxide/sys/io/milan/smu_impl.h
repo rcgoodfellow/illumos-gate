@@ -20,7 +20,11 @@
  * Definitions for the System Management Unit (SMU), which is probably the same
  * thing as the hidden core called MP1 in some documentation.  Its
  * responsibilities are mainly power and thermal management, but it also manages
- * the DXIO subsystem and PCIe hotplug.
+ * the DXIO subsystem and PCIe hotplug.  The SMN regions used by the SMU are not
+ * well documented and we make some conservative guesses about how its address
+ * space is used.  We do know for certain that some of the individual
+ * register/mailbox addresses are specific to processor families so we're also
+ * conservative with the namespace.
  */
 
 #include <sys/bitext.h>
@@ -32,26 +36,19 @@ extern "C" {
 #endif
 
 /*
- * SMN addresses to reach the SMU for RPCs.
+ * SMN addresses to reach the SMU for RPCs.  There is only ever one SMU per
+ * node, so unit numbers aren't meaningful.  All registers have a single
+ * instance only.
  */
-#define	MILAN_SMU_SMN_RPC_REQ	SMN_MAKE_REG(0x3b10530)
-#define	MILAN_SMU_SMN_RPC_RESP	SMN_MAKE_REG(0x3b1057c)
-#define	MILAN_SMU_SMN_RPC_ARG0	SMN_MAKE_REG(0x3b109c4)
-#define	MILAN_SMU_SMN_RPC_ARG1	SMN_MAKE_REG(0x3b109c8)
-#define	MILAN_SMU_SMN_RPC_ARG2	SMN_MAKE_REG(0x3b109cc)
-#define	MILAN_SMU_SMN_RPC_ARG3	SMN_MAKE_REG(0x3b109d0)
-#define	MILAN_SMU_SMN_RPC_ARG4	SMN_MAKE_REG(0x3b109d4)
-#define	MILAN_SMU_SMN_RPC_ARG5	SMN_MAKE_REG(0x3b109d8)
+AMDZEN_MAKE_SMN_REG_FN(milan_smu_smn_reg, SMU_RPC,
+    0x3b10000, 0xfffff000, 1, 0);
 
-/*
- * SMU RPC Response codes
- */
-#define	MILAN_SMU_RPC_NOTDONE	0x00
-#define	MILAN_SMU_RPC_OK	0x01
-#define	MILAN_SMU_RPC_EBUSY	0xfc
-#define	MILAN_SMU_RPC_EPREREQ	0xfd
-#define	MILAN_SMU_RPC_EUNKNOWN	0xfe
-#define	MILAN_SMU_RPC_ERROR	0xff
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_REQ	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x530,		\
+}
+#define	MILAN_SMU_RPC_REQ()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_REQ, 0)
 
 /*
  * SMU RPC Operation Codes. Note, these are tied to firmware and therefore may
@@ -91,6 +88,65 @@ extern "C" {
 #define	MILAN_SMU_OP_SET_EDC_TRACK	0x45
 #define	MILAN_SMU_OP_SET_DF_IRRITATOR	0x46
 #define	MILAN_SMU_OP_HAVE_A_HP_ADDRESS	0x47
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_RESP	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x57c,		\
+}
+#define	MILAN_SMU_RPC_RESP()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_RESP, 0)
+
+/*
+ * SMU RPC Response codes
+ */
+#define	MILAN_SMU_RPC_NOTDONE	0x00
+#define	MILAN_SMU_RPC_OK	0x01
+#define	MILAN_SMU_RPC_EBUSY	0xfc
+#define	MILAN_SMU_RPC_EPREREQ	0xfd
+#define	MILAN_SMU_RPC_EUNKNOWN	0xfe
+#define	MILAN_SMU_RPC_ERROR	0xff
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_ARG0	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x9c4,		\
+}
+#define	MILAN_SMU_RPC_ARG0()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_ARG0, 0)
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_ARG1	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x9c8,		\
+}
+#define	MILAN_SMU_RPC_ARG1()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_ARG1, 0)
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_ARG2	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x9cc,		\
+}
+#define	MILAN_SMU_RPC_ARG2()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_ARG2, 0)
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_ARG3	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x9d0,		\
+}
+#define	MILAN_SMU_RPC_ARG3()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_ARG3, 0)
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_ARG4	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x9d4,		\
+}
+#define	MILAN_SMU_RPC_ARG4()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_ARG4, 0)
+
+/*CSTYLED*/
+#define	D_MILAN_SMU_RPC_ARG5	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_SMU_RPC,	\
+	.srd_reg = 0x9d8,		\
+}
+#define	MILAN_SMU_RPC_ARG5()	milan_smu_smn_reg(0, D_MILAN_SMU_RPC_ARG5, 0)
 
 /*
  * For unknown reasons we have multiple ways to give the SMU an address, and

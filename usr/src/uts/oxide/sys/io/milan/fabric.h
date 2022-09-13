@@ -84,6 +84,11 @@ extern smn_reg_t milan_ioms_reg(const milan_ioms_t *const, const smn_reg_def_t,
 extern uint32_t milan_ioms_read(milan_ioms_t *, const smn_reg_t);
 extern void milan_ioms_write(milan_ioms_t *, const smn_reg_t, const uint32_t);
 
+extern smn_reg_t milan_iodie_reg(const milan_iodie_t *const,
+    const smn_reg_def_t, const uint16_t);
+extern uint32_t milan_iodie_read(milan_iodie_t *, const smn_reg_t);
+extern void milan_iodie_write(milan_iodie_t *, const smn_reg_t, const uint32_t);
+
 #ifdef __cplusplus
 }
 #endif

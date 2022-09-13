@@ -427,7 +427,8 @@ typedef enum smn_unit {
 	SMN_UNIT_IOMMUL2,
 	SMN_UNIT_NBIF,
 	SMN_UNIT_NBIF_ALT,
-	SMN_UNIT_NBIF_FUNC
+	SMN_UNIT_NBIF_FUNC,
+	SMN_UNIT_SMU_RPC
 } smn_unit_t;
 
 /*
