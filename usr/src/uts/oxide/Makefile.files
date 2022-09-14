@@ -153,9 +153,6 @@ DR_OBJS	+= dr.o dr_cpu.o dr_err.o dr_io.o dr_mem_acpi.o dr_quiesce.o dr_util.o
 
 ROOTNEX_OBJS += rootnex.o
 
-AMD_IOMMU_OBJS +=	amd_iommu.o amd_iommu_impl.o amd_iommu_acpi.o \
-			amd_iommu_cmd.o amd_iommu_log.o amd_iommu_page_tables.o
-
 PCI_PRD_OBJS += pci_prd_oxide.o
 
 #

@@ -1878,13 +1878,6 @@ startup_end(void)
 		    (caddr_t)(uintptr_t)i, NULL);
 	}
 
-	if (modload("drv", "amd_iommu") < 0) {
-		PRM_POINT("No AMD IOMMU present\n");
-	} else if (ddi_hold_installed_driver(ddi_name_to_major(
-	    "amd_iommu")) == NULL) {
-		prom_printf("ERROR: failed to attach AMD IOMMU\n");
-	}
-
 	post_startup_cpu_fixups();
 
 	PRM_POINT("startup_end() done");
