@@ -300,11 +300,6 @@ apic_probe_raw(const char *modname)
 	CPUSET_ZERO(apic_cpumask);
 	(void) milan_walk_thread(apic_enumerate_one, &apic_index);
 
-	/*
-	 * XXX replace magic constants
-	 */
-	wrmsr(0xc00110e2, 0x00022afa00080018UL);
-
 	pmbase = psm_map_phys(FCH_MR_BLOCK_GETPA(PM), pmsize,
 	    PROT_READ | PROT_WRITE);
 	decodeen = FCH_MR_READ(PM, DECODEEN, pmbase);
