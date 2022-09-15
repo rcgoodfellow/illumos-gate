@@ -24,6 +24,7 @@
  *
  * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2022 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef	_SYS_UCODE_H
@@ -54,7 +55,7 @@ extern "C" {
 /*
  * Where to install the microcode
  */
-#define	UCODE_INSTALL_PATH		"platform/i86pc/ucode"
+#define	UCODE_INSTALL_PATH		"platform/oxide/ucode"
 #define	UCODE_INSTALL_COMMON_PATH	".f"
 
 /*
@@ -119,7 +120,11 @@ typedef struct ucode_file_amd {
 	uint8_t uf_resv[896];
 	uint8_t uf_code_present;
 	uint8_t uf_code[191];
-	uint8_t uf_encr[2048];
+	/*
+	 * This value allows for microcode files to be up to 8192 bytes in size
+	 * before it needs to be increased.
+	 */
+	uint8_t uf_encr[0x1800];
 #else
 	uint8_t *ucodep;
 	uint32_t usize;

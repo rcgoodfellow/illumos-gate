@@ -13,20 +13,15 @@
 # Copyright 2022 Oxide Computer Company
 #
 
-SUBDIRS = intel amd oxide
+ROOTUCODEPATH = $(ROOT)/platform/oxide/ucode
+AMD_FILES :sh= (print *-*)
 
-all :=		TARGET=all
-clean :=	TARGET=clean
-clobber :=	TARGET=clobber
-install :=	TARGET=install
+include ../Makefile.com
 
-.PARALLEL: $(SUBDIRS)
+.PARALLEL:
 
-.KEEP_STATE:
+all clean:
 
-all clean clobber install: $(SUBDIRS)
+install: $(ROOTAMDFILES)
 
-$(SUBDIRS):	FRC
-		cd $@; pwd; $(MAKE) $(TARGET)
-
-FRC:
+include $(SRC)/data/Makefile.targ

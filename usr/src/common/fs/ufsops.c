@@ -34,6 +34,7 @@
 #include <sys/sysmacros.h>
 #include <sys/bootvfs.h>
 #include <sys/filep.h>
+#include <sys/kmem.h>
 
 #ifdef	_BOOT
 #include "../common/util.h"
@@ -760,6 +761,17 @@ bufs_close(int fd)
 		filep->fi_back->fi_forw = filep->fi_forw;
 		cf_close(filep);
 		bkmem_free((char *)filep, sizeof (fileid_t));
+
+		/*
+		 * Some files are opened and closed in early boot, for example
+		 * when doing a microcode update on the boot CPU. In that case
+		 * the inode cache will contain memory allocated from boot
+		 * pages, which will be invalid once kmem is initialised.
+		 * Until kmem is ready, clear the inode cache when closing a
+		 * file.
+		 */
+		if (kmem_ready == 0)
+			free_cache();
 
 		return (0);
 	} else {

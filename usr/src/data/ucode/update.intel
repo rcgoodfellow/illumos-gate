@@ -83,7 +83,7 @@ rm -f intel/*
 cp $tmp/$path/license intel/THIRDPARTYLICENSE
 echo Intel Processor Microcode Data Files > intel/THIRDPARTYLICENSE.descrip
 
-rm -f Makefile.links
+rm -f intel/Makefile.links
 
 typeset -A seen
 typeset -A inodes
@@ -115,11 +115,11 @@ done
 		echo "\t$i \\"
 	done | sed '$s/ .*//'
 	echo
-) > Makefile.links
+) > intel/Makefile.links
 
 for i in "${!links[@]}"; do
 	echo "hardlink path=$FW/$i target=${links[$i]}" >> $mf
-	cat << EOM >> Makefile.links
+	cat << EOM >> intel/Makefile.links
 \$(ROOTINTELDIR)/$i: \$(ROOTINTELDIR)/${links[$i]}
 	\$(RM) \$@; \$(LN) \$^ \$@
 
