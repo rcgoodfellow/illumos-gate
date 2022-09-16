@@ -690,6 +690,7 @@ f lib/svc/manifest/system/hostid.xml 0444 root sys
 f lib/svc/manifest/system/hotplug.xml 0444 root sys
 f lib/svc/manifest/system/identity.xml 0444 root sys
 f lib/svc/manifest/system/manifest-import.xml 0444 root sys
+f lib/svc/manifest/system/mission-t6.xml 0444 root sys
 f lib/svc/manifest/system/sac.xml 0444 root sys
 d lib/svc/manifest/system/svc 0755 root sys
 f lib/svc/manifest/system/svc/global.xml 0444 root sys

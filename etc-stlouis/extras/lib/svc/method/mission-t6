@@ -19,23 +19,37 @@ if smf_is_nonglobalzone; then
 	exit $SMF_EXIT_OK
 fi
 
-# We require an argument, either `start` or `stop`.
+# We require an argument.
 if [ $# != 1 ]; then
-	echo 'ERROR: mission-t6 requires a command (start|stop)' >&2
+	echo 'ERROR: mission-t6 requires a command (start|stop|mfgmode)' >&2
 	exit $SMF_EXIT_ERR_FATAL
 fi
 
-case "$1" in
-start)
-	# Set t6 into mission mode.
+# Set t6 into mission mode.
+function mission_mode {
 	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
 	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
 	    "${GPIO_PLATFORM}:output=high" "${GPIO_PLATFORM}:pull=disabled"
 	/usr/sbin/cfgadm -c connect "${T6_PCIE_ATTACH_POINT}"
-	true
+}
+
+function manufacturing_mode {
+	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
+	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
+	    "${GPIO_PLATFORM}:output=low" "${GPIO_PLATFORM}:pull=enabled"
+	/usr/sbin/cfgadm -c connect "${T6_PCIE_ATTACH_POINT}"
+}
+
+
+case "$1" in
+start)
+	mission_mode
 	;;
 stop)
 	# Currently stopping is a nop.
+	;;
+mfgmode)
+	manufacturing_mode
 	;;
 *)
 	echo "ERROR: mission-t6: unsupported command '$1'" >&2
