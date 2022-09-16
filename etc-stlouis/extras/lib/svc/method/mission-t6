@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# Copyright (C) 2022 Oxide Computer Company
+#
+
+T6_PCIE_ATTACH_POINT="pcie16"
+GPIO_PLATFORM="zen"
+GPIO_CTLR_NUM=-1
+GPIO_CTLR="${GPIO_PLATFORM}_gpio${GPIO_CTLR_NUM}"
+GPIO_PIN="19"
+GPIO_PIN_NAME="${GPIO_CTLR}/${GPIO_PIN}"
+
+set -e
+
+. /lib/svc/share/smf_include.sh
+
+# We only set mission mode from the global zone.
+if smf_is_nonglobalzone; then
+	exit $SMF_EXIT_OK
+fi
+
+# We require an argument, either `start` or `stop`.
+if [ $# != 1 ]; then
+	echo 'ERROR: mission-t6 requires a command (start|stop)' >&2
+	exit $SMF_EXIT_ERR_FATAL
+fi
+
+case "$1" in
+start)
+	# Set t6 into mission mode.
+	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
+	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
+	    "${GPIO_PLATFORM}:output=high" "${GPIO_PLATFORM}:pull=disabled"
+	/usr/sbin/cfgadm -c connect "${T6_PCIE_ATTACH_POINT}"
+	true
+	;;
+stop)
+	# Currently stopping is a nop.
+	;;
+*)
+	echo "ERROR: mission-t6: unsupported command '$1'" >&2
+	exit $SMF_EXIT_ERR_FATAL
+	;;
+esac
+
+exit $SMF_EXIT_OK
