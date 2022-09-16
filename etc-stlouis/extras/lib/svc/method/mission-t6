@@ -14,7 +14,11 @@ set -e
 
 . /lib/svc/share/smf_include.sh
 
-# We only set mission mode from the global zone.
+# XXX(cross): remove the /tmp relative path at some point.
+PATH=/tmp/usr/sbin:/usr/sbin:/usr/bin:/bin
+export PATH
+
+# We only set the T6 mode from the global zone.
 if smf_is_nonglobalzone; then
 	exit $SMF_EXIT_OK
 fi
@@ -25,33 +29,25 @@ if [ $# != 1 ]; then
 	exit $SMF_EXIT_ERR_FATAL
 fi
 
-# Set t6 into mission mode.
-function mission_mode {
-	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
-	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
-	    "${GPIO_PLATFORM}:output=high" "${GPIO_PLATFORM}:pull=disabled"
-	sleep 1
-	/usr/sbin/cfgadm -c configure "${T6_PCIE_ATTACH_POINT}"
-}
-
-function manufacturing_mode {
-	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
-	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
-	    "${GPIO_PLATFORM}:output=low" "${GPIO_PLATFORM}:pull=disabled"
-	sleep 1
-	/usr/sbin/cfgadm -c configure "${T6_PCIE_ATTACH_POINT}"
-}
-
-
 case "$1" in
 start)
-	mission_mode
+	# Set into mission mode.
+	cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
+	gpioadm gpio attr set "${GPIO_PIN_NAME}" \
+	    "${GPIO_PLATFORM}:output=high" "${GPIO_PLATFORM}:pull=disabled"
+	sleep 1
+	cfgadm -c configure "${T6_PCIE_ATTACH_POINT}"
 	;;
 stop)
 	# Currently stopping is a nop.
 	;;
 mfgmode)
-	manufacturing_mode
+	# Set into manufacturing mode.
+	cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
+	gpioadm gpio attr set "${GPIO_PIN_NAME}" \
+	    "${GPIO_PLATFORM}:output=low" "${GPIO_PLATFORM}:pull=disabled"
+	sleep 1
+	cfgadm -c configure "${T6_PCIE_ATTACH_POINT}"
 	;;
 *)
 	echo "ERROR: mission-t6: unsupported command '$1'" >&2

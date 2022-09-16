@@ -18,8 +18,8 @@
     </dependency>
 
     <!-- XXX(cross): This creates a dependency cycle.
-          We need a better dependency target and to do
-          a complete audit of the service graph.
+	    We need a better dependency target and to do
+	    a complete audit of the service graph.
     <dependent name='t6-mission-network-physical' restart_on='none'
         grouping='require_all'>
       <service_fmri value='svc:/network/physical'/>
