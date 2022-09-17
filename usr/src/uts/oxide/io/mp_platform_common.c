@@ -74,7 +74,9 @@
 #include <sys/prom_debug.h>
 #include <sys/hpet.h>
 #include <sys/clock.h>
-#include <sys/io/huashan/pmio.h>
+#include <sys/io/fch.h>
+#include <sys/io/fch/pmio.h>
+#include <sys/io/mmioreg.h>
 #include <sys/io/milan/ccx.h>
 #include <sys/io/milan/fabric.h>
 #include <milan/milan_physaddrs.h>
@@ -282,10 +284,10 @@ apic_probe_raw(const char *modname)
 {
 	int i;
 	uint32_t irqno;
-	caddr_t pmbase;
-	const size_t pmsize = FCH_R_BLOCK_GETSIZE(PM);
 	uint32_t apic_index = 0;
-	FCH_REG_TYPE(PM, DECODEEN) decodeen = 0;
+	const mmio_reg_block_t fch_pmio = fch_pmio_mmio_block();
+	mmio_reg_t reg;
+	uint64_t val;
 
 	(void) milan_walk_thread(apic_count_thread, &apic_nproc);
 	apic_cpus_size = max(apic_nproc, max_ncpus) * sizeof (*apic_cpus);
@@ -300,12 +302,18 @@ apic_probe_raw(const char *modname)
 	CPUSET_ZERO(apic_cpumask);
 	(void) milan_walk_thread(apic_enumerate_one, &apic_index);
 
-	pmbase = psm_map_phys(FCH_MR_BLOCK_GETPA(PM), pmsize,
-	    PROT_READ | PROT_WRITE);
-	decodeen = FCH_MR_READ(PM, DECODEEN, pmbase);
-	decodeen = FCH_R_SET_B(PM, DECODEEN, IOAPICEN, decodeen, 1);
-	FCH_MR_WRITE(PM, DECODEEN, pmbase, decodeen);
-	psm_unmap_phys(pmbase, pmsize);
+	/*
+	 * XXX It may be useful to move this into the FCH driver, but we can't
+	 * be guaranteed we're loaded after it.  Some kind of locking may
+	 * otherwise be a good idea.
+	 */
+	reg = FCH_PMIO_DECODEEN_MMIO(fch_pmio);
+	val = mmio_reg_read(reg);
+	val = FCH_PMIO_DECODEEN_SET_IOAPICCFG(val,
+	    FCH_PMIO_DECODEEN_IOAPICCFG_LOW_LAT);
+	val = FCH_PMIO_DECODEEN_SET_IOAPICEN(val, 1);
+	mmio_reg_write(reg, val);
+	mmio_reg_block_unmap(fch_pmio);
 
 	apic_io_id[0] = 0xf0;
 	apic_physaddr[0] = MILAN_PHYSADDR_FCH_IOAPIC;

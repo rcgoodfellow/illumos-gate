@@ -87,6 +87,7 @@ CORE_OBJS +=			\
 	memnode.o		\
 	microcode.o		\
 	mlsetup.o		\
+	mmio_subr.o		\
 	mp_call.o		\
 	mp_implfuncs.o		\
 	mp_machdep.o		\

@@ -280,6 +280,7 @@
  * CFG/CONF/CONFIG/CONFIGURATION			=> CFG
  * EN/ENAB/ENABLE/ENABLED				=> EN
  * DIS/DISAB/DISABLE/DISABLED				=> DIS
+ * OPT/OPTS/OPTIONS					=> OPTS
  *
  * Note that if collapsing these would result in ambiguity, more of the official
  * names will be preserved.  In addition to collapsing register and field names
@@ -450,7 +451,21 @@ typedef enum smn_unit {
 	SMN_UNIT_NBIF,
 	SMN_UNIT_NBIF_ALT,
 	SMN_UNIT_NBIF_FUNC,
-	SMN_UNIT_SMU_RPC
+	SMN_UNIT_SMU_RPC,
+	SMN_UNIT_FCH_SMI,
+	SMN_UNIT_FCH_PMIO,
+	SMN_UNIT_FCH_MISC_A,
+	SMN_UNIT_FCH_I2CPAD,
+	SMN_UNIT_FCH_MISC_B,
+	SMN_UNIT_FCH_I2C,
+	SMN_UNIT_FCH_UART,
+	SMN_UNIT_FCH_DMA,
+	SMN_UNIT_FCH_IOMUX,
+	SMN_UNIT_FCH_GPIO,
+	SMN_UNIT_FCH_RMTGPIO,
+	SMN_UNIT_FCH_RMTMUX,
+	SMN_UNIT_FCH_RMTGPIO_AGG,
+	SMN_UNIT_FCH_I3C
 } smn_unit_t;
 
 /*

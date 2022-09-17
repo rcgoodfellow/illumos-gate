@@ -49,6 +49,14 @@
 #include <sys/plat/pci_prd.h>
 #include <sys/apic.h>
 #include <sys/cpuvar.h>
+#include <sys/io/fch.h>
+#include <sys/io/fch/gpio.h>
+#include <sys/io/fch/i2c.h>
+#include <sys/io/fch/iomux.h>
+#include <sys/io/fch/misc.h>
+#include <sys/io/fch/pmio.h>
+#include <sys/io/fch/rmtgpio.h>
+#include <sys/io/fch/smi.h>
 #include <sys/io/milan/fabric.h>
 #include <sys/io/milan/fabric_impl.h>
 #include <sys/io/milan/ccx.h>
@@ -1162,6 +1170,39 @@ milan_iodie_reg(const milan_iodie_t *const iodie, const smn_reg_def_t def,
 	switch (def.srd_unit) {
 	case SMN_UNIT_SMU_RPC:
 		reg = milan_smu_smn_reg(0, def, reginst);
+		break;
+	case SMN_UNIT_FCH_SMI:
+		reg = fch_smi_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_PMIO:
+		reg = fch_pmio_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_MISC_A:
+		reg = fch_misc_a_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_I2CPAD:
+		reg = fch_i2cpad_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_MISC_B:
+		reg = fch_misc_b_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_I2C:
+		reg = huashan_i2c_smn_reg(reginst, def);
+		break;
+	case SMN_UNIT_FCH_IOMUX:
+		reg = fch_iomux_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_GPIO:
+		reg = fch_gpio_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_RMTGPIO:
+		reg = fch_rmtgpio_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_RMTMUX:
+		reg = fch_rmtmux_smn_reg(def, reginst);
+		break;
+	case SMN_UNIT_FCH_RMTGPIO_AGG:
+		reg = fch_rmtgpio_agg_smn_reg(def, reginst);
 		break;
 	default:
 		cmn_err(CE_PANIC, "invalid SMN register type %d for IO die",
@@ -3536,6 +3577,32 @@ milan_fabric_init_pcie_straps(milan_pcie_port_t *port, void *arg)
 }
 
 /*
+ * Helper function for PCIe reset (PERST_L) deassertion.  Used only on Ethanol-X
+ * during the DXIO state machine execution.  GPIOs are in two primary banks;
+ * those above 255 are part of a different register block.
+ */
+static void
+milan_perst_deassert(milan_iodie_t *iodie, uint16_t gpio)
+{
+	smn_reg_t reg;
+	uint32_t val;
+
+	if (gpio < 256) {
+		reg = milan_iodie_reg(iodie, D_FCH_GPIO_STD, gpio);
+	} else {
+		reg = milan_iodie_reg(iodie, D_FCH_RMTGPIO_STD, gpio - 256);
+	}
+
+	val = milan_iodie_read(iodie, reg);
+	val = FCH_GPIO_STD_SET_OUTPUT_EN(val, 1);
+	val = FCH_GPIO_STD_SET_OUTPUT_VAL(val,
+	    FCH_GPIO_STD_OUTPUT_VAL_ASSERT);
+	val = FCH_GPIO_STD_SET_STRENGTH(val,
+	    FCH_GPIO_STD_STRENGTH_40OHM);
+	milan_iodie_write(iodie, reg, val);
+}
+
+/*
  * Here we are, it's time to actually kick off the state machine that we've
  * wanted to do.
  */
@@ -3624,24 +3691,33 @@ milan_dxio_state_machine(milan_iodie_t *iodie, void *arg)
 				break;
 			}
 
+			if (milan_board_type(fabric) != MBT_ETHANOL)
+				break;
+
 			/*
-			 * XXX We're doing this the max power way. This is
-			 * definitely probably not the right way. These are in
-			 * order:
+			 * Release PERST manually on Ethanol-X which requires
+			 * it.  PCIE_RSTn_L shares pins with the following
+			 * GPIOs:
 			 *
 			 * FCH::GPIO::GPIO_26
 			 * FCH::GPIO::GPIO_27
 			 * FCH::RMTGPIO::GPIO_266
 			 * FCH::RMTGPIO::GPIO_267
+			 *
+			 * If we were going to support this generically, these
+			 * should probably be part of the board definition.
+			 * They should also be DPIOs, but we probably can't use
+			 * the DPIO subsystem itself yet.
+			 *
+			 * XXX The only other function on these pins is the PCIe
+			 * reset itself.  Can we assume the mux is passing the
+			 * GPIO function at this point?  If it's not, this will
+			 * do nothing.
 			 */
-			milan_smn_write(iodie, SMN_MAKE_REG(0x2d02568),
-			    0xc40000);
-			milan_smn_write(iodie, SMN_MAKE_REG(0x2d0256c),
-			    0xc40000);
-			milan_smn_write(iodie, SMN_MAKE_REG(0x2d02228),
-			    0xc40000);
-			milan_smn_write(iodie, SMN_MAKE_REG(0x2d0222c),
-			    0xc40000);
+			milan_perst_deassert(iodie, 26);
+			milan_perst_deassert(iodie, 27);
+			milan_perst_deassert(iodie, 266);
+			milan_perst_deassert(iodie, 267);
 			break;
 		case MILAN_DXIO_DATA_TYPE_NONE:
 			cmn_err(CE_WARN, "Got the none data type... are we "
