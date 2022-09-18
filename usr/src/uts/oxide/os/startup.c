@@ -1810,9 +1810,9 @@ startup_end(void)
 	cpu_event_init();
 
 	/* XXX Torch this probably */
-#if defined(OPTERON_WORKAROUND_6323525)
-	if (opteron_workaround_6323525)
-		patch_workaround_6323525();
+#if defined(OPTERON_ERRATUM_147)
+	if (opteron_erratum_147)
+		patch_erratum_147();
 #endif
 	/*
 	 * If needed, load TOD module now so that ddi_get_time(9F) etc. work

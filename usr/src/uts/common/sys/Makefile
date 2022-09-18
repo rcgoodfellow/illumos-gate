@@ -618,10 +618,6 @@ CHKHDRS=			\
 	tirdwr.h		\
 	tiuser.h		\
 	tl.h			\
-	tnf.h			\
-	tnf_com.h		\
-	tnf_probe.h		\
-	tnf_writer.h		\
 	todio.h			\
 	tpicommon.h		\
 	ts.h			\
@@ -659,6 +655,7 @@ CHKHDRS=			\
 	vfstab.h		\
 	vgareg.h		\
 	videodev2.h		\
+	vio9p.h			\
 	visual_io.h		\
 	vlan.h			\
 	vm.h			\

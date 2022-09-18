@@ -715,8 +715,8 @@ int opteron_workaround_6336786;	/* non-zero -> WA relevant and applied */
 int opteron_workaround_6336786_UP = 0;	/* Not needed for UP */
 #endif
 
-#if defined(OPTERON_WORKAROUND_6323525)
-int opteron_workaround_6323525;	/* if non-zero -> at least one cpu has it */
+#if defined(OPTERON_ERRATUM_147)
+int opteron_erratum_147;	/* if non-zero -> at least one cpu has it */
 #endif
 
 #if defined(OPTERON_ERRATUM_298)
@@ -1180,8 +1180,8 @@ workaround_errata(struct cpu *cpu)
 	 * 'Revision Guide for AMD Athlon 64 and AMD Opteron Processors'
 	 * document 25759.
 	 */
-	if (cpuid_opteron_erratum(cpu, 6323525) > 0) {
-#if defined(OPTERON_WORKAROUND_6323525)
+	if (cpuid_opteron_erratum(cpu, 147) > 0) {
+#if defined(OPTERON_ERRATUM_147)
 		/*
 		 * This problem only occurs with 2 or more cores. If bit in
 		 * MSR_AMD_BU_CFG set, then not applicable. The workaround
@@ -1192,16 +1192,16 @@ workaround_errata(struct cpu *cpu)
 		 * It is too early in boot to call the patch routine so
 		 * set erratum variable to be done in startup_end().
 		 */
-		if (opteron_workaround_6323525) {
-			opteron_workaround_6323525++;
+		if (opteron_erratum_147) {
+			opteron_erratum_147++;
 		} else if (is_x86_feature(x86_featureset, X86FSET_SSE2) &&
 		    ((opteron_get_nnodes() *
 		    cpuid_get_ncpu_per_chip(cpu)) > 1)) {
 			if ((xrdmsr(MSR_AMD_BU_CFG) & (UINT64_C(1) << 33)) == 0)
-				opteron_workaround_6323525++;
+				opteron_erratum_147++;
 		}
 #else
-		workaround_warning(cpu, 6323525);
+		workaround_warning(cpu, 147);
 		missing++;
 #endif
 	}
@@ -1296,9 +1296,9 @@ workaround_errata_end()
 	if (opteron_workaround_6336786)
 		workaround_applied(6336786);
 #endif
-#if defined(OPTERON_WORKAROUND_6323525)
-	if (opteron_workaround_6323525)
-		workaround_applied(6323525);
+#if defined(OPTERON_ERRATUM_147)
+	if (opteron_erratum_147)
+		workaround_applied(147);
 #endif
 #if defined(OPTERON_ERRATUM_298)
 	if (opteron_erratum_298) {

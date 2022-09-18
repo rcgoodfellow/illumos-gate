@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2011-2020 Tintri by DDN, Inc.  All rights reserved.
  * Copyright 2022 RackTop Systems, Inc.
  */
 
@@ -601,7 +601,6 @@ typedef struct smb_oplock_grant {
 	uint32_t		og_state;	/* latest sent to client */
 	uint32_t		og_breaking;	/* BREAK_TO... flags */
 	uint16_t		og_dialect;	/* how to send breaks */
-	boolean_t		og_closing;
 	/* File-system level state */
 	uint8_t			onlist_II;
 	uint8_t			onlist_R;
@@ -1078,6 +1077,8 @@ typedef struct smb_user {
 	uint32_t		u_privileges;
 	uint16_t		u_uid;		/* unique per-session */
 	uint32_t		u_audit_sid;
+	uint32_t		u_owned_tree_cnt;
+	kcondvar_t		u_owned_tree_cv;
 
 	uint32_t		u_sign_flags;
 	struct smb_key		u_sign_key;	/* SMB2 signing */
@@ -1428,6 +1429,7 @@ typedef struct smb_ofile {
 	pid_t			f_pid;
 	smb_attr_t		f_pending_attr;
 	smb_oplock_grant_t	f_oplock;
+	boolean_t		f_oplock_closing;
 	uint8_t			TargetOplockKey[SMB_LEASE_KEY_SZ];
 	uint8_t			ParentOplockKey[SMB_LEASE_KEY_SZ];
 	struct smb_lease	*f_lease;
@@ -1799,6 +1801,7 @@ typedef enum smb_req_state {
 	SMB_REQ_STATE_WAITING_FCN2,
 	SMB_REQ_STATE_WAITING_LOCK,
 	SMB_REQ_STATE_WAITING_PIPE,
+	SMB_REQ_STATE_WAITING_OLBRK,
 	SMB_REQ_STATE_COMPLETED,
 	SMB_REQ_STATE_CANCEL_PENDING,
 	SMB_REQ_STATE_CANCELLED,
