@@ -199,7 +199,7 @@ psm_get_cpu_id(void)
 }
 
 caddr_t
-psm_map_phys_new(paddr_t addr, size_t len, int prot)
+psm_map_phys(paddr_t addr, size_t len, int prot)
 {
 	uint_t pgoffset;
 	paddr_t base;
@@ -238,7 +238,7 @@ psm_unmap_phys(caddr_t addr, size_t len)
 }
 
 caddr_t
-psm_map_new(paddr_t addr, size_t len, int prot)
+psm_map(paddr_t addr, size_t len, int prot)
 {
 	int phys_prot = PROT_READ;
 
@@ -247,21 +247,6 @@ psm_map_new(paddr_t addr, size_t len, int prot)
 		phys_prot |= PROT_WRITE;
 
 	return (psm_map_phys(addr, len, phys_prot));
-}
-
-#undef psm_map_phys
-#undef psm_map
-
-caddr_t
-psm_map_phys(uint32_t addr, size_t len, int prot)
-{
-	return (psm_map_phys_new((paddr_t)(addr & 0xffffffff), len, prot));
-}
-
-caddr_t
-psm_map(uint32_t addr, size_t len, int prot)
-{
-	return (psm_map_new((paddr_t)(addr & 0xffffffff), len, prot));
 }
 
 void

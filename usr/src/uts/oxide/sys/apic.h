@@ -49,7 +49,6 @@ extern "C" {
 
 #define	APIC_APIX_NAME		"apix"
 
-#define	APIC_IO_ADDR	0xfec00000
 #define	APIC_LOCAL_ADDR	0xfee00000
 #define	APIC_IO_MEMLEN	0xf
 #define	APIC_LOCAL_MEMLEN	0xfffff
@@ -220,20 +219,6 @@ typedef enum apic_mode {
 
 #define	MAX_IO_APIC		32	/* maximum # of IOAPICs supported */
 
-/*
- * intr_type definitions
- */
-#define	IO_INTR_INT	0x00
-#define	IO_INTR_NMI	0x01
-#define	IO_INTR_SMI	0x02
-#define	IO_INTR_EXTINT	0x03
-
-/*
- * destination APIC ID
- */
-#define	INTR_ALL_APIC		0xff
-
-
 /* local vector table							*/
 #define	AV_MASK		0x10000
 
@@ -290,18 +275,10 @@ typedef enum apic_mode {
 #define	APIC_LB_MAX	0xe0
 
 #define	APIC_MAX_VECTOR		255
-#define	APIC_RESV_VECT		0x00
 #define	APIC_RESV_IRQ		0xfe
 #define	APIC_BASE_VECT		0x20	/* This will come in as interrupt 0 */
-#define	APIC_AVAIL_VECTOR	(APIC_MAX_VECTOR+1-APIC_BASE_VECT)
-#define	APIC_VECTOR_MASK	0x0f
-#define	APIC_HI_PRI_VECTS	2	/* vects reserved for hi pri reqs */
-#define	APIC_IPL_MASK		0xf0
 #define	APIC_IPL_SHIFT		4	/* >> to get ipl part of vector */
 #define	APIC_FIRST_FREE_IRQ	0x10
-#define	APIC_MAX_ISA_IRQ	15
-#define	APIC_IPL0		0x0f	/* let IDLE_IPL be the lowest */
-#define	APIC_IDLE_IPL		0x00
 
 #define	APIC_MASK_ALL		0xf0	/* Mask all interrupts */
 
@@ -312,13 +289,6 @@ typedef enum apic_mode {
 #define	APIC_CHECK_RESERVE_VECTORS(v) \
 	(((v) == T_FASTTRAP) || ((v) == APIC_SPUR_INTR) || \
 	((v) == T_SYSCALLINT) || ((v) == T_DTRACE_RET))
-
-#define	APIC_IRQP_IS_MSI_OR_MSIX(_irqp)	\
-	/*CSTYLED*/						\
-	({							\
-		apic_irq_kind_t __kind = (_irqp)->airq_kind;	\
-		(__kind == AIRQK_MSI || __kind == AIRQK_MSIX);	\
-	})
 
 /*
  * definitions for MSI Address
@@ -419,10 +389,6 @@ typedef struct apic_irq {
 #define	IRQ_USER_BOUND	0x80000000 /* user requested bind if set in airq_cpu */
 #define	IRQ_UNBOUND	(uint32_t)-1	/* set in airq_cpu and airq_temp_cpu */
 #define	IRQ_UNINIT	(uint32_t)-2 /* in airq_temp_cpu till addspl called */
-
-/* Macros to help deal with shared interrupts */
-#define	VIRTIRQ(irqno, share_id)	((irqno) | ((share_id) << 8))
-#define	IRQINDEX(irq)	((irq) & 0xFF)	/* Mask to get irq from virtual irq */
 
 /*
  * We align apic_cpus_info at 64-byte cache line boundary. Please make sure we

@@ -316,7 +316,6 @@ static iommulib_nexops_t iommulib_nexops = {
  *  extern hacks
  */
 extern struct seg_ops segdev_ops;
-extern int ignore_hardware_nodes;	/* force flag from ddi_impl.c */
 #ifdef	DDI_MAP_DEBUG
 extern int ddi_map_debug_flag;
 #define	ddi_map_debug	if (ddi_map_debug_flag) prom_printf
@@ -1427,27 +1426,26 @@ rootnex_intr_ops(dev_info_t *pdip, dev_info_t *rdip, ddi_intr_op_t intr_op,
 	case DDI_INTROP_NAVAIL:
 	case DDI_INTROP_NINTRS:
 		*(int *)result = i_ddi_get_intx_nintrs(rdip);
+		/*
+		 * On PCs, it is possible to have a PCMCIA (pcic) nexus as a
+		 * child of isa(4d), which would pass us requests requiring a
+		 * special case here.  We support neither isa nor pcic and
+		 * expect any child nexus to either handle interrupt ops itself
+		 * or guarantee that the necessary structures have been set up
+		 * prior to passing requests.
+		 */
 		if (*(int *)result == 0) {
-			/*
-			 * Special case for 'pcic' driver' only. This driver
-			 * driver is a child of 'isa' and 'rootnex' drivers.
-			 *
-			 * See detailed comments on this in the function
-			 * rootnex_get_ispec().
-			 *
-			 * Children of 'pcic' send 'NINITR' request all the
-			 * way to rootnex driver. But, the 'pdp->par_nintr'
-			 * field may not initialized. So, we fake it here
-			 * to return 1 (a la what PCMCIA nexus does).
-			 */
-			if (strcmp(ddi_get_name(rdip), "pcic") == 0)
-				*(int *)result = 1;
-			else
-				return (DDI_FAILURE);
+			return (DDI_FAILURE);
 		}
 		break;
 	case DDI_INTROP_SUPPORTED_TYPES:
-		*(int *)result = DDI_INTR_TYPE_FIXED;	/* Always ... */
+		/*
+		 * Generally, oxide platforms do not support fixed interrupts
+		 * except for children of the FCH nexus, which handles interrupt
+		 * operations itself.  The PCIe nexus drivers support MSI/X
+		 * requests themselves and do not pass them to us here.
+		 */
+		*(int *)result = DDI_INTR_TYPE_FIXED;
 		break;
 	default:
 		return (DDI_FAILURE);
@@ -1519,10 +1517,8 @@ rootnex_alloc_intr_fixed(dev_info_t *rdip, ddi_intr_handle_impl_t *hdlp,
     void *result)
 {
 	struct intrspec		*ispec;
-	ddi_intr_handle_impl_t	info_hdl;
 	int			ret;
 	int			free_phdl = 0;
-	apic_get_type_t		type_info;
 
 	if (psm_intr_ops == NULL)
 		return (DDI_FAILURE);
@@ -1530,34 +1526,17 @@ rootnex_alloc_intr_fixed(dev_info_t *rdip, ddi_intr_handle_impl_t *hdlp,
 	if ((ispec = rootnex_get_ispec(rdip, hdlp->ih_inum)) == NULL)
 		return (DDI_FAILURE);
 
-	/*
-	 * If the PSM module is "APIX" then pass the request for it
-	 * to allocate the vector now.
-	 */
-	bzero(&info_hdl, sizeof (ddi_intr_handle_impl_t));
-	info_hdl.ih_private = &type_info;
-	if ((*psm_intr_ops)(NULL, &info_hdl, PSM_INTR_OP_APIC_TYPE, NULL) ==
-	    PSM_SUCCESS && strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		if (hdlp->ih_private == NULL) { /* allocate phdl structure */
-			free_phdl = 1;
-			i_ddi_alloc_intr_phdl(hdlp);
-		}
-		((ihdl_plat_t *)hdlp->ih_private)->ip_ispecp = ispec;
-		ret = (*psm_intr_ops)(rdip, hdlp,
-		    PSM_INTR_OP_ALLOC_VECTORS, result);
-		if (free_phdl) { /* free up the phdl structure */
-			free_phdl = 0;
-			i_ddi_free_intr_phdl(hdlp);
-			hdlp->ih_private = NULL;
-		}
-	} else {
-		/*
-		 * No APIX module; fall back to the old scheme where the
-		 * interrupt vector is allocated during ddi_enable_intr() call.
-		 */
-		hdlp->ih_pri = ispec->intrspec_pri;
-		*(int *)result = hdlp->ih_scratch1;
-		ret = DDI_SUCCESS;
+	if (hdlp->ih_private == NULL) { /* allocate phdl structure */
+		free_phdl = 1;
+		i_ddi_alloc_intr_phdl(hdlp);
+	}
+	((ihdl_plat_t *)hdlp->ih_private)->ip_ispecp = ispec;
+	ret = (*psm_intr_ops)(rdip, hdlp,
+	    PSM_INTR_OP_ALLOC_VECTORS, result);
+	if (free_phdl) { /* free up the phdl structure */
+		free_phdl = 0;
+		i_ddi_free_intr_phdl(hdlp);
+		hdlp->ih_private = NULL;
 	}
 
 	return (ret);
@@ -1571,34 +1550,16 @@ rootnex_free_intr_fixed(dev_info_t *rdip, ddi_intr_handle_impl_t *hdlp)
 {
 	struct intrspec			*ispec;
 	struct ddi_parent_private_data	*pdp;
-	ddi_intr_handle_impl_t		info_hdl;
 	int				ret;
-	apic_get_type_t			type_info;
 
 	if (psm_intr_ops == NULL)
 		return (DDI_FAILURE);
 
-	/*
-	 * If the PSM module is "APIX" then pass the request for it
-	 * to free up the vector now.
-	 */
-	bzero(&info_hdl, sizeof (ddi_intr_handle_impl_t));
-	info_hdl.ih_private = &type_info;
-	if ((*psm_intr_ops)(NULL, &info_hdl, PSM_INTR_OP_APIC_TYPE, NULL) ==
-	    PSM_SUCCESS && strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		if ((ispec = rootnex_get_ispec(rdip, hdlp->ih_inum)) == NULL)
-			return (DDI_FAILURE);
-		((ihdl_plat_t *)hdlp->ih_private)->ip_ispecp = ispec;
-		ret = (*psm_intr_ops)(rdip, hdlp,
-		    PSM_INTR_OP_FREE_VECTORS, NULL);
-	} else {
-		/*
-		 * No APIX module; fall back to the old scheme where
-		 * the interrupt vector was already freed during
-		 * ddi_disable_intr() call.
-		 */
-		ret = DDI_SUCCESS;
-	}
+	if ((ispec = rootnex_get_ispec(rdip, hdlp->ih_inum)) == NULL)
+		return (DDI_FAILURE);
+	((ihdl_plat_t *)hdlp->ih_private)->ip_ispecp = ispec;
+	ret = (*psm_intr_ops)(rdip, hdlp,
+	    PSM_INTR_OP_FREE_VECTORS, NULL);
 
 	pdp = ddi_get_parent_data(rdip);
 

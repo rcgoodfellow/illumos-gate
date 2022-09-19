@@ -943,35 +943,12 @@ mach_get_platform(int owner)
 	/* fix up psm ops */
 	srv_opsp = (void **)mach_set[0];
 	clt_opsp = (void **)mach_set[owner];
-	if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01)
-		total_ops = sizeof (struct psm_ops_ver01) /
-		    sizeof (void (*)(void));
-	else if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01_1)
-		/* no psm_notify_func */
-		total_ops = OFFSETOF(struct psm_ops, psm_notify_func) /
-		    sizeof (void (*)(void));
-	else if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01_2)
-		/* no psm_timer funcs */
-		total_ops = OFFSETOF(struct psm_ops, psm_timer_reprogram) /
-		    sizeof (void (*)(void));
-	else if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01_3)
-		/* no psm_preshutdown function */
-		total_ops = OFFSETOF(struct psm_ops, psm_preshutdown) /
-		    sizeof (void (*)(void));
-	else if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01_4)
-		/* no psm_intr_ops function */
-		total_ops = OFFSETOF(struct psm_ops, psm_intr_ops) /
-		    sizeof (void (*)(void));
-	else if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01_5)
-		/* no psm_state function */
-		total_ops = OFFSETOF(struct psm_ops, psm_state) /
-		    sizeof (void (*)(void));
-	else if (mach_ver[owner] == (ushort_t)PSM_INFO_VER01_6)
-		/* no psm_cpu_ops function */
-		total_ops = OFFSETOF(struct psm_ops, psm_cpu_ops) /
-		    sizeof (void (*)(void));
-	else
-		total_ops = sizeof (struct psm_ops) / sizeof (void (*)(void));
+
+	if (mach_ver[owner] != (ushort_t)PSM_INFO_VER01_7) {
+		panic("invalid PSM version %d", (int)mach_ver[owner]);
+	}
+
+	total_ops = sizeof (struct psm_ops) / sizeof (void (*)(void));
 
 	/*
 	 * Save the version of the PSM module, in case we need to
@@ -1064,21 +1041,6 @@ mach_init()
 		psm_translate_irq = pops->psm_translate_irq;
 	if (pops->psm_intr_ops)
 		psm_intr_ops = pops->psm_intr_ops;
-
-#if defined(PSMI_1_2) || defined(PSMI_1_3) || defined(PSMI_1_4)
-	/*
-	 * Time-of-day functionality now handled in TOD modules.
-	 * (Warn about PSM modules that think that we're going to use
-	 * their ops vectors.)
-	 */
-	if (pops->psm_tod_get)
-		cmn_err(CE_WARN, "obsolete psm_tod_get op %p",
-		    (void *)pops->psm_tod_get);
-
-	if (pops->psm_tod_set)
-		cmn_err(CE_WARN, "obsolete psm_tod_set op %p",
-		    (void *)pops->psm_tod_set);
-#endif
 
 	if (pops->psm_notify_error) {
 		psm_notify_error = mach_notify_error;
@@ -1438,36 +1400,26 @@ mach_clkinit(int preferred_mode, int *set_mode)
 
 	mach_fixcpufreq();
 
-	if (mach_ver[0] >= PSM_INFO_VER01_3) {
-		if (preferred_mode == TIMER_ONESHOT) {
+	if (preferred_mode == TIMER_ONESHOT) {
 
-			resolution = (*pops->psm_clkinit)(0);
-			if (resolution != 0)  {
-				*set_mode = TIMER_ONESHOT;
-				return (resolution);
-			}
+		resolution = (*pops->psm_clkinit)(0);
+		if (resolution != 0)  {
+			*set_mode = TIMER_ONESHOT;
+			return (resolution);
 		}
-
-		/*
-		 * either periodic mode was requested or could not set to
-		 * one-shot mode
-		 */
-		resolution = (*pops->psm_clkinit)(hz);
-		/*
-		 * psm should be able to do periodic, so we do not check
-		 * for return value of psm_clkinit here.
-		 */
-		*set_mode = TIMER_PERIODIC;
-		return (resolution);
-	} else {
-		/*
-		 * PSMI interface prior to PSMI_3 does not define a return
-		 * value for psm_clkinit, so the return value is ignored.
-		 */
-		(void) (*pops->psm_clkinit)(hz);
-		*set_mode = TIMER_PERIODIC;
-		return (nsec_per_tick);
 	}
+
+	/*
+	 * either periodic mode was requested or could not set to
+	 * one-shot mode
+	 */
+	resolution = (*pops->psm_clkinit)(hz);
+	/*
+	 * psm should be able to do periodic, so we do not check
+	 * for return value of psm_clkinit here.
+	 */
+	*set_mode = TIMER_PERIODIC;
+	return (resolution);
 }
 
 

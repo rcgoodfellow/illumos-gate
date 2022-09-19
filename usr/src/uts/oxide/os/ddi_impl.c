@@ -198,7 +198,10 @@ configure(void)
 	 */
 	i_ddi_init_root();
 
-	/* reprogram devices not set up by firmware (BIOS) */
+	/*
+	 * This is used only by pci_autoconfig and on this platform sets up all
+	 * the initial resource allocations for PCI devices.
+	 */
 	impl_bus_reprobe();
 
 	/*
@@ -401,18 +404,24 @@ get_prop_int_array(dev_info_t *di, char *pname, int **pval, uint_t *plen)
 	return (ret);
 }
 
-
-/*
- * Node Configuration
- */
-
 struct prop_ispec {
 	uint_t	pri, vec;
 };
 
 /*
- * For the x86, we're prepared to claim that the interrupt string
- * is in the form of a list of <ipl,vec> specifications.
+ * We're prepared to claim that the interrupt string is in the form of a list of
+ * <irq> specifications.  On the oxide architecture this isn't meaningful, as we
+ * don't have ACPI and the concept of an IRQ is private to apix.  Moreover, this
+ * is meaningful only for FIXED interrupts, which are used only by devices that
+ * are children of nexi that use a different parent-private data structure.
+ * Rootnex uses this, but only when asked by a child nexus to fill in this data;
+ * none of rootnex's immediate children support interrupts at all.  While this
+ * code is machine-specific, the interpretation of the intrspec_vec member seems
+ * to be common, which is problematic to say the least.  This member is also
+ * badly misnamed: it does not store a vector at all but rather what on i86pc is
+ * known as an IRQ and what on oxide is notionally an IOAPIC virtual pin number.
+ * XXX This all really needs to go away on oxide, and the generic DDI needs to
+ * be refactored to accommodate that.
  */
 
 #define	VEC_MIN	1
@@ -428,120 +437,67 @@ impl_xlate_intrs(dev_info_t *child, int *in,
 	caddr_t got_prop;
 	int *inpri;
 	int got_len;
-	extern int ignore_hardware_nodes;	/* force flag from ddi_impl.c */
 
 	static char bad_intr_fmt[] =
 	    "bad interrupt spec from %s%d - ipl %d, irq %d\n";
 
 	/*
-	 * determine if the driver is expecting the new style "interrupts"
-	 * property which just contains the IRQ, or the old style which
-	 * contains pairs of <IPL,IRQ>.  if it is the new style, we always
-	 * assign IPL 5 unless an "interrupt-priorities" property exists.
-	 * in that case, the "interrupt-priorities" property contains the
-	 * IPL values that match, one for one, the IRQ values in the
-	 * "interrupts" property.
+	 * With priorities in a separate property (or none at all), we always
+	 * assign IPL 5 unless an "interrupt-priorities" property exists.  in
+	 * that case, the "interrupt-priorities" property contains the IPL
+	 * values that match, one for one, the IRQ values in the "interrupts"
+	 * property.
 	 */
 	inpri = NULL;
-	if ((ddi_getprop(DDI_DEV_T_ANY, child, DDI_PROP_DONTPASS,
-	    "ignore-hardware-nodes", -1) != -1) || ignore_hardware_nodes) {
-		/* the old style "interrupts" property... */
+	/*
+	 * The list consists of <vec> elements
+	 */
+	if ((n = (*in++)) < 1)
+		return (DDI_FAILURE);
 
-		/*
-		 * The list consists of <ipl,vec> elements
-		 */
-		if ((n = (*in++ >> 1)) < 1)
-			return (DDI_FAILURE);
+	pdptr->par_nintr = n;
+	size = n * sizeof (struct intrspec);
+	new = pdptr->par_intr = kmem_zalloc(size, KM_SLEEP);
 
-		pdptr->par_nintr = n;
-		size = n * sizeof (struct intrspec);
-		new = pdptr->par_intr = kmem_zalloc(size, KM_SLEEP);
-
-		while (n--) {
-			int level = *in++;
-			int vec = *in++;
-
-			if (level < 1 || level > MAXIPL ||
-			    vec < VEC_MIN || vec > VEC_MAX) {
-				cmn_err(CE_CONT, bad_intr_fmt,
-				    DEVI(child)->devi_name,
-				    DEVI(child)->devi_instance, level, vec);
-				goto broken;
-			}
-			new->intrspec_pri = level;
-			if (vec != 2)
-				new->intrspec_vec = vec;
-			else
-				/*
-				 * irq 2 on the PC bus is tied to irq 9
-				 * on ISA, EISA and MicroChannel
-				 */
-				new->intrspec_vec = 9;
-			new++;
+	/* XXX check for "interrupt-priorities" property... */
+	if (ddi_getlongprop(DDI_DEV_T_ANY, child, DDI_PROP_DONTPASS,
+	    "interrupt-priorities", (caddr_t)&got_prop, &got_len)
+	    == DDI_PROP_SUCCESS) {
+		if (n != (got_len / sizeof (int))) {
+			cmn_err(CE_CONT,
+			    "bad interrupt-priorities length"
+			    " from %s%d: expected %d, got %d\n",
+			    DEVI(child)->devi_name,
+			    DEVI(child)->devi_instance, n,
+			    (int)(got_len / sizeof (int)));
+			goto broken;
 		}
-
-		return (DDI_SUCCESS);
-	} else {
-		/* the new style "interrupts" property... */
-
-		/*
-		 * The list consists of <vec> elements
-		 */
-		if ((n = (*in++)) < 1)
-			return (DDI_FAILURE);
-
-		pdptr->par_nintr = n;
-		size = n * sizeof (struct intrspec);
-		new = pdptr->par_intr = kmem_zalloc(size, KM_SLEEP);
-
-		/* XXX check for "interrupt-priorities" property... */
-		if (ddi_getlongprop(DDI_DEV_T_ANY, child, DDI_PROP_DONTPASS,
-		    "interrupt-priorities", (caddr_t)&got_prop, &got_len)
-		    == DDI_PROP_SUCCESS) {
-			if (n != (got_len / sizeof (int))) {
-				cmn_err(CE_CONT,
-				    "bad interrupt-priorities length"
-				    " from %s%d: expected %d, got %d\n",
-				    DEVI(child)->devi_name,
-				    DEVI(child)->devi_instance, n,
-				    (int)(got_len / sizeof (int)));
-				goto broken;
-			}
-			inpri = (int *)got_prop;
-		}
-
-		while (n--) {
-			int level;
-			int vec = *in++;
-
-			if (inpri == NULL)
-				level = 5;
-			else
-				level = *inpri++;
-
-			if (level < 1 || level > MAXIPL ||
-			    vec < VEC_MIN || vec > VEC_MAX) {
-				cmn_err(CE_CONT, bad_intr_fmt,
-				    DEVI(child)->devi_name,
-				    DEVI(child)->devi_instance, level, vec);
-				goto broken;
-			}
-			new->intrspec_pri = level;
-			if (vec != 2)
-				new->intrspec_vec = vec;
-			else
-				/*
-				 * irq 2 on the PC bus is tied to irq 9
-				 * on ISA, EISA and MicroChannel
-				 */
-				new->intrspec_vec = 9;
-			new++;
-		}
-
-		if (inpri != NULL)
-			kmem_free(got_prop, got_len);
-		return (DDI_SUCCESS);
+		inpri = (int *)got_prop;
 	}
+
+	while (n--) {
+		int level;
+		int vec = *in++;
+
+		if (inpri == NULL)
+			level = 5;
+		else
+			level = *inpri++;
+
+		if (level < 1 || level > MAXIPL ||
+		    vec < VEC_MIN || vec > VEC_MAX) {
+			cmn_err(CE_CONT, bad_intr_fmt,
+			    DEVI(child)->devi_name,
+			    DEVI(child)->devi_instance, level, vec);
+			goto broken;
+		}
+		new->intrspec_pri = level;
+		new->intrspec_vec = vec;
+	}
+
+	if (inpri != NULL)
+		kmem_free(got_prop, got_len);
+	return (DDI_SUCCESS);
 
 broken:
 	kmem_free(pdptr->par_intr, size);
@@ -584,8 +540,8 @@ make_ddi_ppd(dev_info_t *child, struct ddi_parent_private_data **ppd)
 {
 	struct ddi_parent_private_data *pdptr;
 	int n;
-	int *reg_prop, *rng_prop, *intr_prop, *irupts_prop;
-	uint_t reg_len, rng_len, intr_len, irupts_len;
+	int *reg_prop, *rng_prop, *irupts_prop;
+	uint_t reg_len, rng_len, irupts_len;
 
 	*ppd = pdptr = kmem_zalloc(sizeof (*pdptr), KM_SLEEP);
 
@@ -613,58 +569,15 @@ make_ddi_ppd(dev_info_t *child, struct ddi_parent_private_data **ppd)
 	}
 
 	/*
-	 * Handle the 'intr' and 'interrupts' properties
-	 */
-
-	/*
-	 * For backwards compatibility
-	 * we first look for the 'intr' property for the device.
-	 */
-	if (get_prop_int_array(child, "intr", &intr_prop, &intr_len)
-	    != DDI_PROP_SUCCESS) {
-		intr_len = 0;
-	}
-
-	/*
 	 * If we're to support bus adapters and future platforms cleanly,
 	 * we need to support the generalized 'interrupts' property.
 	 */
 	if (get_prop_int_array(child, "interrupts", &irupts_prop,
 	    &irupts_len) != DDI_PROP_SUCCESS) {
 		irupts_len = 0;
-	} else if (intr_len != 0) {
-		/*
-		 * If both 'intr' and 'interrupts' are defined,
-		 * then 'interrupts' wins and we toss the 'intr' away.
-		 */
-		ddi_prop_free((void *)intr_prop);
-		intr_len = 0;
 	}
 
-	if (intr_len != 0) {
-
-		/*
-		 * Translate the 'intr' property into an array
-		 * an array of struct intrspec's.  There's not really
-		 * very much to do here except copy what's out there.
-		 */
-
-		struct intrspec *new;
-		struct prop_ispec *l;
-
-		n = pdptr->par_nintr = intr_len / sizeof (struct prop_ispec);
-		l = (struct prop_ispec *)intr_prop;
-		pdptr->par_intr =
-		    new = kmem_zalloc(n * sizeof (struct intrspec), KM_SLEEP);
-		while (n--) {
-			new->intrspec_pri = l->pri;
-			new->intrspec_vec = l->vec;
-			new++;
-			l++;
-		}
-		ddi_prop_free((void *)intr_prop);
-
-	} else if ((n = irupts_len) != 0) {
+	if ((n = irupts_len) != 0) {
 		size_t size;
 		int *out;
 
@@ -801,17 +714,6 @@ impl_ddi_sunbus_removechild(dev_info_t *dip)
 /*
  * DDI Interrupt
  */
-
-/*
- * turn this on to force isa, eisa, and mca device to ignore the new
- * hardware nodes in the device tree (normally turned on only for
- * drivers that need it by setting the property "ignore-hardware-nodes"
- * in their driver.conf file).
- *
- * 7/31/96 -- Turned off globally.  Leaving variable in for the moment
- *		as safety valve.
- */
-int ignore_hardware_nodes = 0;
 
 /*
  * New DDI interrupt framework
@@ -1826,11 +1728,6 @@ get_boot_properties(void)
 		 * special properties:
 		 * si-machine, si-hw-provider
 		 *	goes to kernel data structures.
-		 * bios-boot-device and stdout
-		 *	goes to hardware property list so it may show up
-		 *	in the prtconf -vp output. This is needed by
-		 *	Install/Upgrade. Once we fix install upgrade,
-		 *	this can be taken out.
 		 */
 		if (strcmp(name, "si-machine") == 0) {
 			(void) strncpy(utsname.machine, bop_staging_area,
@@ -1898,199 +1795,6 @@ get_boot_properties(void)
 	}
 
 	kmem_free(bop_staging_area, MMU_PAGESIZE);
-}
-
-/*
- * This is temporary, but absolutely necessary.  If we are being
- * booted with a device tree created by the DevConf project's bootconf
- * program, then we have device information nodes that reflect
- * reality.  At this point in time in the Solaris release schedule, the
- * kernel drivers aren't prepared for reality.  They still depend on their
- * own ad-hoc interpretations of the properties created when their .conf
- * files were interpreted. These drivers use an "ignore-hardware-nodes"
- * property to prevent them from using the nodes passed up from the bootconf
- * device tree.
- *
- * Trying to assemble root file system drivers as we are booting from
- * devconf will fail if the kernel driver is basing its name_addr's on the
- * psuedo-node device info while the bootpath passed up from bootconf is using
- * reality-based name_addrs.  We help the boot along in this case by
- * looking at the pre-bootconf bootpath and determining if we would have
- * successfully matched if that had been the bootpath we had chosen.
- *
- * Note that we only even perform this extra check if we've booted
- * using bootconf's 1275 compliant bootpath, this is the boot device, and
- * we're trying to match the name_addr specified in the 1275 bootpath.
- */
-
-#define	MAXCOMPONENTLEN	32
-
-int
-x86_old_bootpath_name_addr_match(dev_info_t *cdip, char *caddr, char *naddr)
-{
-	/*
-	 *  There are multiple criteria to be met before we can even
-	 *  consider allowing a name_addr match here.
-	 *
-	 *  1) We must have been booted such that the bootconf program
-	 *	created device tree nodes and properties.  This can be
-	 *	determined by examining the 'bootpath' property.  This
-	 *	property will be a non-null string iff bootconf was
-	 *	involved in the boot.
-	 *
-	 *  2) The module that we want to match must be the boot device.
-	 *
-	 *  3) The instance of the module we are thinking of letting be
-	 *	our match must be ignoring hardware nodes.
-	 *
-	 *  4) The name_addr we want to match must be the name_addr
-	 *	specified in the 1275 bootpath.
-	 */
-	static char bootdev_module[MAXCOMPONENTLEN];
-	static char bootdev_oldmod[MAXCOMPONENTLEN];
-	static char bootdev_newaddr[MAXCOMPONENTLEN];
-	static char bootdev_oldaddr[MAXCOMPONENTLEN];
-	static int  quickexit;
-
-	char *daddr;
-	int dlen;
-
-	char	*lkupname;
-	int	rv = DDI_FAILURE;
-
-	if ((ddi_getlongprop(DDI_DEV_T_ANY, cdip, DDI_PROP_DONTPASS,
-	    "devconf-addr", (caddr_t)&daddr, &dlen) == DDI_PROP_SUCCESS) &&
-	    (ddi_getprop(DDI_DEV_T_ANY, cdip, DDI_PROP_DONTPASS,
-	    "ignore-hardware-nodes", -1) != -1)) {
-		if (strcmp(daddr, caddr) == 0) {
-			return (DDI_SUCCESS);
-		}
-	}
-
-	if (quickexit)
-		return (rv);
-
-	if (bootdev_module[0] == '\0') {
-		char *addrp, *eoaddrp;
-		char *busp, *modp, *atp;
-		char *bp1275, *bp;
-		int  bp1275len, bplen;
-
-		bp1275 = bp = addrp = eoaddrp = busp = modp = atp = NULL;
-
-		if (ddi_getlongprop(DDI_DEV_T_ANY,
-		    ddi_root_node(), 0, "bootpath",
-		    (caddr_t)&bp1275, &bp1275len) != DDI_PROP_SUCCESS ||
-		    bp1275len <= 1) {
-			/*
-			 * We didn't boot from bootconf so we never need to
-			 * do any special matches.
-			 */
-			quickexit = 1;
-			if (bp1275)
-				kmem_free(bp1275, bp1275len);
-			return (rv);
-		}
-
-		if (ddi_getlongprop(DDI_DEV_T_ANY,
-		    ddi_root_node(), 0, "boot-path",
-		    (caddr_t)&bp, &bplen) != DDI_PROP_SUCCESS || bplen <= 1) {
-			/*
-			 * No fallback position for matching. This is
-			 * certainly unexpected, but we'll handle it
-			 * just in case.
-			 */
-			quickexit = 1;
-			kmem_free(bp1275, bp1275len);
-			if (bp)
-				kmem_free(bp, bplen);
-			return (rv);
-		}
-
-		/*
-		 *  Determine boot device module and 1275 name_addr
-		 *
-		 *  bootpath assumed to be of the form /bus/module@name_addr
-		 */
-		if ((busp = strchr(bp1275, '/')) != NULL) {
-			if ((modp = strchr(busp + 1, '/')) != NULL) {
-				if ((atp = strchr(modp + 1, '@')) != NULL) {
-					*atp = '\0';
-					addrp = atp + 1;
-					if ((eoaddrp = strchr(addrp, '/')) !=
-					    NULL)
-						*eoaddrp = '\0';
-				}
-			}
-		}
-
-		if (modp && addrp) {
-			(void) strncpy(bootdev_module, modp + 1,
-			    MAXCOMPONENTLEN);
-			bootdev_module[MAXCOMPONENTLEN - 1] = '\0';
-
-			(void) strncpy(bootdev_newaddr, addrp, MAXCOMPONENTLEN);
-			bootdev_newaddr[MAXCOMPONENTLEN - 1] = '\0';
-		} else {
-			quickexit = 1;
-			kmem_free(bp1275, bp1275len);
-			kmem_free(bp, bplen);
-			return (rv);
-		}
-
-		/*
-		 *  Determine fallback name_addr
-		 *
-		 *  10/3/96 - Also save fallback module name because it
-		 *  might actually be different than the current module
-		 *  name.  E.G., ISA pnp drivers have new names.
-		 *
-		 *  bootpath assumed to be of the form /bus/module@name_addr
-		 */
-		addrp = NULL;
-		if ((busp = strchr(bp, '/')) != NULL) {
-			if ((modp = strchr(busp + 1, '/')) != NULL) {
-				if ((atp = strchr(modp + 1, '@')) != NULL) {
-					*atp = '\0';
-					addrp = atp + 1;
-					if ((eoaddrp = strchr(addrp, '/')) !=
-					    NULL)
-						*eoaddrp = '\0';
-				}
-			}
-		}
-
-		if (modp && addrp) {
-			(void) strncpy(bootdev_oldmod, modp + 1,
-			    MAXCOMPONENTLEN);
-			bootdev_module[MAXCOMPONENTLEN - 1] = '\0';
-
-			(void) strncpy(bootdev_oldaddr, addrp, MAXCOMPONENTLEN);
-			bootdev_oldaddr[MAXCOMPONENTLEN - 1] = '\0';
-		}
-
-		/* Free up the bootpath storage now that we're done with it. */
-		kmem_free(bp1275, bp1275len);
-		kmem_free(bp, bplen);
-
-		if (bootdev_oldaddr[0] == '\0') {
-			quickexit = 1;
-			return (rv);
-		}
-	}
-
-	if (((lkupname = ddi_get_name(cdip)) != NULL) &&
-	    (strcmp(bootdev_module, lkupname) == 0 ||
-	    strcmp(bootdev_oldmod, lkupname) == 0) &&
-	    ((ddi_getprop(DDI_DEV_T_ANY, cdip, DDI_PROP_DONTPASS,
-	    "ignore-hardware-nodes", -1) != -1) ||
-	    ignore_hardware_nodes) &&
-	    strcmp(bootdev_newaddr, caddr) == 0 &&
-	    strcmp(bootdev_oldaddr, naddr) == 0) {
-		rv = DDI_SUCCESS;
-	}
-
-	return (rv);
 }
 
 /*
@@ -2547,7 +2251,6 @@ impl_bus_initialprobe(void)
 
 /*
  * impl_bus_reprobe
- *	Reprogram devices not set up by firmware.
  */
 static void
 impl_bus_reprobe(void)

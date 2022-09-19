@@ -29,18 +29,9 @@
 #ifndef	_PCI_VAR_H
 #define	_PCI_VAR_H
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 #ifdef	__cplusplus
 extern "C" {
 #endif
-
-/* Functions exported from pci_common.c */
-#define	IS_IRQ	B_TRUE
-#define	IS_VEC	B_FALSE
-extern int pci_get_intr_from_vecirq(apic_get_intr_t *intrinfo_p,
-    int vecirq, boolean_t is_irq);
-extern int pci_get_cpu_from_vecirq(int vecirq, boolean_t is_irq);
 
 /* Functions exported from pci_kstats.c */
 extern void pci_kstat_create(kstat_t **kspp, dev_info_t *nexus_dip,

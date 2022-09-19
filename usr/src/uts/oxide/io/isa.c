@@ -434,24 +434,6 @@ isa_bus_map(dev_info_t *dip, dev_info_t *rdip, ddi_map_req_t *mp,
 	return (ddi_map(dip, mp, (off_t)0, (off_t)0, vaddrp));
 }
 
-/*
- * Check if driver should be treated as an old pre 2.6 driver
- */
-static int
-old_driver(dev_info_t *dip)
-{
-	extern int ignore_hardware_nodes;	/* force flag from ddi_impl.c */
-
-	if (ndi_dev_is_persistent_node(dip)) {
-		if (ignore_hardware_nodes)
-			return (1);
-		if (ddi_getprop(DDI_DEV_T_ANY, dip, DDI_PROP_DONTPASS,
-		    "ignore-hardware-nodes", -1) != -1)
-			return (1);
-	}
-	return (0);
-}
-
 typedef struct {
 	uint32_t phys_hi;
 	uint32_t phys_lo;
@@ -499,17 +481,6 @@ isa_ctlops(dev_info_t *dip, dev_info_t *rdip,
 		return (DDI_SUCCESS);
 
 	case DDI_CTLOPS_INITCHILD:
-		/*
-		 * older drivers aren't expecting the "standard" device
-		 * node format used by the hardware nodes.  these drivers
-		 * only expect their own properties set in their driver.conf
-		 * files.  so they tell us not to call them with hardware
-		 * nodes by setting the property "ignore-hardware-nodes".
-		 */
-		if (old_driver((dev_info_t *)arg)) {
-			return (DDI_NOT_WELL_FORMED);
-		}
-
 		return (isa_initchild((dev_info_t *)arg));
 
 	case DDI_CTLOPS_UNINITCHILD:
@@ -829,16 +800,6 @@ isa_name_child(dev_info_t *child, char *name, int namelen)
 	void make_ddi_ppd(dev_info_t *, struct ddi_parent_private_data **);
 
 	/*
-	 * older drivers aren't expecting the "standard" device
-	 * node format used by the hardware nodes.  these drivers
-	 * only expect their own properties set in their driver.conf
-	 * files.  so they tell us not to call them with hardware
-	 * nodes by setting the property "ignore-hardware-nodes".
-	 */
-	if (old_driver(child))
-		return (DDI_FAILURE);
-
-	/*
 	 * Fill in parent-private data
 	 */
 	if (ddi_get_parent_data(child) == NULL) {
@@ -994,7 +955,7 @@ isa_enumerate(int reprogram)
 	/* serial ports - we have only the one, which is for the console */
 	for (i = 0; i < N_ASY; i++) {
 		ushort_t addr = asy_regs[i].regspec_addr;
-		caddr_t ahb_reg_page = psm_map_phys_new(0xfedc0000,
+		caddr_t ahb_reg_page = psm_map_phys(0xfedc0000,
 		    MMU_PAGESIZE, PROT_READ | PROT_WRITE);
 
 		ASSERT3U(addr, ==, 0x3f8);

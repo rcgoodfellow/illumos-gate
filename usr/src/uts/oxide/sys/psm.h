@@ -24,18 +24,65 @@
  * Use is subject to license terms.
  */
 
+/*
+ * Copyright 2022 Oxide Computer Co.
+ */
+
 #ifndef	_SYS_PSM_H
 #define	_SYS_PSM_H
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 /*
- * Platform Specific Module (PSM)
+ * PSMI == Platform Specific Module Interface
+ *
+ * We have "inherited" the use of this interface from i86pc, and to date have
+ * not made any incompatible changes to its definitions.  Therefore we may at
+ * some point wish to make files like psm_types.h common code; however, as yet
+ * it's not clear that we won't want to change things.
+ *
+ * This interface has had a number of different purposes, but the main one on
+ * i86pc has been to support the evolution from uniprocessor to very old
+ * multiprocessor (dual-8259A and then later original LAPIC and Intel MP BIOS
+ * tables) to less old (better-defined xAPIC and ACPI tables, later with the
+ * addition of the x2APIC access mechanism even in xAPIC mode) to current
+ * (x2APIC and ACPI) mechanisms of dealing with interrupt controllers.  The ops
+ * vector type is defined in sys/psm_types.h.
+ *
+ * Historically, the contents of psm_ops changed numerous times, and each time
+ * it did so (which included *incompatible* changes like removing members and
+ * changing their types), a new PSMI_X_Y macro was introduced.  Code
+ * implementing the PSMI (like this file) defines the appropriate version macro
+ * before including the headers.  On i86pc, consumers of the PSMI aren't allowed
+ * to assume anything (much) about which version if any the PSM that is actually
+ * in use supports, as the ops vector itself is not exposed.  Instead, consumers
+ * call into the PSM using a set of global function pointers that are required
+ * neither to remain unchanged over the life of the kernel nor to be consistent
+ * with one another in terms of coming from the same implementation.  Indeed,
+ * the PSMI was expressly designed to allow loading multiple PSMs and having
+ * some but not all functions from one implementation override a others.
+ *
+ * The history of the PSMI with respect to legacy Solaris is as follows:
+ *
+ * PSMI 1.1 extensions are supported only in 2.6 and later versions.
+ * PSMI 1.2 extensions are supported only in 2.7 and later versions.
+ * PSMI 1.3 and 1.4 extensions are supported in Solaris 10.
+ * PSMI 1.5 extensions are supported in Solaris Nevada.
+ * PSMI 1.6 extensions are supported in Solaris Nevada.
+ * PSMI 1.7 extensions are supported in Solaris Nevada.
+ *
+ * All illumos versions support and deliver version 1.7 on i86pc.  On the oxide
+ * architecture, life begins at PSMI_1_7.  There is only a single PSM -- apix --
+ * and it implements this version of the interface.  There are however other ops
+ * that are used during the boot process; see mp_machdep.c where the actual
+ * function pointers live along with their initial values.  In the extremely
+ * unlikely case that out-of-gate PSMs exist for i86pc, they cannot be expected
+ * to work on oxide, even if they define the same PSMI version.  As such modules
+ * should always be installed in the platform-specific location in the
+ * filesystem, the kernel will not try to load them unless an operator has
+ * misplaced it deliberately.  We don't attempt to prevent such things as
+ * someone with root access can sabotage the machine in arbitrary ways less
+ * complicated than this.
  */
 
-/*
- * Include the loadable module wrapper.
- */
 #include <sys/types.h>
 #include <sys/conf.h>
 #include <sys/modctl.h>
@@ -60,22 +107,13 @@ extern int psm_add_nmintr(int, avfunc, char *, caddr_t);
 extern processorid_t psm_get_cpu_id(void);
 
 /* map physical address */
-/*
- * XX64: Changing psm_map() to take a paddr_t rather than a uint32_t will
- * be a flag day.  Other drivers in the WOS use the psm_map() interface, so
- * we need this hack to get them to coexist for pre-integration testing.
- */
-extern caddr_t psm_map_new(paddr_t, size_t, int);
-#define	psm_map psm_map_new
+extern caddr_t psm_map(paddr_t, size_t, int);
 
 /* unmap the physical address return from psm_map_phys() */
 extern void psm_unmap(caddr_t, size_t);
 
 #define	PSM_PROT_READ		0x0000
 #define	PSM_PROT_WRITE		0x0001
-
-/* handle memory error */
-extern void psm_handle_memerror(uint32_t);
 
 /* kernel debugger present? */
 extern int psm_debugger(void);

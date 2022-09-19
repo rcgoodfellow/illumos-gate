@@ -45,6 +45,15 @@ extern "C" {
 #endif
 
 /*
+ * Prevent building if someone defines an obsolete PSMI version that we don't
+ * support on this architecture.
+ */
+#if	defined(PSMI_1_1) || defined(PSMI_1_2) || defined(PSMI_1_3) || \
+	defined(PSMI_1_4) || defined(PSMI_1_5) || defined(PSMI_1_6)
+#error	"Obsolete PSM versions are not supported on the oxide architecture"
+#endif
+
+/*
  * PSM_OPS definitions
  */
 typedef enum psm_intr_op_e {
@@ -132,70 +141,31 @@ struct	psm_ops {
 	void	(*psm_set_softintr)(int ipl);
 	void	(*psm_set_idlecpu)(processorid_t cpun);
 	void	(*psm_unset_idlecpu)(processorid_t cpun);
-
-#if defined(PSMI_1_3) || defined(PSMI_1_4) || defined(PSMI_1_5) || \
-    defined(PSMI_1_6) || defined(PSMI_1_7)
 	int	(*psm_clkinit)(int hertz);
-#else
-	void	(*psm_clkinit)(int hertz);
-#endif
-
 	int	(*psm_get_clockirq)(int ipl);
 	void	(*psm_hrtimeinit)(void);
 	hrtime_t (*psm_gethrtime)(void);
-
 	processorid_t (*psm_get_next_processorid)(processorid_t cpu_id);
-#if defined(PSMI_1_5) || defined(PSMI_1_6) || defined(PSMI_1_7)
 	int	(*psm_cpu_start)(processorid_t cpun, caddr_t ctxt);
-#else
-	void	(*psm_cpu_start)(processorid_t cpun, caddr_t rm_code);
-#endif
 	int	(*psm_post_cpu_start)(void);
-#if defined(PSMI_1_2) || defined(PSMI_1_3) || defined(PSMI_1_4) || \
-    defined(PSMI_1_5) || defined(PSMI_1_6) || defined(PSMI_1_7)
 	void	(*psm_shutdown)(int cmd, int fcn);
-#else
-	void	(*psm_shutdown)(void);
-#endif
 	int	(*psm_get_ipivect)(int ipl, int type);
 	void	(*psm_send_ipi)(processorid_t cpun, int ipl);
-
 	int	(*psm_translate_irq)(dev_info_t *dip, int irqno);
-
-#if defined(PSMI_1_2) || defined(PSMI_1_3) || defined(PSMI_1_4)
-	int	(*psm_tod_get)(todinfo_t *tod);
-	int	(*psm_tod_set)(todinfo_t *tod);
-#endif
 	void	(*psm_notify_error)(int level, char *errmsg);
-#if defined(PSMI_1_2) || defined(PSMI_1_3) || defined(PSMI_1_4) || \
-    defined(PSMI_1_5) || defined(PSMI_1_6) || defined(PSMI_1_7)
 	void	(*psm_notify_func)(int msg);
-#endif
-#if defined(PSMI_1_3) || defined(PSMI_1_4) || defined(PSMI_1_5) || \
-    defined(PSMI_1_6) || defined(PSMI_1_7)
 	void	(*psm_timer_reprogram)(hrtime_t time);
 	void	(*psm_timer_enable)(void);
 	void	(*psm_timer_disable)(void);
 	void	(*psm_post_cyclic_setup)(void *arg);
-#endif
-#if defined(PSMI_1_4) || defined(PSMI_1_5) || defined(PSMI_1_6) || \
-    defined(PSMI_1_7)
 	void	(*psm_preshutdown)(int cmd, int fcn);
-#endif
-#if defined(PSMI_1_5) || defined(PSMI_1_6) || defined(PSMI_1_7)
 	int	(*psm_intr_ops)(dev_info_t *dip, ddi_intr_handle_impl_t *handle,
 		    psm_intr_op_t op, int *result);
-#endif
-#if defined(PSMI_1_6) || defined(PSMI_1_7)
 	int	(*psm_state)(psm_state_request_t *request);
-#endif
-#if defined(PSMI_1_7)
 	int	(*psm_cpu_ops)(psm_cpu_request_t *reqp);
-
 	int	(*psm_get_pir_ipivect)(void);
 	void	(*psm_send_pir_ipi)(processorid_t cpu);
 	void	(*psm_cmci_setup)(processorid_t cpu, boolean_t);
-#endif
 };
 
 
@@ -213,13 +183,6 @@ struct psm_info {
  * i.e. psmi 1.0 has v=0 and m=1, psmi 1.1 has v=0 and m=2
  * also, 0x86 in the high byte is the signature of the psmi
  */
-#define	PSM_INFO_VER01		0x8601
-#define	PSM_INFO_VER01_1	0x8602
-#define	PSM_INFO_VER01_2	0x8603
-#define	PSM_INFO_VER01_3	0x8604
-#define	PSM_INFO_VER01_4	0x8605
-#define	PSM_INFO_VER01_5	0x8606
-#define	PSM_INFO_VER01_6	0x8607
 #define	PSM_INFO_VER01_7	0x8608
 #define	PSM_INFO_VER01_X	(PSM_INFO_VER01_1 & 0xFFF0)	/* ver 1.X */
 
@@ -266,37 +229,6 @@ struct psm_info {
 
 #define	PSM_INVALID_IPL		0
 #define	PSM_INVALID_CPU		-1
-
-
-struct	psm_ops_ver01 {
-	int	(*psm_probe)(void);
-
-	void	(*psm_softinit)(void);
-	void	(*psm_picinit)(void);
-	int	(*psm_intr_enter)(int ipl, int *vectorp);
-	void	(*psm_intr_exit)(int ipl, int irqno);
-	void	(*psm_setspl)(int ipl);
-	int	(*psm_addspl)(int irqno, int ipl, int min_ipl, int max_ipl);
-	int	(*psm_delspl)(int irqno, int ipl, int min_ipl, int max_ipl);
-	int	(*psm_disable_intr)(processorid_t cpun);
-	void	(*psm_enable_intr)(processorid_t cpun);
-	int	(*psm_softlvl_to_irq)(int ipl);
-	void	(*psm_set_softintr)(int ipl);
-	void	(*psm_set_idlecpu)(processorid_t cpun);
-	void	(*psm_unset_idlecpu)(processorid_t cpun);
-
-	void	(*psm_clkinit)(int hertz);
-	int	(*psm_get_clockirq)(int ipl);
-	void	(*psm_hrtimeinit)(void);
-	hrtime_t (*psm_gethrtime)(void);
-
-	processorid_t (*psm_get_next_processorid)(processorid_t cpu_id);
-	void	(*psm_cpu_start)(processorid_t cpun, caddr_t rm_code);
-	int	(*psm_post_cpu_start)(void);
-	void	(*psm_shutdown)(void);
-	int	(*psm_get_ipivect)(int ipl, int type);
-	void	(*psm_send_ipi)(processorid_t cpun, int ipl);
-};
 
 #ifdef	__cplusplus
 }

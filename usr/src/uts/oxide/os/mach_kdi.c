@@ -37,7 +37,6 @@
 #include <sys/x86_archext.h>
 #include <sys/kdi_impl.h>
 #include <sys/smp_impldefs.h>
-#include <sys/psm_types.h>
 #include <sys/segments.h>
 #include <sys/archsystm.h>
 #include <sys/controlregs.h>

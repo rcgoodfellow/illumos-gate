@@ -169,21 +169,14 @@ pcitool_set_intr(dev_info_t *dip, void *arg, int mode)
 		goto done_set_intr;
 	}
 
-	if (strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		if (iset.old_cpu > type_info.avgi_num_cpu) {
-			rval = EINVAL;
-			iset.status = PCITOOL_INVALID_CPUID;
-			goto done_set_intr;
-		}
-		old_cpu = iset.old_cpu;
-	} else {
-		if ((old_cpu =
-		    pci_get_cpu_from_vecirq(iset.ino, IS_VEC)) == -1) {
-			iset.status = PCITOOL_IO_ERROR;
-			rval = EINVAL;
-			goto done_set_intr;
-		}
+	ASSERT0(strcmp(type_info.avgi_type, APIC_APIX_NAME));
+
+	if (iset.old_cpu > type_info.avgi_num_cpu) {
+		rval = EINVAL;
+		iset.status = PCITOOL_INVALID_CPUID;
+		goto done_set_intr;
 	}
+	old_cpu = iset.old_cpu;
 
 	if (iset.ino > type_info.avgi_num_intr) {
 		rval = EINVAL;
@@ -199,11 +192,7 @@ pcitool_set_intr(dev_info_t *dip, void *arg, int mode)
 	 * For this locally-declared and used handle, ih_private will contain a
 	 * CPU value, not an ihdl_plat_t as used for global interrupt handling.
 	 */
-	if (strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		info_hdl.ih_vector = APIX_VIRTVECTOR(old_cpu, iset.ino);
-	} else {
-		info_hdl.ih_vector = iset.ino;
-	}
+	info_hdl.ih_vector = APIX_VIRTVECTOR(old_cpu, iset.ino);
 	info_hdl.ih_private = (void *)(uintptr_t)iset.cpu_id;
 	info_hdl.ih_flags = PSMGI_INTRBY_VEC;
 	if (pcitool_debug)
@@ -245,9 +234,7 @@ pcitool_set_intr(dev_info_t *dip, void *arg, int mode)
 	iset.cpu_id = old_cpu;
 
 	/* Return new vector */
-	if (strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		iset.ino = APIX_VIRTVEC_VECTOR(info_hdl.ih_vector);
-	}
+	iset.ino = APIX_VIRTVEC_VECTOR(info_hdl.ih_vector);
 
 done_set_intr:
 	iset.drvr_version = PCITOOL_VERSION;
@@ -306,13 +293,13 @@ pcitool_get_intr(dev_info_t *dip, void *arg, int mode)
 		goto done_get_intr;
 	}
 
-	if (strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		if (partial_iget.cpu_id > type_info.avgi_num_cpu) {
-			partial_iget.status = PCITOOL_INVALID_CPUID;
-			partial_iget.num_devs_ret = 0;
-			rval = EINVAL;
-			goto done_get_intr;
-		}
+	ASSERT0(strcmp(type_info.avgi_type, APIC_APIX_NAME));
+
+	if (partial_iget.cpu_id > type_info.avgi_num_cpu) {
+		partial_iget.status = PCITOOL_INVALID_CPUID;
+		partial_iget.num_devs_ret = 0;
+		rval = EINVAL;
+		goto done_get_intr;
 	}
 
 	/* Validate argument. */
@@ -335,12 +322,8 @@ pcitool_get_intr(dev_info_t *dip, void *arg, int mode)
 	 */
 	info_hdl.ih_private = &intr_info;
 
-	if (strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0) {
-		info_hdl.ih_vector =
-		    APIX_VIRTVECTOR(partial_iget.cpu_id, partial_iget.ino);
-	} else {
-		info_hdl.ih_vector = partial_iget.ino;
-	}
+	info_hdl.ih_vector =
+	    APIX_VIRTVECTOR(partial_iget.cpu_id, partial_iget.ino);
 
 	/* Caller wants device information returned. */
 	if (num_devs_ret > 0) {
@@ -466,7 +449,7 @@ pcitool_intr_info(dev_info_t *dip, void *arg, int mode)
 		intr_info.ctlr_type = PCITOOL_CTLR_TYPE_UNKNOWN;
 		intr_info.num_intr = APIC_MAX_VECTOR;
 	} else {
-		ASSERT(strcmp(type_info.avgi_type, APIC_APIX_NAME) == 0);
+		ASSERT0(strcmp(type_info.avgi_type, APIC_APIX_NAME));
 		intr_info.ctlr_version = (uint32_t)info_hdl.ih_ver;
 		intr_info.num_cpu = type_info.avgi_num_cpu;
 		intr_info.ctlr_type = PCITOOL_CTLR_TYPE_APIX;

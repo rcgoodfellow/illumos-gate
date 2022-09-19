@@ -46,8 +46,6 @@ extern "C" {
  */
 void interrupt_help(void);
 void interrupt_print_isr(uintptr_t, uintptr_t, uintptr_t);
-void apic_interrupt_dump(apic_irq_t *, struct av_head *, int i,
-	ushort_t *, char);
 void apix_interrupt_dump(apix_vector_t *, apic_irq_t *,
     struct autovec *, ushort_t *, char);
 void apix_interrupt_ipi_dump(apix_vector_t *, struct autovec *,
