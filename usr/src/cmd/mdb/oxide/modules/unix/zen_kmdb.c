@@ -648,9 +648,8 @@ smn_rw(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv,
 		return (DCMD_ERR);
 	}
 
-	const uint32_t regaddr = SMN_REG_ADDR(reg);
-	const uint32_t base_addr = regaddr & ~3;
-	const uint32_t addr_off = regaddr & 3;
+	const uint32_t base_addr = SMN_REG_ADDR_BASE(reg);
+	const uint32_t addr_off = SMN_REG_ADDR_OFF(reg);
 
 	if (!df_read32(sock, DF_CFG_ADDR_CTL_V2, &df_busctl)) {
 		mdb_warn("failed to read DF config address\n");

@@ -398,6 +398,28 @@ SMN_REG_IS_NATURALLY_ALIGNED(const smn_reg_t reg)
 	(((val) & ~(0xffffffffU >> ((4 - SMN_REG_SIZE(x)) << 3))) == 0)
 
 /*
+ * Retrieve the base address of the register.  This is the address that will
+ * actually be set in the index register when performing a read or write of the
+ * underlying register via SMN.  It must always be 32-bit aligned.
+ */
+static inline uint32_t
+SMN_REG_ADDR_BASE(const smn_reg_t reg)
+{
+	return (reg.sr_addr & ~3);
+}
+
+/*
+ * The offset address is the byte offset into the 32-bit-wide data register that
+ * will be returned by a read or set by a write, if the register is smaller than
+ * 32 bits wide.  For registers that are 32 bits wide, this is always 0.
+ */
+static inline uint32_t
+SMN_REG_ADDR_OFF(const smn_reg_t reg)
+{
+	return (reg.sr_addr & 3);
+}
+
+/*
  * This exists so that address calculation functions can check that the register
  * definitions they're passed are something they understand how to use.  While
  * many address calculation functions are similar, some functional units define

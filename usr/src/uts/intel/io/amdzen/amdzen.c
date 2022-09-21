@@ -308,9 +308,8 @@ amdzen_df_read32_bcast(amdzen_t *azn, amdzen_df_t *df, const df_reg_def_t def)
 static uint32_t
 amdzen_smn_read(amdzen_t *azn, amdzen_df_t *df, const smn_reg_t reg)
 {
-	const uint32_t addr = SMN_REG_ADDR(reg);
-	const uint32_t base_addr = addr & ~3;
-	const uint32_t addr_off = addr & 3;
+	const uint32_t base_addr = SMN_REG_ADDR_BASE(reg);
+	const uint32_t addr_off = SMN_REG_ADDR_OFF(reg);
 
 	VERIFY(SMN_REG_IS_NATURALLY_ALIGNED(reg));
 	VERIFY(MUTEX_HELD(&azn->azn_mutex));
@@ -335,9 +334,8 @@ static void
 amdzen_smn_write(amdzen_t *azn, amdzen_df_t *df, const smn_reg_t reg,
     const uint32_t val)
 {
-	const uint32_t addr = SMN_REG_ADDR(reg);
-	const uint32_t base_addr = addr & 3;
-	const uint32_t addr_off = addr & 3;
+	const uint32_t base_addr = SMN_REG_ADDR_BASE(reg);
+	const uint32_t addr_off = SMN_REG_ADDR_OFF(reg);
 
 	VERIFY(SMN_REG_IS_NATURALLY_ALIGNED(reg));
 	VERIFY(SMN_REG_VALUE_FITS(reg, val));

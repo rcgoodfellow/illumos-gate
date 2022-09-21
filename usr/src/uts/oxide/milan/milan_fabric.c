@@ -817,8 +817,8 @@ uint32_t
 milan_smn_read(milan_iodie_t *iodie, const smn_reg_t reg)
 {
 	const uint32_t addr = SMN_REG_ADDR(reg);
-	const uint32_t base_addr = addr & ~3;
-	const uint32_t addr_off = addr & 3;
+	const uint32_t base_addr = SMN_REG_ADDR_BASE(reg);
+	const uint32_t addr_off = SMN_REG_ADDR_OFF(reg);
 	uint32_t val;
 
 	ASSERT(SMN_REG_IS_NATURALLY_ALIGNED(reg));
@@ -858,8 +858,8 @@ void
 milan_smn_write(milan_iodie_t *iodie, const smn_reg_t reg, const uint32_t val)
 {
 	const uint32_t addr = SMN_REG_ADDR(reg);
-	const uint32_t base_addr = addr & ~3;
-	const uint32_t addr_off = addr & 3;
+	const uint32_t base_addr = SMN_REG_ADDR_BASE(reg);
+	const uint32_t addr_off = SMN_REG_ADDR_OFF(reg);
 
 	ASSERT(SMN_REG_IS_NATURALLY_ALIGNED(reg));
 	ASSERT(SMN_REG_SIZE_IS_VALID(reg));
