@@ -133,6 +133,7 @@
 #include <sys/memlist_impl.h>
 #include <sys/smm.h>
 #include <sys/io/milan/fabric.h>
+#include <sys/kernel_ipcc.h>
 
 extern void mem_config_init(void);
 
@@ -648,6 +649,9 @@ startup(void)
 	startup_modules();
 
 	startup_end();
+
+	/* XXX find the right place for this */
+	kernel_ipcc_init(IPCC_INIT_DEVTREE);
 }
 
 static void
@@ -1681,6 +1685,8 @@ startup_vm(void)
 
 	cmn_err(CE_CONT, "?mem = %luK (0x%lx)\n",
 	    physinstalled << (MMU_PAGESHIFT - 10), ptob(physinstalled));
+
+	kernel_ipcc_init(IPCC_INIT_KVMAVAIL);
 
 	/*
 	 * disable automatic large pages for small memory systems or

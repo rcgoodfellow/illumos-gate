@@ -62,7 +62,7 @@ extern "C" {
  */
 static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
 static const uint32_t ASSUMED_RESET_VECTOR = 0x7ffefff0U;
-static const char FAKE_BOARD_IDENT[] = "FAKE-IDENT";
+static char FAKE_BOARD_IDENT[] = "FAKE-IDENT ";
 
 static uint64_t ramdisk_start_val = 0x101000000UL;
 static uint64_t ramdisk_end_val = 0x105c00000UL;

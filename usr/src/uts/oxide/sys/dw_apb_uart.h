@@ -32,6 +32,7 @@ typedef enum dw_apb_port {
 
 extern void *dw_apb_uart_init(const dw_apb_port_t, const uint32_t,
     const async_databits_t, const async_parity_t, const async_stopbits_t);
+extern void dw_apb_uart_flush(void *);
 extern size_t dw_apb_uart_rx_nb(void *, uint8_t *, size_t);
 extern uint8_t dw_apb_uart_rx_one(void *);
 extern size_t dw_apb_uart_tx_nb(void *, const uint8_t *, size_t);

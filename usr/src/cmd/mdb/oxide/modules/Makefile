@@ -23,6 +23,7 @@
 #
 SUBDIRS = \
 	apix \
+	ipcc \
 	unix
 
 include ../../Makefile.subdirs

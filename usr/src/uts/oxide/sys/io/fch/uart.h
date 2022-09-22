@@ -223,6 +223,79 @@ songhan_dma_mmio_block(const uint8_t unit)
 	((u < 2) ? FCH_DMA_PHYS_BASE + (u * FCH_DMA_SIZE) :	\
 	FCH_DMA_PHYS_BASE + u * FCH_DMA_SIZE + 0x3000)
 
+MAKE_MMIO_FCH_REG_FN(UART, uart, 4);
+
+#define	FCH_UART_REGOFF_THR	0x00
+#define	FCH_UART_REGOFF_RBR	0x00
+#define	FCH_UART_REGOFF_LSR	0x14
+#define	FCH_UART_REGOFF_USR	0x7c
+#define	FCH_UART_REGOFF_SRR	0x88
+
+/*
+ * FCH::UART::THR.  Transmit a byte (or add to FIFO).
+ */
+#define	D_FCH_UART_THR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_THR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_THR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_THR, 0)
+
+/*
+ * FCH::UART::RBR.  Read a byte.
+ */
+#define	D_FCH_UART_RBR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_RBR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_RBR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_RBR, 0)
+
+/*
+ * FCH::UART::LSR.  Various status bits.
+ */
+#define	D_FCH_UART_LSR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_LSR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_LSR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_LSR, 0)
+
+#define	FCH_UART_LSR_GET_DR(r)	bitx8(r, 0, 0)
+
+/*
+ * FCH::UART::USR.  More status bits.
+ */
+#define	D_FCH_UART_USR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_USR	\
+	}
+#define	FCH_UART_USR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_USR, 0)
+
+#define	FCH_UART_USR_GET_RFF(r)		bitx32(r, 4, 4)
+#define	FCH_UART_USR_GET_RFNE(r)	bitx32(r, 3, 3)
+#define	FCH_UART_USR_GET_TFE(r)		bitx32(r, 2, 2)
+#define	FCH_UART_USR_GET_TFNF(r)	bitx32(r, 1, 1)
+
+/*
+ * FCH::UART::SRR.  Shadow register for controlling the FIFO and UART reset
+ * bits in FCH::UART::FCR.
+ */
+#define	D_FCH_UART_SRR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SRR	\
+}
+#define	FCH_UART_SRR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SRR, 0)
+
+#define	FCH_UART_SRR_SET_XFR(r, v)	bitset32(r, 2, 2, v)
+#define	FCH_UART_SRR_SET_RFR(r, v)	bitset32(r, 1, 1, v)
+#define	FCH_UART_SRR_SET_UR(r, v)	bitset32(r, 0, 0, v)
+
 #endif	/* !_ASM */
 
 #ifdef __cplusplus

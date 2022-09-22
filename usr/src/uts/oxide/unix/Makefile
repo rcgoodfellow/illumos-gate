@@ -118,6 +118,9 @@ $(OBJS_DIR)/inflate.o := SMATCH=off
 # not all supported features used
 $(OBJS_DIR)/dw_apb_uart.o := CERRWARN += -_gcc=-Wno-unused-variable
 
+# includes fch/ components which have unused variables
+$(OBJS_DIR)/kernel_ipcc.o := CERRWARN += -_gcc=-Wno-unused-variable
+
 #
 #	Default build targets.
 #

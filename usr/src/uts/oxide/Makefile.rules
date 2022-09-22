@@ -24,6 +24,7 @@
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
 # Copyright 2019 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2022 Oxide Computer Company
 #
 
 #	This Makefile defines the build rules for the directory uts/oxide
@@ -132,6 +133,10 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/milan/%.c
 	$(CTFCONVERT_O)
 
 $(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/boot_image/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:		$(UTSBASE)/oxide/io/ipcc/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 

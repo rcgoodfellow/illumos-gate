@@ -21,6 +21,7 @@
 #include <sys/bootconf.h>
 #include <sys/types.h>
 #include <sys/dw_apb_uart.h>
+#include <sys/boot_debug.h>
 #include <sys/uart.h>
 #include <vm/kboot_mmu.h>
 
@@ -241,10 +242,10 @@ dw_apb_uart_init(const dw_apb_port_t port, const uint32_t baud,
 	void *regs;
 
 	if (addr == 0)
-		bop_panic("console UART port %x invalid", (uint_t)port);
+		bop_panic("UART port %x invalid", (uint_t)port);
 
 	if (lcr == DAR_INVALID)
-		bop_panic("console UART port configuration invalid");
+		bop_panic("UART port configuration invalid");
 
 	regs = (void *)kbm_valloc(MMU_PAGESIZE, MMU_PAGESIZE);
 	kbm_map((uintptr_t)regs, addr, 0, PT_WRITABLE | PT_NOCACHE);
@@ -266,6 +267,12 @@ dw_apb_uart_init(const dw_apb_port_t port, const uint32_t baud,
 	    DAR_MCR_DTR);
 
 	return (regs);
+}
+
+void
+dw_apb_uart_flush(void *regs)
+{
+	WR_REG(regs, SRR, DAR_SRR_RFR | DAR_SRR_XFR);
 }
 
 size_t
@@ -303,7 +310,7 @@ size_t
 dw_apb_uart_tx_nb(void *regs, const uint8_t *dbuf, size_t len)
 {
 	size_t i;
-	uint32_t usr, lsr;
+	uint32_t usr;
 
 	for (usr = RD_REG(regs, USR), i = 0;
 	    (usr & DAR_USR_TFNF) && i < len;
@@ -317,12 +324,10 @@ dw_apb_uart_tx_nb(void *regs, const uint8_t *dbuf, size_t len)
 void
 dw_apb_uart_tx(void *regs, const uint8_t *dbuf, size_t len)
 {
-	size_t total_sent = 0;
-
 	while (len > 0) {
-		total_sent += dw_apb_uart_tx_nb(regs, dbuf, len);
-		dbuf += total_sent;
-		len -= total_sent;
+		size_t sent = dw_apb_uart_tx_nb(regs, dbuf, len);
+		dbuf += sent;
+		len -= sent;
 	}
 }
 

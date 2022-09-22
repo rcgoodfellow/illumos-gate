@@ -40,6 +40,8 @@
 #include <sys/mman.h>
 #include <sys/vm.h>
 
+#include <sys/kernel_ipcc.h>
+
 #include <sys/disp.h>
 #include <sys/class.h>
 
@@ -184,9 +186,11 @@ static const uint8_t stac_instr[3] = { 0x0f, 0x01, 0xcb };
 void
 mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 {
+#if 0
 	static int is_first_quiesce = 1;
 	static int is_first_reset = 1;
 	int reset_status = 0;
+#endif
 
 	if (fcn == AD_FASTREBOOT)
 		fcn = AD_BOOT;
@@ -218,16 +222,19 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	if (IN_XPV_PANIC())
 		reset();
 
+
 	/*
 	 * We can't bring up the console from above lock level, so do it now
 	 */
 	pm_cfb_check_and_powerup();
 
+
 	/* make sure there are no more changes to the device tree */
 	devtree_freeze();
 
-	if (invoke_cb)
+	if (invoke_cb) {
 		(void) callb_execute_class(CB_CL_MDBOOT, 0);
+	}
 
 	/*
 	 * Clear any unresolved UEs from memory.
@@ -247,6 +254,8 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 		mutex_exit(&cpu_lock);
 	}
 
+	/* XXX how much of this do we need for Oxide? */
+#if 0
 	/*
 	 * Try to quiesce devices.
 	 */
@@ -257,6 +266,7 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 		 * be invoked again.
 		 */
 		is_first_quiesce = 0;
+
 
 		quiesce_active = 1;
 		quiesce_devices(ddi_root_node(), &reset_status);
@@ -276,15 +286,27 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 		is_first_reset = 0;
 		reset_leaves();
 	}
+#endif
 
+
+	/* After spl8(), ipcc hangs */
+#if 0
+	/* XXX - ipcc - TBD */
+	prom_printf("spl8...\n");
 	(void) spl8();
 
+	prom_printf("psm shutdown...\n");
 	(*psm_shutdownf)(cmd, fcn);
+#endif
 
 	if (fcn == AD_HALT || fcn == AD_POWEROFF)
-		halt((char *)NULL);
+		kernel_ipcc_poweroff();
 	else
-		prom_reboot("");
+		kernel_ipcc_reboot();
+
+	/* XXX */
+	extern void eb_halt(void) __NORETURN;
+	eb_halt();
 
 	/*NOTREACHED*/
 }
@@ -375,7 +397,14 @@ reset(void)
 	 * For now this uses i86pc-specific code living in usr/src/uts/intel
 	 * that doesn't work at all on this machine.
 	 */
-	pc_reset();
+
+	/* XXX IPCC */
+	kernel_ipcc_reboot();
+
+	extern void eb_halt(void) __NORETURN;
+	eb_halt();
+
+	//pc_reset();
 	/*NOTREACHED*/
 }
 
@@ -388,6 +417,10 @@ halt(char *s)
 	stop_other_cpus();	/* send stop signal to other CPUs */
 	if (s)
 		prom_printf("(%s) \n", s);
+
+	/* XXX IPCC */
+	kernel_ipcc_poweroff();
+
 	prom_exit_to_mon();
 	/*NOTREACHED*/
 }

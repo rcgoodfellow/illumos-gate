@@ -46,6 +46,7 @@
 #include <sys/boot_console.h>
 #include <sys/boot_data.h>
 #include <sys/boot_debug.h>
+#include <sys/kernel_ipcc.h>
 #include <sys/boot_physmem.h>
 #include <sys/varargs.h>
 #include <sys/param.h>
@@ -396,10 +397,13 @@ bop_traceback(bop_frame_t *frame)
 		else
 			ksym = kobj_getsymname(pc, &off);
 
-		if (ksym != NULL)
+		if (ksym != NULL) {
 			eb_printf("  %s+%lx", ksym, off);
-		else
+			ipcc_panic_stack(off, ksym);
+		} else {
 			eb_printf("  0x%lx", pc);
+			ipcc_panic_stack(pc, NULL);
+		}
 
 		frame = frame->old_frame;
 		if (frame == 0) {
@@ -438,11 +442,13 @@ bop_trap(ulong_t *tfp)
 	/*
 	 * adjust the tf for optional error_code by detecting the code selector
 	 */
-	if (tf->code_seg != B64CODE_SEL)
+	if (tf->code_seg != B64CODE_SEL) {
 		tf = (struct trapframe *)(tfp - 1);
-	else
+	} else {
 		eb_printf("error code           0x%lx\n",
 		    tf->error_code & 0xffffffff);
+		ipcc_panic_field(IPF_ERROR, tf->error_code & 0xffffffff);
+	}
 
 	eb_printf("instruction pointer  0x%lx\n", tf->inst_ptr);
 	eb_printf("code segment         0x%lx\n", tf->code_seg & 0xffff);
@@ -450,6 +456,14 @@ bop_trap(ulong_t *tfp)
 	eb_printf("return %%rsp          0x%lx\n", tf->stk_ptr);
 	eb_printf("return %%ss           0x%lx\n", tf->stk_seg & 0xffff);
 	eb_printf("%%cr2			0x%lx\n", getcr2());
+
+	ipcc_panic_field(IPF_CAUSE, IPCC_PANIC_EARLYBOOT);
+	ipcc_panic_field(IPF_INSTR_PTR, tf->inst_ptr);
+	ipcc_panic_field(IPF_CODE_SEG, tf->code_seg);
+	ipcc_panic_field(IPF_FLAGS_REG, tf->flags_reg);
+	ipcc_panic_field(IPF_STACK_PTR, tf->stk_ptr);
+	ipcc_panic_field(IPF_STACK_SEG, tf->stk_seg);
+	ipcc_panic_field(IPF_CR2, getcr2());
 
 	/* grab %[er]bp pushed by our code from the stack */
 	fakeframe.old_frame = (bop_frame_t *)*(tfp - 3);
@@ -672,6 +686,9 @@ _start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	bsp = boot_console_init();
 	eb_physmem_init(&bm);
 
+	kbm_debug = 1;
+	kernel_ipcc_init(IPCC_INIT_EARLYBOOT);
+
 	/*
 	 * XXXBOOT Wire in something analogous to the earlyboot console here
 	 * to enable fetching properties from the SP.
@@ -679,6 +696,17 @@ _start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	bt_props = btdp->btd_prop_list;
 	kbm_debug = (find_bt_prop("kbm_debug", 0) != NULL);
 	bootrd_debug = (find_bt_prop("bootrd_debug", 0) != NULL);
+
+	/* XXX - temporary hack */
+	const bt_prop_t *x = find_bt_prop(BTPROP_NAME_BOARD_IDENT, 0);
+	if (x != NULL) {
+		ipcc_ident_t ident;
+
+		if (kernel_ipcc_ident(&ident) == 0) {
+			bcopy(ident.ii_serial, (void *)x->btp_value,
+			    MIN(sizeof (ident.ii_serial), x->btp_vlen));
+		}
+	}
 
 	DBG_MSG("\n\n*** Entered illumos in _start()\n");
 	DBG(btdp);
