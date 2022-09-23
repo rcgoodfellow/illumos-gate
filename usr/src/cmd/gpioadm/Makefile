@@ -23,8 +23,6 @@ CFLAGS += $(CCVERBOSE)
 CSTD = $(CSTD_GNU99)
 OBJS = gpioadm.o gpioadm_controller.o gpioadm_dpio.o gpioadm_gpio.o
 LDLIBS += -ldevinfo -lofmt -lxpio
-# XXX
-LDFLAGS += '-R$$ORIGIN'
 
 .KEEP_STATE:
 

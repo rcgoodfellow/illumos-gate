@@ -21,8 +21,7 @@ include ../Makefile.ctf
 
 CTF_MODE = link
 CSTD = $(CSTD_GNU99)
-# XXX remove $ORIGIN
-LDLIBS += '-R$$ORIGIN' -lt6mfg -lofmt -lsocket
+LDLIBS += -lt6mfg -lofmt -lsocket
 OBJS = t6mfgadm.o t6mfgadm_srom.o t6mfgadm_flash.o
 
 .KEEP_STATE:
