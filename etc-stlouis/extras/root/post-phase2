@@ -41,6 +41,9 @@ crle -64 -u -s /lib/secure/64 -s /usr/lib/secure/64 -s "$p2root/lib/secure/64" \
 	-s "$p2root/usr/lib/secure/64"
 
 devfsadm
+devfsadm -i amdzen
+devfsadm -i kgpio
+devfsadm -i zen_gpio
 
 svcadm restart system-log
 svcadm restart hotplug
