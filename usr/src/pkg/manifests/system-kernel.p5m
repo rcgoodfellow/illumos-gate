@@ -524,6 +524,7 @@ driver name=iwscn
 driver name=kb8042 alias=pnpPNP,303
 driver name=keysock perms="keysock 0666 root sys" \
     policy="read_priv_set=sys_ip_config write_priv_set=sys_ip_config"
+driver name=kgpio perms="* 0600 root sys"
 driver name=kmdb
 driver name=llc1 clone_perms="llc1 0666 root sys"
 driver name=lofi perms="* 0600 root sys" perms="ctl 0644 root sys"
