@@ -27,7 +27,7 @@ set name=pkg.fmri value=pkg:/system/library/libt6mfg@$(PKGVERS)
 set name=pkg.summary value="Chelsio T6 Manufacturing Mode Library"
 set name=pkg.description value="Software libraries for Chelsio T6 NICs"
 set name=info.classification \
-    value="org.opensolaris.category.2008:System/Libraries"
+    value=org.opensolaris.category.2008:System/Libraries
 set name=variant.arch value=$(ARCH)
 dir  path=usr group=sys
 dir  path=usr/lib

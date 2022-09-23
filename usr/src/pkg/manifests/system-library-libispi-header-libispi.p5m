@@ -23,8 +23,7 @@
 # Copyright 2022 Oxide Computer Co.
 #
 
-set name=pkg.fmri \
-    value=pkg:/system/library/libispi/header-libispi@$(PKGVERS)
+set name=pkg.fmri value=pkg:/system/library/libispi/header-libispi@$(PKGVERS)
 set name=pkg.summary \
     value="Serial Peripheral Interface library private header files"
 set name=pkg.description \

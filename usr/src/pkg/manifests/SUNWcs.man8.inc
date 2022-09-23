@@ -107,6 +107,7 @@ file path=usr/share/man/man8/getdgrp.8
 file path=usr/share/man/man8/getent.8
 file path=usr/share/man/man8/getty.8
 file path=usr/share/man/man8/getvol.8
+file path=usr/share/man/man8/gpioadm.8
 file path=usr/share/man/man8/groupadd.8
 file path=usr/share/man/man8/groupdel.8
 file path=usr/share/man/man8/groupmod.8
