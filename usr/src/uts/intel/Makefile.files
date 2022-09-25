@@ -386,6 +386,11 @@ PPT_OBJS = ppt.o
 TOFINO_OBJS += tofino.o tofino_tbus.o
 
 #
+# tfpkt(4D)
+#
+TFPKT_OBJS += tfpkt.o tfpkt_tofino.o
+
+#
 # bhyve VT-d
 #
 VMM_VTD_OBJS = vtd.o
