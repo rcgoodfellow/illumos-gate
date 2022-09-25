@@ -231,35 +231,24 @@ static void *rootnex_coredma_hdl_getprivate(dev_info_t *dip, dev_info_t *rdip,
     ddi_dma_handle_t handle);
 
 static struct bus_ops rootnex_bus_ops = {
-	BUSO_REV,
-	rootnex_map,
-	NULL,
-	NULL,
-	NULL,
-	rootnex_map_fault,
-	0,
-	rootnex_dma_allochdl,
-	rootnex_dma_freehdl,
-	rootnex_dma_bindhdl,
-	rootnex_dma_unbindhdl,
-	rootnex_dma_sync,
-	rootnex_dma_win,
-	rootnex_dma_mctl,
-	rootnex_ctlops,
-	ddi_bus_prop_op,
-	i_ddi_rootnex_get_eventcookie,
-	i_ddi_rootnex_add_eventcall,
-	i_ddi_rootnex_remove_eventcall,
-	i_ddi_rootnex_post_event,
-	0,			/* bus_intr_ctl */
-	0,			/* bus_config */
-	0,			/* bus_unconfig */
-	rootnex_fm_init,	/* bus_fm_init */
-	NULL,			/* bus_fm_fini */
-	NULL,			/* bus_fm_access_enter */
-	NULL,			/* bus_fm_access_exit */
-	NULL,			/* bus_powr */
-	rootnex_intr_ops	/* bus_intr_op */
+	.busops_rev =		BUSO_REV,
+	.bus_map =		rootnex_map,
+	.bus_map_fault =	rootnex_map_fault,
+	.bus_dma_allochdl =	rootnex_dma_allochdl,
+	.bus_dma_freehdl =	rootnex_dma_freehdl,
+	.bus_dma_bindhdl =	rootnex_dma_bindhdl,
+	.bus_dma_unbindhdl =	rootnex_dma_unbindhdl,
+	.bus_dma_flush =	rootnex_dma_sync,
+	.bus_dma_win =		rootnex_dma_win,
+	.bus_dma_ctl =		rootnex_dma_mctl,
+	.bus_ctl =		rootnex_ctlops,
+	.bus_prop_op =		ddi_bus_prop_op,
+	.bus_get_eventcookie =	i_ddi_rootnex_get_eventcookie,
+	.bus_add_eventcall =	i_ddi_rootnex_add_eventcall,
+	.bus_remove_eventcall =	i_ddi_rootnex_remove_eventcall,
+	.bus_post_event =	i_ddi_rootnex_post_event,
+	.bus_fm_init =		rootnex_fm_init,
+	.bus_intr_op =		rootnex_intr_ops,
 };
 
 static int rootnex_attach(dev_info_t *dip, ddi_attach_cmd_t cmd);
