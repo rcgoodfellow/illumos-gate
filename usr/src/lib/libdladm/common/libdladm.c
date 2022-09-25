@@ -684,6 +684,9 @@ dladm_class2str(datalink_class_t class, char *buf)
 	case DATALINK_CLASS_OVERLAY:
 		s = "overlay";
 		break;
+	case DATALINK_CLASS_XDE:
+		s = "xde";
+		break;
 	default:
 		s = "unknown";
 		break;
