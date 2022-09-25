@@ -77,6 +77,13 @@
 #define	RTS_MSG_SIZE(type, rtm_addrs, af, sacnt) \
 	(rts_data_msg_size(rtm_addrs, af, sacnt) + rts_header_msg_size(type))
 
+struct rtm_getall_mblk {
+	mblk_t *rgam_request;
+	mblk_t *rgam_response_head;
+	mblk_t *rgam_response_tail;
+};
+
+
 static size_t	rts_copyfromsockaddr(struct sockaddr *sa, in6_addr_t *addrp);
 static void	rts_fill_msg(int type, int rtm_addrs, ipaddr_t dst,
     ipaddr_t mask, ipaddr_t gateway, ipaddr_t src_addr, ipaddr_t brd_addr,
@@ -100,6 +107,7 @@ static ire_t	*ire_lookup_v6(const in6_addr_t *dst_addr_v6,
     const ill_t *ill, zoneid_t zoneid, const ts_label_t *tsl, int match_flags,
     ip_stack_t *ipst, ire_t **pifire,
     in6_addr_t *v6setsrcp, tsol_ire_gw_secattr_t **gwattrp);
+static void	ire_collect(ire_t *ire, struct rtm_getall_mblk *rgm);
 
 /*
  * Send `mp' to all eligible routing queues.  A queue is ineligible if:
@@ -344,13 +352,27 @@ ip_rts_request_common(mblk_t *mp, conn_t *connp, cred_t *ioc_cr)
 		goto done;
 	}
 
-	/* Only allow RTM_GET or RTM_RESOLVE for unprivileged process */
+	/*
+	 * Only allow RTM_GET, RTM_GETALL, or RTM_RESOLVE for unprivileged
+	 * processes.
+	 */
 	if (rtm->rtm_type != RTM_GET &&
+	    rtm->rtm_type != RTM_GETALL &&
 	    rtm->rtm_type != RTM_RESOLVE &&
-	    (ioc_cr == NULL ||
-	    secpolicy_ip_config(ioc_cr, B_FALSE) != 0)) {
+	    (ioc_cr == NULL || secpolicy_ip_config(ioc_cr, B_FALSE) != 0)) {
 		error = EPERM;
 		goto done;
+	}
+
+	if (rtm->rtm_type == RTM_GETALL) {
+		struct rtm_getall_mblk rgam = { .rgam_request = mp };
+
+		ire_walk(ire_collect, &rgam, ipst);
+
+		rtm->rtm_flags |= RTF_DONE;
+		rts_queue_input(rgam.rgam_response_head, connp, af, RTSQ_ALL,
+		    ipst);
+		return (error);
 	}
 
 	found_addrs = rts_getaddrs(rtm, &dst_addr_v6, &gw_addr_v6, &net_mask_v6,
@@ -976,6 +998,47 @@ done:
 		rts_queue_input(mp, connp, af, RTSQ_ALL, ipst);
 	}
 	return (error);
+}
+
+/*
+ * XXX this is not terribly efficient, we're creating a full RTM_GET message
+ * per routing table entry. Ideally we just create one rt_msghdr for the whole
+ * table and then aggregate the entries within that one message.
+ */
+static void
+ire_collect(ire_t *ire, struct rtm_getall_mblk *rgam)
+{
+	if (ire == NULL) {
+		ip0dbg(("ire_collect: ire cannot be NULL\n"));
+		return;
+	}
+	if (rgam == NULL) {
+		ip0dbg(("ire_collect: rgam cannot be NULL\n"));
+		return;
+	}
+
+	mblk_t *mp = NULL;
+	in6_addr_t v6setsrc = ipv6_all_zeros; /* XXX */
+	switch (ire->ire_ipversion) {
+	case IPV4_VERSION:
+		mp = rts_rtmget(rgam->rgam_request, ire, NULL, &v6setsrc, NULL,
+		    AF_INET);
+		break;
+	case IPV6_VERSION:
+		mp = rts_rtmget(rgam->rgam_request, ire, NULL, &v6setsrc, NULL,
+		    AF_INET6);
+		break;
+	default:
+		return;
+	}
+
+	if (rgam->rgam_response_head == NULL) {
+		rgam->rgam_response_head = mp;
+		rgam->rgam_response_tail = mp;
+	} else {
+		rgam->rgam_response_tail->b_cont = mp;
+		rgam->rgam_response_tail = mp;
+	}
 }
 
 /*

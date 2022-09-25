@@ -182,6 +182,7 @@ typedef struct rt_msghdr {
 #define	RTM_IFINFO	0xe	/* iface going up/down etc. */
 #define	RTM_CHGADDR	0xf	/* address added/changed (even while down) */
 #define	RTM_FREEADDR	0x10	/* address removed (even while down) */
+#define	RTM_GETALL	0x11	/* get all routes */
 
 #define	RTV_MTU		0x1	/* init or lock _mtu */
 #define	RTV_HOPCOUNT	0x2	/* init or lock _hopcount */
