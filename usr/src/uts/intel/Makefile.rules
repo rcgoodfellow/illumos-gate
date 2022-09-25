@@ -284,6 +284,10 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/tofino/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
+$(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/tfpkt/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 #
 # krtld compiled into unix
 #
