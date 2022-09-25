@@ -381,6 +381,11 @@ VIONA_OBJS = \
 PPT_OBJS = ppt.o
 
 #
+# tofino(4D)
+#
+TOFINO_OBJS += tofino.o tofino_tbus.o
+
+#
 # bhyve VT-d
 #
 VMM_VTD_OBJS = vtd.o
