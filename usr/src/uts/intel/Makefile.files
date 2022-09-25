@@ -392,6 +392,11 @@ TOFINO_OBJS += tofino.o tofino_tbus.o
 TFPKT_OBJS += tfpkt.o tfpkt_tofino.o
 
 #
+# tfport(4D)
+#
+TFPORT_OBJS += tfport.o
+
+#
 # bhyve VT-d
 #
 VMM_VTD_OBJS = vtd.o
