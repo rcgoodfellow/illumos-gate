@@ -26,6 +26,7 @@
  * Copyright (c) 2016 by Delphix. All rights reserved.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2021 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #include <sys/types.h>
@@ -61,6 +62,7 @@
 #include <sys/mac.h>
 #include <net/if.h>
 #include <net/if_arp.h>
+#include <net/if_ndp.h>
 #include <net/route.h>
 #include <sys/sockio.h>
 #include <netinet/in.h>
@@ -1118,7 +1120,11 @@ ip_ioctl_cmd_t ip_ndx_ioctl_table[] = {
 	/* 191 */ { SIOCSLIFPREFIX, sizeof (struct lifreq), IPI_PRIV | IPI_WR,
 			LIF_CMD, ip_sioctl_prefix, ip_sioctl_prefix_restart },
 	/* 192 */ { SIOCGLIFHWADDR, sizeof (struct lifreq), IPI_GET_CMD,
-			LIF_CMD, ip_sioctl_get_lifhwaddr, NULL }
+			LIF_CMD, ip_sioctl_get_lifhwaddr, NULL },
+	/* 193 */ { SIOCGNDNUM, sizeof (struct ndpreq), IPI_GET_CMD, MISC_CMD,
+			ip_sioctl_nd, NULL },
+	/* 194 */ { SIOCGNDS, 0, IPI_GET_CMD, MISC_CMD,
+			ip_sioctl_nd, NULL },
 };
 
 int ip_ndx_ioctl_count = sizeof (ip_ndx_ioctl_table) / sizeof (ip_ioctl_cmd_t);

@@ -422,6 +422,7 @@ file path=usr/include/net/bridge.h
 file path=usr/include/net/if.h
 file path=usr/include/net/if_arp.h
 file path=usr/include/net/if_dl.h
+file path=usr/include/net/if_ndp.h
 file path=usr/include/net/if_types.h
 file path=usr/include/net/pfkeyv2.h
 file path=usr/include/net/pfpolicy.h

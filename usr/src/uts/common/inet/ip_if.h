@@ -21,6 +21,7 @@
 /*
  * Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 1990 Mentat Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 
 #ifndef	_INET_IP_IF_H
@@ -291,7 +292,7 @@ extern	void	ipif_ill_refrele_tail(ill_t *ill);
 extern	void	ipif_nce_down(ipif_t *ipif);
 extern	int	ipif_arp_down(ipif_t *ipif);
 extern	void	ipif_mask_reply(ipif_t *);
-extern	int 	ipif_up(ipif_t *, queue_t *, mblk_t *);
+extern	int	ipif_up(ipif_t *, queue_t *, mblk_t *);
 extern	ill_t	*ill_lookup_usesrc(ill_t *);
 
 extern	void	ipsq_current_start(ipsq_t *, ipif_t *, int);
@@ -437,6 +438,9 @@ extern int ip_sioctl_get_metric(ipif_t *, sin_t *, queue_t *, mblk_t *,
     ip_ioctl_cmd_t *, void *);
 
 extern int ip_sioctl_arp(ipif_t *, sin_t *, queue_t *, mblk_t *,
+    ip_ioctl_cmd_t *, void *);
+
+extern int ip_sioctl_nd(ipif_t *, sin_t *, queue_t *, mblk_t *,
     ip_ioctl_cmd_t *, void *);
 
 extern int ip_sioctl_addif(ipif_t *, sin_t *, queue_t *, mblk_t *,
