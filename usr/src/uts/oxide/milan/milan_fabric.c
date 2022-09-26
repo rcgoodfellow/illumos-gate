@@ -3593,8 +3593,7 @@ milan_perst_deassert(milan_iodie_t *iodie, uint16_t gpio)
 		reg = milan_iodie_reg(iodie, D_FCH_RMTGPIO_STD, gpio - 256);
 	}
 
-	val = milan_iodie_read(iodie, reg);
-	val = FCH_GPIO_STD_SET_OUTPUT_EN(val, 1);
+	val = FCH_GPIO_STD_SET_OUTPUT_EN(0, 1);
 	val = FCH_GPIO_STD_SET_OUTPUT_VAL(val,
 	    FCH_GPIO_STD_OUTPUT_VAL_ASSERT);
 	val = FCH_GPIO_STD_SET_STRENGTH(val,
