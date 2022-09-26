@@ -36,6 +36,7 @@
 #include <sys/controlregs.h>
 #include <sys/archsystm.h>
 #include <sys/prom_debug.h>
+#include <sys/bitmap.h>
 #include <vm/hat_i86.h>
 #include <vm/as.h>
 
@@ -98,24 +99,41 @@ smm_init(void)
 	 * more than max_ncpus to worry about.  Size TSeg on this basis.  We
 	 * need enough space for all the handlers plus enough space to account
 	 * for the waste between the last handler and its corresponding
-	 * state-save area.  TSeg must be aligned to and a multiple of 128 KiB.
+	 * state-save area.  TSeg must be a multiple of 128 KiB and due to the
+	 * way the mask register works must also be naturally aligned.
 	 */
 	tseg_len = max_ncpus * SMBASE_CPU_STRIDE + AMD64_SMBASE_SS_OFF +
 	    sizeof (amd64_smm_state_t) - AMD64_SMBASE_HANDLER_OFF;
 	tseg_len = P2ROUNDUP(tseg_len, AMD64_TSEG_ALIGN);
+	if (tseg_len > AMD64_TSEG_ALIGN) {
+		int bit = highbit(tseg_len - 1);
+
+		/*
+		 * The highest bit set must be at least bit 16, since we've
+		 * already rounded up to 128 KiB, we know we're *above* 128 KiB,
+		 * and therefore the smallest value we could have here is
+		 * 0x3_ffff.  If bit 17 is the high bit set, highbit() returns
+		 * 18.
+		 */
+		VERIFY3S(bit, >, 17);
+
+		tseg_len = 1U << bit;
+	}
 
 	/*
 	 * We can't put a negative value into SMBASE and we want to set SMBASE
 	 * for CPU0 so that the handler is at the beginning of TSeg.  Therefore
 	 * we can't accept an allocation in the bottom 32 KiB of RAM, which
-	 * given alignment requirements means the bottom 128 KiB.
+	 * given alignment requirements means the bottom 128 KiB.  Note that if
+	 * TSeg is larger than 128 KiB, it will end up being higher due to its
+	 * alignment.
 	 */
 	ddi_dma_attr_t tseg_attr = {
 		.dma_attr_version = DMA_ATTR_VERSION,
 		.dma_attr_addr_lo = AMD64_TSEG_ALIGN,
 		.dma_attr_addr_hi = UINT32_MAX,
 		.dma_attr_count_max = UINT32_MAX,
-		.dma_attr_align = AMD64_TSEG_ALIGN,
+		.dma_attr_align = tseg_len,
 		.dma_attr_minxfer = 1,
 		.dma_attr_maxxfer = tseg_len,
 		.dma_attr_seg = UINT32_MAX,
@@ -139,7 +157,7 @@ smm_init(void)
 	};
 
 	/* XXX Even though we set cansleep, can this fail in other ways? */
-	tseg = contig_alloc(tseg_len, &tseg_attr, AMD64_TSEG_ALIGN, 1);
+	tseg = contig_alloc(tseg_len, &tseg_attr, tseg_len, 1);
 	if (tseg == NULL)
 		return (-1);
 	tseg_pa = mmu_ptob(hat_getpfnum(kas.a_hat, (caddr_t)tseg));
