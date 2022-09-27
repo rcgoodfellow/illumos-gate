@@ -67,7 +67,7 @@ typedef uint32_t ddm_element;
 void ddm_input(mblk_t *mp_chain, ip6_t *ip6h, ip_recv_attr_t *ira);
 
 /* TODO */
-void ddm_output(mblk_t *mp_chain);
+void ddm_output(mblk_t *mp, ip6_t *ip6h);
 
 /*
  * Extract node id from an ddm element.

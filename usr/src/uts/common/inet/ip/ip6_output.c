@@ -24,6 +24,7 @@
  * Use is subject to license terms.
  * Copyright 2017 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -326,8 +327,11 @@ repeat_ire:
 
 	if (ill != NULL) {
 		BUMP_MIB(ill->ill_ip_mib, ipIfStatsHCOutRequests);
-		if (ill->ill_ddm) {
-			ddm_output(mp);
+		// if this ill has ddm enabled, and the next header is not
+		// already a ddm header then run the ddm output function. The
+		// next header may be ddm already if we are emitting a ddm-ack.
+		if (ill->ill_ddm && ip6h->ip6_nxt != 0xdd) {
+			ddm_output(mp, ip6h);
 		}
 	} else {
 		BUMP_MIB(&ipst->ips_ip_mib, ipIfStatsHCOutRequests);

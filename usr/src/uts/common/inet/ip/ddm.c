@@ -74,7 +74,7 @@ void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
 		return;
 	}
 
-	if (ddh->ddm_length != (sizeof (ddm_t) - 8 + sizeof (ddm_element))) {
+	if (ddh->ddm_length != ((sizeof (ddm_t) - 1) + sizeof (ddm_element))) {
 		/*
 		 * TODO dtrace:
 		 *  - shorter indicates there is no ToS element
@@ -104,10 +104,41 @@ void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
 	ira->ira_pktlen += sizeof (ddm_t) + sizeof (ddm_element);
 	ira->ira_protocol = ddh->ddm_next_header;
 
+	/* TODO send out ddm-ack, as ddm is refined, acks may be piggy-backed on
+	 * ULP acks. */
+
 }
 
+#define MAX_TX (1<<24)
+
 /* TODO */
-void ddm_output(mblk_t *mp) {
+void ddm_output(mblk_t *mp, ip6_t *ip6h) {
+
+	mblk_t *ddm_mp = allocb(sizeof (ddm_t) + sizeof (ddm_element), BPRI_HI);
+	if (!ddm_mp) {
+		/* TODO dtrace */
+		return;
+	}
+
+	ddm_t *ddh = (ddm_t*)ddm_mp->b_wptr;
+	ddh->ddm_next_header = ip6h->ip6_nxt;
+	// ddh header + 1 element minus leading 8 bits (RFC 6564)
+	ddh->ddm_length = 7; 
+	ddh->ddm_version = 1;
+	ddm_element *dde = (ddm_element*)&ddh[1];
+	/* Set node timestamp as the high 24 bits. */
+	*dde = ((uint32_t)(gethrtime() % MAX_TX) << 8);
+	/* TODO set node id */
+	ip6h->ip6_nxt = 0xdd;
+	ddm_mp->b_wptr = (unsigned char*)&dde[1];
+
+	if (mp->b_prev) {
+		ddm_mp->b_prev = mp->b_prev;
+		mp->b_prev->b_next = ddm_mp;
+	}
+	ddm_mp->b_next = mp;
+	mp->b_prev = ddm_mp;
+
 }
 
 uint8_t ddm_element_id(ddm_element e) {
