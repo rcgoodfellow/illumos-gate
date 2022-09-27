@@ -82,6 +82,8 @@ HDRS	=			\
 	synch32.h		\
 	sysconfig_impl.h	\
 	sysi86.h		\
+	tofino.h		\
+	tfport.h		\
 	trap.h			\
 	traptrace.h		\
 	tss.h			\
