@@ -697,7 +697,6 @@ f lib/svc/manifest/system/svc/global.xml 0444 root sys
 f lib/svc/manifest/system/svc/restarter.xml 0444 root sys
 f lib/svc/manifest/system/sysevent.xml 0444 root sys
 f lib/svc/manifest/system/system-log.xml 0444 root sys
-f lib/svc/manifest/system/mission-t6.xml 0444 root sys
 f lib/svc/manifest/system/utmp.xml 0444 root sys
 d lib/svc/method 0755 root bin
 f lib/svc/method/boot-archive 0555 root bin
