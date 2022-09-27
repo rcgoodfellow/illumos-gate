@@ -376,8 +376,6 @@ oxide_boot_fini(oxide_boot_t *oxb)
 static void
 oxide_boot_locate(void)
 {
-	int r = -1;
-
 	printf("in oxide_boot!\n");
 
 	oxide_boot_t *oxb = kmem_zalloc(sizeof (*oxb), KM_SLEEP);
@@ -391,7 +389,6 @@ oxide_boot_locate(void)
 	 * archive.
 	 */
 	intptr_t fd;
-	uint8_t csum[OXBOOT_CSUMLEN_SHA256];
 	if ((fd = kobj_open("/boot_image_csum")) == -1 ||
 	    kobj_read(fd, (int8_t *)&oxb->oxb_csum_want,
 	    OXBOOT_CSUMLEN_SHA256, 0) != OXBOOT_CSUMLEN_SHA256) {
@@ -426,7 +423,6 @@ oxide_boot_locate(void)
 	 * Tell the system to import the ramdisk device as a ZFS pool, and to
 	 * ignore any device names or IDs found in the pool label.
 	 */
-	r = 0;
 	(void) e_ddi_prop_update_string(DDI_DEV_T_NONE,
 	    ddi_root_node(), "fstype", "zfs");
 	(void) e_ddi_prop_update_string(DDI_DEV_T_NONE,
