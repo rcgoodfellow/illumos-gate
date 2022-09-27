@@ -2712,6 +2712,13 @@ struct ire_s {
 	 * have ire_unbound set to true.
 	 */
 	boolean_t	ire_unbound;
+
+	/*
+	 * when this route is via an interface that has ddm emabled this value
+	 * will be updated with a delay value in microseconds when ddm acks are
+	 * received.
+	 */
+	uint32_t	ire_delay;
 };
 
 /* IPv4 compatibility macros */

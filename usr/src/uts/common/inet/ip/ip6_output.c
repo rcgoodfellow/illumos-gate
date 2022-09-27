@@ -24,6 +24,7 @@
  * Use is subject to license terms.
  * Copyright 2017 OmniTI Computer Consulting, Inc. All rights reserved.
  * Copyright 2018 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -59,6 +60,7 @@
 #include <inet/arp.h>
 #include <inet/snmpcom.h>
 #include <inet/kstatcom.h>
+#include <inet/ddm.h>
 
 #include <netinet/igmp_var.h>
 #include <netinet/ip6.h>
@@ -962,6 +964,18 @@ ire_send_wire_v6(ire_t *ire, mblk_t *mp, void *iph_arg,
 
 	ASSERT(ixa->ixa_nce != NULL);
 	ill = ixa->ixa_nce->nce_ill;
+
+	// if this ill has ddm enabled, and the next header is not
+	// already a ddm header then run the ddm output function. The
+	// next header may be ddm already if we are emitting a ddm-ack.
+	if (ill->ill_ipif->ipif_flags & IFF_DDM &&
+	    (ire->ire_type & IRE_ONLINK) == 0 &&
+	    ip6h->ip6_nxt != 0xdd) {
+		ixa->ixa_pktlen += 8;
+		ixa->ixa_protocol = 0xdd;
+		mp = ddm_output(mp, ip6h);
+		pktlen = ixa->ixa_pktlen;
+	}
 
 	/*
 	 * Update output mib stats. Note that we can't move into the icmp

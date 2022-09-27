@@ -84,7 +84,7 @@ extern "C" {
 #define	IFF_LOGINT_FLAGS	(IFF_UP|IFF_BROADCAST|IFF_POINTOPOINT| \
     IFF_UNNUMBERED|IFF_DHCPRUNNING|IFF_PRIVATE|IFF_NOXMIT|IFF_NOLOCAL| \
     IFF_DEPRECATED|IFF_ADDRCONF|IFF_ANYCAST|IFF_NOFAILOVER| \
-    IFF_PREFERRED|IFF_TEMPORARY|IFF_DUPLICATE)
+    IFF_PREFERRED|IFF_TEMPORARY|IFF_DUPLICATE|IFF_DDM)
 
 #define	PHYI_LOOPBACK		IFF_LOOPBACK	/* is a loopback net */
 #define	PHYI_RUNNING		IFF_RUNNING	/* resources allocated */
@@ -130,6 +130,7 @@ extern "C" {
 #define	IPIF_PREFERRED		IFF_PREFERRED	/* Prefer as source address */
 #define	IPIF_TEMPORARY		IFF_TEMPORARY	/* RFC3041 */
 #define	IPIF_DUPLICATE		IFF_DUPLICATE	/* address is in use */
+#define	IPIF_DDM		IFF_DDM		/* delay driven multipath */
 
 #ifdef DEBUG
 #define	ILL_MAC_PERIM_HELD(ill)	ill_mac_perim_held(ill)

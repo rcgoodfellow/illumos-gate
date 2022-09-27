@@ -24,6 +24,7 @@
  *
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -71,6 +72,7 @@
 #include <inet/arp.h>
 #include <inet/snmpcom.h>
 #include <inet/kstatcom.h>
+#include <inet/ddm.h>
 
 #include <netinet/igmp_var.h>
 #include <netinet/ip6.h>
@@ -713,6 +715,13 @@ ill_input_short_v6(mblk_t *mp, void *iph_arg, void *nexthop_arg,
 			nexthop = ipv6_all_hosts_mcast;
 			break;
 		}
+	}
+
+	/* handle ddm packets */
+	if (ill->ill_ipif->ipif_flags & IFF_DDM &&
+	    ira->ira_protocol == 0xdd) {
+		mp = ddm_input(mp, ip6h, ira);
+		ip6h = (ip6_t *)mp->b_rptr;
 	}
 
 	/*
@@ -1998,7 +2007,7 @@ ip_fanout_v6(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	ipsec_stack_t	*ipss = ns->netstack_ipsec;
 	ill_t		*rill = ira->ira_rill;
 
-	ASSERT(ira->ira_pktlen == ntohs(ip6h->ip6_plen) + IPV6_HDR_LEN);
+	ASSERT3U(ira->ira_pktlen, ==, ntohs(ip6h->ip6_plen) + IPV6_HDR_LEN);
 
 	/*
 	 * We repeat this as we parse over destination options header and

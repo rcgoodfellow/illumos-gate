@@ -5,6 +5,7 @@
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2015, Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2022 Oxide Computer Company
  */
 /*
  * Copyright (c) 1982, 1986 Regents of the University of California.
@@ -178,6 +179,7 @@ typedef	uint16_t	sa_family_t;
 #define	IPPROTO_SCTP		132		/* Stream Control */
 						/* Transmission Protocol */
 
+#define	IPPROTO_DDM		221		/* delay driven multipath */
 #define	IPPROTO_RAW		255		/* raw IP packet */
 #define	IPPROTO_MAX		256
 

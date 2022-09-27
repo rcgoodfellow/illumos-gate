@@ -60,6 +60,7 @@
 #include <sys/vtrace.h>
 #include <sys/isa_defs.h>
 #include <sys/mac.h>
+#include <sys/stdbool.h>
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <net/if_ndp.h>
