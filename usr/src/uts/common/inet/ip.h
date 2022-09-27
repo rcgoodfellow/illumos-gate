@@ -1829,6 +1829,7 @@ typedef struct ill_s {
 
 	/* list of multicast physical addresses joined on this ill */
 	multiphysaddr_t *ill_mphysaddr_list;
+	boolean_t	ill_ddm;
 } ill_t;
 
 /*

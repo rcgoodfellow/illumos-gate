@@ -24,6 +24,7 @@
  *
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -71,6 +72,7 @@
 #include <inet/arp.h>
 #include <inet/snmpcom.h>
 #include <inet/kstatcom.h>
+#include <inet/ddm.h>
 
 #include <netinet/igmp_var.h>
 #include <netinet/ip6.h>
@@ -713,6 +715,11 @@ ill_input_short_v6(mblk_t *mp, void *iph_arg, void *nexthop_arg,
 			nexthop = ipv6_all_hosts_mcast;
 			break;
 		}
+	}
+
+	/* handle ddm packets */
+	if (ill->ill_ddm && ira->ira_protocol == 0xdd) {
+		ddm_input(mp, ip6h, ira);
 	}
 
 	/*

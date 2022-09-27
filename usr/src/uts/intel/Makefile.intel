@@ -229,6 +229,7 @@ DRV_KMODS	+= cpunex
 DRV_KMODS	+= crypto
 DRV_KMODS	+= cryptoadm
 DRV_KMODS	+= dca
+DRV_KMODS	+= ddm
 DRV_KMODS	+= devinfo
 DRV_KMODS	+= dld
 DRV_KMODS	+= dlpistub

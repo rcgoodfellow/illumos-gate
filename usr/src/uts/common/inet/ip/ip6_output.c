@@ -59,6 +59,7 @@
 #include <inet/arp.h>
 #include <inet/snmpcom.h>
 #include <inet/kstatcom.h>
+#include <inet/ddm.h>
 
 #include <netinet/igmp_var.h>
 #include <netinet/ip6.h>
@@ -325,6 +326,9 @@ repeat_ire:
 
 	if (ill != NULL) {
 		BUMP_MIB(ill->ill_ip_mib, ipIfStatsHCOutRequests);
+		if (ill->ill_ddm) {
+			ddm_output(mp);
+		}
 	} else {
 		BUMP_MIB(&ipst->ips_ip_mib, ipIfStatsHCOutRequests);
 	}
