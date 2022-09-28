@@ -21,6 +21,54 @@
 /*
  * Copyright 2022 Oxide Computer Company
  */
+/*
+ * The ddm protocol embeds hop-by-hop timestamp information in IPv6 extension
+ * headers. The ddm extension header has a fixed 8-byte portion that is always
+ * present, followed by a variable sized list of elements. There may be between
+ * 0 and 15 elements in a single ddm extension header. DDM over greater than 15
+ * hops is not currently supported. If the need arises the 15 element limit per
+ * ddm extension header will not change, rather extension headers must be
+ * chained. This is to keep in line with the recommendations of RFC 6564 for
+ * IPv6 extension headers.
+ *
+ *           0               0               1               2               3
+ *           0               8               6               4               2
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *     0x00 |  Next Header  | Header Length |    Version    |A|  Reserved   |
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *     0x04 |     0.Id      |           0.Timestamp                         |
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *     0x08 |     1.Id      |           1.Timestamp                         |
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *          |     ...       |                ...                            |
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *          |     ...       |                ...                            |
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * (N+1)<<2 |     N.Id      |           N.Timestamp                         :
+ *          +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * Fixed header fields have the following semantics:
+ *
+ *   Next Header:   IANA IP protocol number of the next header.
+ *
+ *   Header Length: Length of the ddm header and all elements in bytes not
+ *                  including the leading Next Header byte. Follows convention
+ *                  established in RFC 6564.
+ *
+ *   Version:       Version of the ddm protocol.
+ *
+ *   A:             Acknowledgement bit. A value of 1 indicates this is an
+ *                  acknowledgement, 0 otherwise.
+ *
+ *   Reserved:      Reserved for future use.
+ *
+ * Element fields have the following semantics
+ *
+ *   Id:        Identifier for the node that produced this element.
+ *
+ *   Timestamp: Time this element was produced. This is an opaque 24-bit value
+ *              that is only meaningful to the producer of the timestamp.
+ */
 
 #ifndef	_INET_DDM_H
 #define	_INET_DDM_H
@@ -53,7 +101,34 @@ typedef struct ddm_hdr {
 /*
  * True if the ddm header is an acknowledgement.
  */
-boolean_t ddm_is_ack(ddm_t *ddh);
+inline boolean_t
+ddm_is_ack(ddm_t *ddh)
+{
+	return ((ddh->ddm_reserved & 1) != 0);
+}
+
+inline uint16_t
+ddm_total_len(ddm_t *ddh)
+{
+	/* ddh header length field + 1 for the leading 8 bits (RFC 6564) */
+	return (ddh->ddm_length + 1);
+}
+
+inline uint8_t
+ddm_elements_len(ddm_t *ddh)
+{
+	return (ddh->ddm_length - 3);
+}
+
+inline uint8_t
+ddm_element_count(ddm_t *ddh)
+{
+	/*
+	 * subtract out the ddh header and divide by 4 (ddm elements are 4 bytes
+	 * wide)
+	 */
+	return (ddm_elements_len(ddh) >> 2);
+}
 
 /*
  * First 8 bits are an origin host id, last 24 bits are a timestamp. Timestamp
@@ -66,21 +141,33 @@ typedef uint32_t ddm_element;
  */
 void ddm_input(mblk_t *mp_chain, ip6_t *ip6h, ip_recv_attr_t *ira);
 
-/* TODO */
+/*
+ * insert a ddm header into the message block mp containing the ipv6 header
+ * ip6h.
+ */
 void ddm_output(mblk_t *mp, ip6_t *ip6h);
 
 /*
  * Extract node id from an ddm element.
  */
-uint8_t ddm_element_id(ddm_element e);
+inline uint8_t
+ddm_element_id(ddm_element e)
+{
+	return ((uint8_t)e);
+}
 
 /*
  * Extract 24 bit timestamp from a ddm element.
  */
-uint32_t ddm_element_timestamp(ddm_element e);
+inline uint32_t
+ddm_element_timestamp(ddm_element e)
+{
+	return (e >> 8);
+}
 
-
-/* TODO */
+/*
+ * Update the ddm delay tracking table
+ */
 void ddm_update(ip6_t *dst, uint32_t timestamp);
 
 #endif /* _INET_DDM_H */

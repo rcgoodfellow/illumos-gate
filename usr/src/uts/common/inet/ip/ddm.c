@@ -26,8 +26,15 @@
 #include <inet/ddm.h>
 #include <netinet/ip6.h>
 
-void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
+// maximum timestamp size
+#define	MAX_TS (1<<24)
 
+static void
+ddm_send_ack(mblk_t *mp, ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira);
+
+void
+ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
+{
 	/*
 	 * At this point the ipv6 header has been read and any hop-by-hop
 	 * extension headers have been read and we've detected that next header
@@ -42,7 +49,7 @@ void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
 	 *
 	 * TODO:
 	 * - What about ddm headers that come after other extension headers
-	 * (e.g. not directly after the hop-by-hop options).
+	 * (e.g. not directly after the hop-by-hop options)?
 	 */
 
 	/*
@@ -54,38 +61,44 @@ void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
 	 * useful.
 	 */
 	char *data = ip_pullup(
-		mp,
-		ira->ira_pktlen + sizeof (ddm_t) + sizeof (ddm_element),
-		ira);
+	    mp,
+	    ira->ira_pktlen + sizeof (ddm_t) + sizeof (ddm_element),
+	    ira);
 
 	if (!data) {
-		/* TODO dtrace */
+		DTRACE_PROBE(ddm__input__no__elements);
 		return;
 	}
 	ddm_t *ddh = (ddm_t *)&mp->b_rptr[ira->ira_pktlen];
 
-	/* if this is not an ack, there is nothing to do */
+	/*
+	 * if this is not an ack, there is no table update to be made so just
+	 * send out an ack and return
+	 */
 	if (!ddm_is_ack(ddh)) {
-		/*
-		 * TODO dtrace: it's not normal for a ddm packet that's not an
-		 * acknowledgement to land at a server router (currently the ddm
-		 * illumos module does not support acting as a transit router).
-		 */
-		return;
-	}
-
-	if (ddh->ddm_length != ((sizeof (ddm_t) - 1) + sizeof (ddm_element))) {
-		/*
-		 * TODO dtrace:
-		 *  - shorter indicates there is no ToS element
-		 *  - longer indicates that somehow an ack got back to us
-		 *    without popping off all path elements on the egress path
-		 */
+		ddm_send_ack(mp, ip6h, ddh, ira);
 		return;
 	}
 
 	/*
-	 * TODO ensure this is an ack for us
+	 * If we're here this is an ack and there should be exactly 1 element on
+	 * the stack.
+	 *
+	 * Stack length less than one indicates there is no ToS element. That
+	 * should not happen.
+	 *
+	 * Stack length greater than one indicates that somehow an ack got back
+	 * to us without popping off all path elements on the egress path
+	 */
+	if (ddh->ddm_length != ((sizeof (ddm_t) - 1) + sizeof (ddm_element))) {
+		DTRACE_PROBE1(ddm__input__bad__ack__len,
+		    uint8_t, ddh->ddm_length);
+
+		return;
+	}
+
+	/*
+	 * TODO ensure this ack is for us
 	 */
 
 	/*
@@ -93,7 +106,7 @@ void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
 	 */
 
 	ddm_element dde = *(ddm_element*)&mp->b_rptr[
-		ira->ira_pktlen + sizeof (ddm_t) + sizeof (ddm_element)];
+	    ira->ira_pktlen + sizeof (ddm_t)];
 
 	ddm_update(ip6h, ddm_element_timestamp(dde));
 
@@ -103,56 +116,76 @@ void ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira) {
 
 	ira->ira_pktlen += sizeof (ddm_t) + sizeof (ddm_element);
 	ira->ira_protocol = ddh->ddm_next_header;
-
-	/* TODO send out ddm-ack, as ddm is refined, acks may be piggy-backed on
-	 * ULP acks. */
-
 }
 
-#define MAX_TX (1<<24)
+static void
+ddm_send_ack(mblk_t *mp, ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
+{
+	/* allocate and link up message blocks */
+	mblk_t *ip6_mp = allocb(sizeof (ip6_t), BPRI_HI);
+	mblk_t *ddm_mp = allocb(ddm_total_len(ddh), BPRI_HI);
+	ip6_mp->b_next = ddm_mp;
+	ddm_mp->b_prev = ip6_mp;
 
-/* TODO */
-void ddm_output(mblk_t *mp, ip6_t *ip6h) {
+	/* create the ipv6 header */
+	ip6_t *ack_ip6 = (ip6_t *)ip6_mp->b_wptr;
+	ack_ip6->ip6_vcf = ip6h->ip6_vcf;
+	ack_ip6->ip6_plen = ddm_total_len(ddh);
+	ack_ip6->ip6_nxt = 0xdd;
+	ack_ip6->ip6_hlim = 64;
+	ip6_mp->b_wptr = (unsigned char *)&ack_ip6[1];
 
+	/* create the ddm extension header */
+	ddm_t *ack_ddh = (ddm_t *)ddm_mp->b_wptr;
+	*ack_ddh = *ddh;
+	/* add elements, an ack includes all the received elements */
+	ddm_element *src = (ddm_element*)&ddh[1];
+	ddm_element *dst = (ddm_element*)&ack_ddh[1];
+	memcpy(dst, src, ddm_elements_len(ddh));
+	ddm_mp->b_wptr = (unsigned char *)&dst[ddm_element_count(ddh)];
+
+	/* set up transmit attributes */
+	ip_xmit_attr_t ixa;
+	bzero(&ixa, sizeof (ixa));
+	ixa.ixa_ifindex = ira->ira_rifindex;
+	ixa.ixa_ipst = ira->ira_rill->ill_ipst;
+	ixa.ixa_flags = IXAF_BASIC_SIMPLE_V6;
+	ixa.ixa_flags &= ~IXAF_VERIFY_SOURCE;
+
+	/* send out the ack */
+	ip_output_simple_v6(ip6_mp, &ixa);
+	ixa_cleanup(&ixa);
+}
+
+void
+ddm_output(mblk_t *mp, ip6_t *ip6h)
+{
 	mblk_t *ddm_mp = allocb(sizeof (ddm_t) + sizeof (ddm_element), BPRI_HI);
 	if (!ddm_mp) {
-		/* TODO dtrace */
+		DTRACE_PROBE(ddm__output__allocb__failed);
 		return;
 	}
 
-	ddm_t *ddh = (ddm_t*)ddm_mp->b_wptr;
+	ddm_t *ddh = (ddm_t *)ddm_mp->b_wptr;
 	ddh->ddm_next_header = ip6h->ip6_nxt;
-	// ddh header + 1 element minus leading 8 bits (RFC 6564)
-	ddh->ddm_length = 7; 
+	/* ddh header + 1 element minus leading 8 bits (RFC 6564) */
+	ddh->ddm_length = 7;
 	ddh->ddm_version = 1;
 	ddm_element *dde = (ddm_element*)&ddh[1];
 	/* Set node timestamp as the high 24 bits. */
-	*dde = ((uint32_t)(gethrtime() % MAX_TX) << 8);
+	*dde = ((uint32_t)(gethrtime() % MAX_TS) << 8);
 	/* TODO set node id */
 	ip6h->ip6_nxt = 0xdd;
-	ddm_mp->b_wptr = (unsigned char*)&dde[1];
+	ddm_mp->b_wptr = (unsigned char *)&dde[1];
 
-	if (mp->b_prev) {
-		ddm_mp->b_prev = mp->b_prev;
-		mp->b_prev->b_next = ddm_mp;
-	}
-	ddm_mp->b_next = mp;
-	mp->b_prev = ddm_mp;
-
-}
-
-uint8_t ddm_element_id(ddm_element e) {
-	return ((uint8_t)e);
-}
-
-uint32_t ddm_element_timestamp(ddm_element e) {
-	return (e >> 8);
+	ddm_mp->b_next = mp->b_next;
+	mp->b_next = ddm_mp;
+	ddm_mp->b_prev = mp;
+	ddm_mp->b_next->b_prev = ddm_mp;
 }
 
 /* TODO */
-void ddm_update(ip6_t *dst, uint32_t timestamp) {
-}
-
-boolean_t ddm_is_ack(ddm_t *ddh) {
-	return ((ddh->ddm_reserved & 1) != 0);
+void
+ddm_update(ip6_t *dst, uint32_t timestamp)
+{
 }
