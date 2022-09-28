@@ -330,7 +330,8 @@ repeat_ire:
 		// if this ill has ddm enabled, and the next header is not
 		// already a ddm header then run the ddm output function. The
 		// next header may be ddm already if we are emitting a ddm-ack.
-		if (ill->ill_ddm && ip6h->ip6_nxt != 0xdd) {
+		if (ipst->ips_ipv6_delay_driven_multipath &&
+		    ip6h->ip6_nxt != 0xdd) {
 			ddm_output(mp, ip6h);
 		}
 	} else {

@@ -22,6 +22,7 @@
  * Copyright (c) 1991, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright (c) 2012, Joyent, Inc. All rights reserved.
+ * Copyright 2022 Oxide Computer Company
  */
 /* Copyright (c) 1990 Mentat Inc. */
 
@@ -684,6 +685,10 @@ mod_prop_info_t ip_propinfo_tbl[] = {
 	{ "_ignore_home_address_opt", MOD_PROTO_IPV6,
 	    mod_set_boolean, mod_get_boolean,
 	    {B_TRUE}, {B_TRUE} },
+
+	{ "_delay_driven_multipath", MOD_PROTO_IPV6,
+	    mod_set_boolean, mod_get_boolean,
+	    {B_FALSE}, {B_FALSE} },
 
 	{ "_policy_mask", MOD_PROTO_IP,
 	    mod_set_uint32, mod_get_uint32,

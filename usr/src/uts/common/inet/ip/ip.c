@@ -5929,7 +5929,6 @@ ip_modopen(queue_t *q, dev_t *devp, int flag, int sflag, cred_t *credp)
 	q->q_ptr = WR(q)->q_ptr = ill;
 	ill->ill_ipst = ipst;
 	ill->ill_zoneid = zoneid;
-	ill->ill_ddm = false;
 
 	/*
 	 * ill_init initializes the ill fields and then sends down
