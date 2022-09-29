@@ -76,6 +76,10 @@
 #include <sys/stream.h>
 #include <inet/ip.h>
 
+#ifdef	__cplusplus
+extern "C" {
+#endif
+
 typedef struct ddm_hdr {
 	/*
 	 * Identifiers the type of header immediately following the ddm
@@ -169,5 +173,9 @@ ddm_element_timestamp(ddm_element e)
  * Update the ddm delay tracking table
  */
 void ddm_update(ip6_t *dst, ill_t *ill, uint32_t ifindex, uint32_t timestamp);
+
+#ifdef	__cplusplus
+}
+#endif
 
 #endif /* _INET_DDM_H */

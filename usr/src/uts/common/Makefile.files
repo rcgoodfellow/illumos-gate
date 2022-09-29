@@ -574,8 +574,6 @@ IP_SCTP_OBJS =	sctp.o sctp_opt_data.o sctp_output.o \
 IP_ILB_OBJS =	ilb.o ilb_nat.o ilb_conn.o ilb_alg_hash.o ilb_alg_rr.o
 IP_COMM_OBJS =	inet_hash.o
 
-DDM_OBJS += ddm.o
-
 IP_OBJS +=	igmp.o ipmp.o ip.o ip6.o ip6_asp.o ip6_if.o ip6_ire.o \
 		ip6_rts.o ip_if.o ip_ire.o ip_listutils.o ip_mroute.o \
 		ip_multi.o ip2mac.o ip_ndp.o ip_rts.o ip_srcid.o \
@@ -584,15 +582,14 @@ IP_OBJS +=	igmp.o ipmp.o ip.o ip6.o ip6_asp.o ip6_if.o ip6_ire.o \
 		squeue.o ip_sadb.o ip_ftable.o proto_set.o radix.o ip_dummy.o \
 		ip_helper_stream.o ip_tunables.o \
 		ip_output.o ip_input.o ip6_input.o ip6_output.o ip_arp.o \
-		conn_opt.o ip_attr.o ip_dce.o \
+		conn_opt.o ip_attr.o ip_dce.o ddm.o \
 		$(IP_ICMP_OBJS) \
 		$(IP_RTS_OBJS) \
 		$(IP_TCP_OBJS) \
 		$(IP_UDP_OBJS) \
 		$(IP_SCTP_OBJS) \
 		$(IP_ILB_OBJS) \
-		$(IP_COMM_OBJS) \
-		$(DDM_OBJS)
+		$(IP_COMM_OBJS)
 
 IP6_OBJS +=	ip6ddi.o
 

@@ -25,3 +25,10 @@ cscope.po.out
 /usr/src/tools/install-*.out
 *.o
 illumos-quick.sh
+*.bt
+*.i
+*.lfs
+/usr/src/cmd/cron/parsetest
+usr/src/cmd/ptools/pargs/amd64/
+usr/src/cmd/ptools/pargs/i386/
+usr/src/pkg/install-nd-i386.out
