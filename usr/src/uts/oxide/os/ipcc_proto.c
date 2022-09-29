@@ -515,6 +515,13 @@ ipcc_poweroff(const ipcc_ops_t *ops, void *arg)
 }
 
 int
+ipcc_ackstart(const ipcc_ops_t *ops, void *arg)
+{
+	return (ipcc_command(ops, arg, IPCC_HSS_ACKSTART, IPCC_SP_ACK,
+	    NULL, 0, NULL, NULL));
+}
+
+int
 ipcc_bsu(const ipcc_ops_t *ops, void *arg, uint8_t *bsu)
 {
 	uint8_t *data;
@@ -640,30 +647,6 @@ ipcc_status(const ipcc_ops_t *ops, void *arg, uint64_t *status)
 	IPCC_LOCK;
 	err = ipcc_command_locked(ops, arg, IPCC_HSS_STATUS, IPCC_SP_STATUS,
 	    NULL, 0, &data, &datal);
-
-	if (err != 0)
-		goto out;
-
-	off = 0;
-	ipcc_decode_bytes((uint8_t *)status, sizeof (*status), data, &off);
-
-out:
-	IPCC_UNLOCK;
-	return (err);
-}
-
-int
-ipcc_setstatus(const ipcc_ops_t *ops, void *arg, uint64_t mask,
-    uint64_t *status)
-{
-	uint8_t *data;
-	size_t datal = IPCC_STATUS_DATALEN;
-	size_t off;
-	int err = 0;
-
-	IPCC_LOCK;
-	err = ipcc_command_locked(ops, arg, IPCC_HSS_SETSTATUS, IPCC_SP_STATUS,
-	    (uint8_t *)&mask, sizeof (mask), &data, &datal);
 
 	if (err != 0)
 		goto out;

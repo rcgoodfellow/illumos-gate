@@ -366,10 +366,14 @@ kernel_ipcc_reboot(void)
 		if (lb_ipcc_start() == 0) {
 			(void) lb_ipcc_call(IPCC_REBOOT, (intptr_t)NULL);
 			lb_ipcc_fini();
+			return;
 		}
-	} else {
-		(void) ipcc_reboot(&kernel_ipcc_ops, kernel_ipcc_arg);
+		/*
+		 * If start fails then fall back to driving the UART directly
+		 * to get the message across.
+		 */
 	}
+	(void) ipcc_reboot(&kernel_ipcc_ops, kernel_ipcc_arg);
 }
 
 void
@@ -379,10 +383,14 @@ kernel_ipcc_poweroff(void)
 		if (lb_ipcc_start() == 0) {
 			(void) lb_ipcc_call(IPCC_POWEROFF, (intptr_t)NULL);
 			lb_ipcc_fini();
+			return;
 		}
-	} else {
-		(void) ipcc_poweroff(&kernel_ipcc_ops, kernel_ipcc_arg);
+		/*
+		 * If start fails then fall back to driving the UART directly
+		 * to get the message across.
+		 */
 	}
+	(void) ipcc_poweroff(&kernel_ipcc_ops, kernel_ipcc_arg);
 }
 
 int
@@ -430,9 +438,8 @@ kernel_ipcc_status(uint64_t *status)
 }
 
 int
-kernel_ipcc_setstatus(uint64_t mask, uint64_t *status)
+kernel_ipcc_ackstart(void)
 {
 	VERIFY3U(ipcc_init, <, IPCC_INIT_DEVTREE);
-	return (ipcc_setstatus(&kernel_ipcc_ops, kernel_ipcc_arg,
-	    mask, status));
+	return (ipcc_ackstart(&kernel_ipcc_ops, kernel_ipcc_arg));
 }

@@ -118,31 +118,17 @@
 #include <sys/dditypes.h>
 #include <sys/ddipropdefs.h>
 
-/* XXXBOOT */
-#define	USE_DISCOVERY_STUB
-
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
 typedef struct bt_prop {
 	const struct bt_prop *btp_next;
-	const char *btp_name;
+	char *btp_name;
 	size_t btp_vlen;
 	const void *btp_value;
 	uint32_t btp_typeflags;
 } bt_prop_t;
-
-#define	BT_DISCOVERY_MAGIC	0x1DEC0C094608D15CUL
-#define	BT_DISCOVERY_MAJOR	1UL
-#define	BT_DISCOVERY_MINOR	0UL
-#define	BT_DISCOVERY_VERSION(_major, _minor)	(((_major) << 32) | (_minor))
-
-typedef struct bt_discovery {
-	uint64_t btd_magic;
-	uint64_t btd_version;
-	const bt_prop_t *btd_prop_list;
-} bt_discovery_t;
 
 /*
  * These are all the required properties.  Some of them come from the SP
@@ -150,21 +136,25 @@ typedef struct bt_discovery {
  */
 #define	BTPROP_NAME_APOB_ADDRESS	"apob-address"
 #define	BTPROP_NAME_BOARD_IDENT		"baseboard-identifier"
+#define	BTPROP_NAME_BOARD_MODEL		"baseboard-model"
+#define	BTPROP_NAME_BOARD_REVISION	"baseboard-revision"
 #define	BTPROP_NAME_BOOTARGS		"bootargs"
 #define	BTPROP_NAME_MFG			"mfg-name"
 #define	BTPROP_NAME_IMPL_ARCH		"impl-arch-name"
 #define	BTPROP_NAME_FSTYPE		"fstype"
 #define	BTPROP_NAME_RESET_VECTOR	"reset-vector"
 #define	BTPROP_NAME_BOOT_IMAGE_OPS	"boot-image-ops"
+#define	BTPROP_NAME_BSU			"boot-storage-unit"
+#define	BTPROP_NAME_RAMDISK_START	"ramdisk_start"
+#define	BTPROP_NAME_RAMDISK_END		"ramdisk_end"
 
-#ifdef	USE_DISCOVERY_STUB
-extern const bt_discovery_t bt_discovery_stub;
-#endif
+extern const bt_prop_t *bt_props;
 extern const bt_prop_t * const bt_fallback_props;
 
+extern void bt_set_prop(uint32_t, const char *, size_t, const void *, size_t);
+extern void eb_create_properties(uint64_t, size_t);
 extern void eb_set_tunables(void);
 extern void genunix_set_tunables(void);
-extern void ramdisk_set_tunables(uint64_t, uint64_t);
 
 #ifdef	__cplusplus
 }

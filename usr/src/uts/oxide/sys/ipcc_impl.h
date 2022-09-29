@@ -43,7 +43,7 @@ typedef enum ipcc_hss_cmd {
 	IPCC_HSS_BOOTFAIL,
 	IPCC_HSS_PANIC,
 	IPCC_HSS_STATUS,
-	IPCC_HSS_SETSTATUS,
+	IPCC_HSS_ACKSTART,
 	IPCC_HSS_ALERT,
 	IPCC_HSS_ROT,
 	IPCC_HSS_ADD_MEASUREMENTS,
@@ -76,6 +76,10 @@ typedef enum ipcc_sp_decode_failure {
 typedef enum ipcc_sp_status {
 	IPCC_STATUS_STARTED	= 1 << 0,
 	IPCC_STATUS_ALERT	= 1 << 1,
+	IPCC_STATUS_RESET	= 1 << 2,
+	IPCC_STATUS_DEBUG_KMDB	= 1 << 20,
+	IPCC_STATUS_DEBUG_KBM	= 1 << 21,
+	IPCC_STATUS_DEBUG_BOOTRD= 1 << 22,
 } ipcc_sp_status_t;
 
 /*
@@ -141,24 +145,23 @@ extern int ipcc_reboot(const ipcc_ops_t *, void *);
 extern int ipcc_poweroff(const ipcc_ops_t *, void *);
 extern int ipcc_bsu(const ipcc_ops_t *, void *, uint8_t *);
 extern int ipcc_ident(const ipcc_ops_t *, void *, ipcc_ident_t *);
-extern int ipcc_macs(const ipcc_ops_t *ops, void *arg, ipcc_mac_t *);
+extern int ipcc_macs(const ipcc_ops_t *, void *, ipcc_mac_t *);
 extern int ipcc_rot(const ipcc_ops_t *, void *, ipcc_rot_t *);
-extern int ipcc_bootfail(const ipcc_ops_t *ops, void *arg, uint8_t);
-extern int ipcc_status(const ipcc_ops_t *ops, void *arg, uint64_t *);
-extern int ipcc_setstatus(const ipcc_ops_t *ops, void *arg, uint64_t,
-    uint64_t *);
+extern int ipcc_bootfail(const ipcc_ops_t *, void *, uint8_t);
+extern int ipcc_status(const ipcc_ops_t *, void *, uint64_t *);
+extern int ipcc_ackstart(const ipcc_ops_t *, void *);
 
 extern void ipcc_panic_vmessage(const char *, va_list);
 extern void ipcc_panic_field(ipcc_panic_field_t, uint64_t);
 extern void ipcc_panic_stack(uint64_t, const char *);
 extern void ipcc_panic_vdata(const char *, va_list);
 extern void ipcc_panic_data(const char *, ...);
-extern int ipcc_panic(const ipcc_ops_t *ops, void *arg);
+extern int ipcc_panic(const ipcc_ops_t *, void *);
 
 /*
-extern int ipcc_alert(ipcc_ops_t *ops, void *arg,
-extern int ipcc_measurements(ipcc_ops_t *ops, void *arg,
-extern int ipcc_imageblock(ipcc_ops_t *ops, void *arg,
+extern int ipcc_alert(ipcc_ops_t *, void *,
+extern int ipcc_measurements(ipcc_ops_t *, void *,
+extern int ipcc_imageblock(ipcc_ops_t *, void *,
 */
 
 #ifdef __cplusplus

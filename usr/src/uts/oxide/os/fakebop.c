@@ -90,7 +90,6 @@ boolean_t kbm_debug = B_FALSE;
 
 static bootops_t bootop;
 static struct bsys_mem bm;
-static const bt_prop_t *bt_props;
 
 uint32_t reset_vector;
 
@@ -508,10 +507,12 @@ protect_ramdisk(void)
 {
 	uint64_t start, end;
 
-	if (do_bsys_getproplen(NULL, "ramdisk_start") == sizeof (uint64_t) &&
-	    do_bsys_getprop(NULL, "ramdisk_start", &start) == 0 &&
-	    do_bsys_getproplen(NULL, "ramdisk_end") == sizeof (uint64_t) &&
-	    do_bsys_getprop(NULL, "ramdisk_end", &end) == 0) {
+	if (do_bsys_getproplen(NULL, BTPROP_NAME_RAMDISK_START) ==
+	    sizeof (uint64_t) &&
+	    do_bsys_getprop(NULL, BTPROP_NAME_RAMDISK_START, &start) == 0 &&
+	    do_bsys_getproplen(NULL, BTPROP_NAME_RAMDISK_END) ==
+	    sizeof (uint64_t) &&
+	    do_bsys_getprop(NULL, BTPROP_NAME_RAMDISK_END, &end) == 0) {
 		start = P2ALIGN(start, MMU_PAGESIZE);
 		end = P2ROUNDUP(end, MMU_PAGESIZE);
 		eb_physmem_reserve_range(start, end - start, EBPR_NO_ALLOC);
@@ -640,77 +641,17 @@ apob_init(void)
 void
 _start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 {
-	const bt_discovery_t *btdp;
 	extern void _kobj_boot();
 	extern int use_mp;
 	struct boot_syscalls *bsp;
 
-	uint64_t ramdisk_start = ramdisk_paddr;
-	uint64_t ramdisk_end = ramdisk_start + ramdisk_len;
-
-	/*
-	 * XXX(cross): the conditional is a hack for transition.
-	 * In steady-state, we'll call this unconditionally.
-	 */
-	if (ramdisk_start != 0) {
-		/*
-		 * Validate that the ramdisk lies completely
-		 * within the 48-bit physical address space.
-		 *
-		 * The check against the length accounts for
-		 * modular arithmetic in the cyclic subgroup.
-		 */
-		const uint64_t PHYS_LIMIT = (1ULL << 48) - 1;
-		if (ramdisk_start > PHYS_LIMIT ||
-		    ramdisk_end > PHYS_LIMIT ||
-		    ramdisk_len > PHYS_LIMIT ||
-		    ramdisk_start >= ramdisk_end) {
-			return;
-		}
-		ramdisk_set_tunables(ramdisk_start, ramdisk_end);
-	}
-
-	/*
-	 * XXX This works only on *non* Oxide hardware and should be deleted.
-	 */
-	outw(0x80, 0x1DE);
-
-#ifdef	USE_DISCOVERY_STUB
-	btdp = &bt_discovery_stub;
-#else
-	outw(0x80, 0xD15C);
-	return;
-#endif	/* USE_DISCOVERY_STUB */
-
 	kbm_init();
 	bsp = boot_console_init();
 	eb_physmem_init(&bm);
-
-	kbm_debug = 1;
 	kernel_ipcc_init(IPCC_INIT_EARLYBOOT);
-
-	/*
-	 * XXXBOOT Wire in something analogous to the earlyboot console here
-	 * to enable fetching properties from the SP.
-	 */
-	bt_props = btdp->btd_prop_list;
-	kbm_debug = (find_bt_prop("kbm_debug", 0) != NULL);
-	bootrd_debug = (find_bt_prop("bootrd_debug", 0) != NULL);
-
-	/* XXX - temporary hack */
-	const bt_prop_t *x = find_bt_prop(BTPROP_NAME_BOARD_IDENT, 0);
-	if (x != NULL) {
-		ipcc_ident_t ident;
-
-		if (kernel_ipcc_ident(&ident) == 0) {
-			bcopy(ident.ii_serial, (void *)x->btp_value,
-			    MIN(sizeof (ident.ii_serial), x->btp_vlen));
-		}
-	}
+	eb_create_properties(ramdisk_paddr, ramdisk_len);
 
 	DBG_MSG("\n\n*** Entered illumos in _start()\n");
-	DBG(btdp);
-	DBG(btdp->btd_prop_list);
 
 	eb_set_tunables();
 
@@ -726,6 +667,8 @@ _start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	bootop.bsys_nextprop = do_bsys_nextprop;
 	bootop.bsys_printf = bop_printf;
 	bootop.bsys_ealloc = do_bsys_ealloc;
+
+	DBG_MSG("Set botops\n");
 
 	/*
 	 * Get and save the reset vector for MP startup use later.

@@ -37,7 +37,7 @@ extern int kernel_ipcc_bsu(uint8_t *);
 extern int kernel_ipcc_ident(ipcc_ident_t *);
 extern int kernel_ipcc_macs(ipcc_mac_t *);
 extern int kernel_ipcc_status(uint64_t *);
-extern int kernel_ipcc_setstatus(uint64_t, uint64_t *);
+extern int kernel_ipcc_ackstart(void);
 
 #ifdef __cplusplus
 }

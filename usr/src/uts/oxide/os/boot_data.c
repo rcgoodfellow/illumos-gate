@@ -30,108 +30,21 @@
 #include <sys/apic_common.h>
 #include <sys/modctl.h>
 #include <sys/x86_archext.h>
+#include <sys/sysmacros.h>
+#include <sys/boot_physmem.h>
+#include <sys/boot_debug.h>
+#include <sys/kernel_ipcc.h>
 
-#ifdef	__cplusplus
-extern "C" {
-#endif
-
-#ifdef	USE_DISCOVERY_STUB
+extern int bootrd_debug;
+extern boolean_t kbm_debug;
 
 /*
- * This is a stub that will be replaced by communication from the SP very
- * early in boot.  The origins of these things vary:
- *
- * - The APOB address and reset vector are stored in, or computed trivially
- *   from, data in the BHD.  See the discussion in AMD pub. 57299 sec. 4.1.5
- *   table 17, and sec. 4.2 especially steps 2 and 4e.  The APOB address can be
- *   set (by the SP and/or at image creation time) to almost anything in the
- *   bottom 2 GiB that doesn't conflict with other uses of memory; see the
- *   discussion in vm/kboot_mmu.c.
- * - The board identifier comes from the FRUID ROM accessible only by the SP.
- * - The phase1 ramdisk can come from either the BHD if we have the PSP load
- *   it or directly from the SP if we have the loader decompress or otherwise
- *   manipulate the image in memory.  In either case, the SP has the authority
- *   to set this, either by setting the destination in the BHD or telling the
- *   loader where to put it.
- *
- * Some of these properties (and more especially those in the fallback set
- * below) could also potentially be defined as part of the machine architecture.
- * More generally, there will be some minimal collection of non-discoverable
- * machine state that we must either define or obtain from outside, which in
- * the absence of a good way to do that is mocked up here.
+ * Some of these properties in the fallback set could also potentially be
+ * defined as part of the machine architecture. More generally, there will be
+ * some minimal collection of non-discoverable machine state that we must
+ * either define or obtain from outside, which in the absence of a good way to
+ * do that is mocked up here.
  */
-static const uint64_t ASSUMED_APOB_ADDR = 0x4000000UL;
-static const uint32_t ASSUMED_RESET_VECTOR = 0x7ffefff0U;
-static char FAKE_BOARD_IDENT[] = "FAKE-IDENT ";
-
-static uint64_t ramdisk_start_val = 0x101000000UL;
-static uint64_t ramdisk_end_val = 0x105c00000UL;
-
-static const bt_prop_t reset_vector_prop = {
-	.btp_next = NULL,
-	.btp_name = BTPROP_NAME_RESET_VECTOR,
-	.btp_vlen = sizeof (uint32_t),
-	.btp_value = &ASSUMED_RESET_VECTOR,
-	.btp_typeflags = DDI_PROP_TYPE_INT
-};
-
-static const bt_prop_t ramdisk_end_prop = {
-	.btp_next = &reset_vector_prop,
-	.btp_name = "ramdisk_end",
-	.btp_vlen = sizeof (uint64_t),
-	.btp_value = &ramdisk_end_val,
-	.btp_typeflags = DDI_PROP_TYPE_INT64
-};
-
-static const bt_prop_t ramdisk_start_prop = {
-	.btp_next = &ramdisk_end_prop,
-	.btp_name = "ramdisk_start",
-	.btp_vlen = sizeof (uint64_t),
-	.btp_value = &ramdisk_start_val,
-	.btp_typeflags = DDI_PROP_TYPE_INT64
-};
-
-#define	WANT_KBM_DEBUG	0
-
-#if WANT_KBM_DEBUG
-static const uint32_t KBM_DEBUG_VAL = 1U;
-static const bt_prop_t kbm_debug_prop = {
-	.btp_next = &ramdisk_start_prop,
-	.btp_name = "kbm_debug",
-	.btp_vlen = sizeof (uint32_t),
-	.btp_value = &KBM_DEBUG_VAL,
-	.btp_typeflags = DDI_PROP_TYPE_INT
-};
-#endif
-
-static const bt_prop_t board_ident_prop = {
-#if WANT_KBM_DEBUG
-	.btp_next = &kbm_debug_prop,
-#else
-	.btp_next = &ramdisk_start_prop,
-#endif
-	.btp_name = BTPROP_NAME_BOARD_IDENT,
-	.btp_vlen = sizeof (FAKE_BOARD_IDENT),
-	.btp_value = FAKE_BOARD_IDENT,
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-
-static const bt_prop_t apob_prop = {
-	.btp_next = &board_ident_prop,
-	.btp_name = BTPROP_NAME_APOB_ADDRESS,
-	.btp_vlen = sizeof (uint64_t),
-	.btp_value = &ASSUMED_APOB_ADDR,
-	.btp_typeflags = DDI_PROP_TYPE_INT64 | DDI_PROP_NOTPROM
-};
-
-const bt_discovery_t bt_discovery_stub = {
-	.btd_magic = BT_DISCOVERY_MAGIC,
-	.btd_version = BT_DISCOVERY_VERSION(BT_DISCOVERY_MAJOR,
-	    BT_DISCOVERY_MINOR),
-	.btd_prop_list = &apob_prop
-};
-
-#endif	/* USE_DISCOVERY_STUB */
 
 static const bt_prop_t boot_image_ops_prop = {
 	.btp_next = NULL,
@@ -183,6 +96,203 @@ static const bt_prop_t bootargs_prop = {
 
 const bt_prop_t * const bt_fallback_props = &bootargs_prop;
 
+const bt_prop_t *bt_props;
+static uint8_t *bt_props_mem;
+static size_t bt_props_avail;
+
+#define	BTP_ALIGN(p) (((p) + 0xf) & ~0xf)
+#define	BTP_ALIGNP(p) ((uint8_t *)BTP_ALIGN((uintptr_t)(p)))
+
+void
+bt_set_prop(uint32_t flags, const char *name, size_t nlen, const void *value,
+    size_t vlen)
+{
+	bt_prop_t *btp;
+	uint8_t *omem;
+	size_t size;
+
+	DBG_MSG("setprop %.*s\n", (int)nlen, name);
+
+	size = sizeof (bt_prop_t) + nlen + 1;
+	if (vlen > 0)
+		size += BTP_ALIGN(vlen);
+	size = BTP_ALIGN(size);
+
+	/* If we are out of space in the current page, allocate a new one. */
+	if (size > bt_props_avail) {
+		bt_props_mem = (uint8_t *)eb_alloc_page();
+		bt_props_avail = MMU_PAGESIZE;
+	}
+
+	omem = bt_props_mem;
+
+	/*
+	 * Use the space pointed to by bt_props_mem for the new bt_prop_t
+	 * followed by the property name and a terminating nul byte, some
+	 * padding to ensure that the value is aligned, and then the value
+	 * itself.
+	 */
+	btp = (bt_prop_t *)bt_props_mem;
+	bt_props_mem += sizeof (bt_prop_t);
+
+	btp->btp_typeflags = flags;
+
+	btp->btp_name = (char *)bt_props_mem;
+	bcopy(name, btp->btp_name, nlen);
+	btp->btp_name[nlen] = '\0';
+	bt_props_mem += nlen + 1;
+
+	btp->btp_vlen = vlen;
+	if (vlen > 0) {
+		/* Align for the value */
+		btp->btp_value = bt_props_mem = BTP_ALIGNP(bt_props_mem);
+		bcopy(value, bt_props_mem, vlen);
+		bt_props_mem += vlen;
+	}
+
+	/* Align the pointer ready for the next property */
+	bt_props_mem = BTP_ALIGNP(bt_props_mem);
+	bt_props_avail -= (bt_props_mem - omem);
+
+	btp->btp_next = bt_props;
+	bt_props = btp;
+}
+
+static void
+bt_set_prop_u8(const char *name, uint8_t value)
+{
+	uint32_t val = value;
+
+	bt_set_prop(DDI_PROP_TYPE_INT, name, strlen(name),
+	    (void *)&val, sizeof (val));
+}
+
+static void
+bt_set_prop_u32(const char *name, uint32_t value)
+{
+	bt_set_prop(DDI_PROP_TYPE_INT, name, strlen(name),
+	    (void *)&value, sizeof (value));
+}
+
+static void
+bt_set_prop_u64(const char *name, uint64_t value)
+{
+	bt_set_prop(DDI_PROP_TYPE_INT64, name, strlen(name),
+	    (void *)&value, sizeof (value));
+}
+
+static void
+bt_set_prop_str(const char *name, const char *value)
+{
+	bt_set_prop(DDI_PROP_TYPE_STRING,
+	    name, strlen(name), value, strlen (value));
+}
+
+void
+eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
+{
+	uint64_t spstatus, ramdisk_start, ramdisk_end;
+	const char *bootargs;
+	ipcc_ident_t ident;
+	uint8_t bsu;
+
+	if (kernel_ipcc_status(&spstatus) != 0)
+		bop_panic("Could not retrieve status value from SP");
+
+	/*
+	 * XXXBOOT - temporary use of SP status register bits to set
+	 *	     various debugging options.
+	 */
+	if (spstatus & IPCC_STATUS_DEBUG_KMDB)
+		bootargs = "-kdv";
+	else
+		bootargs = "-kv";
+
+	bt_set_prop_str(BTPROP_NAME_BOOTARGS, bootargs);
+
+	if (spstatus & IPCC_STATUS_DEBUG_KBM) {
+		bt_set_prop_u8("kbm_debug", 1);
+		kbm_debug = B_TRUE;
+	}
+
+	if (spstatus & IPCC_STATUS_DEBUG_BOOTRD) {
+		bt_set_prop_u8("bootrd_debug", 1);
+		bootrd_debug = 1;
+	}
+
+	// XXX IPCC - set flag to dump boot properties to console
+	bt_set_prop_u8("prom_debug", 1);
+
+#ifdef noyyet
+	// Awaiting RFD determinations
+	if (spstatus & IPCC_STATUS_STARTED)
+		kernel_ipcc_ackstart();
+#endif
+
+	if (kernel_ipcc_bsu(&bsu) == 0)
+		bt_set_prop_u8(BTPROP_NAME_BSU, bsu);
+
+	if (kernel_ipcc_ident(&ident) == 0) {
+		bt_set_prop(DDI_PROP_TYPE_STRING,
+		    BTPROP_NAME_BOARD_IDENT, sizeof (BTPROP_NAME_BOARD_IDENT),
+		    ident.ii_serial, sizeof (ident.ii_serial));
+
+		// XXX - adjust once format of model and revision is known
+		bt_set_prop_u8(BTPROP_NAME_BOARD_MODEL, ident.ii_model);
+		bt_set_prop_u8(BTPROP_NAME_BOARD_REVISION, ident.ii_rev);
+	} else {
+		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, "NO-SP-IDENT");
+	}
+
+	/*
+	 * The APOB address and reset vector are stored in, or computed
+	 * trivially from, data in the BHD.  See the discussion in AMD pub.
+	 * 57299 sec. 4.1.5 table 17, and sec. 4.2 especially steps 2 and 4e.
+	 * The APOB address can be set (by the SP and/or at image creation
+	 * time) to almost anything in the bottom 2 GiB that doesn't conflict
+	 * with other uses of memory; see the discussion in vm/kboot_mmu.c.
+	 */
+	const uint64_t apob_addr = 0x4000000UL;
+	const uint32_t reset_vector = 0x7ffefff0U;
+
+	bt_set_prop_u32(BTPROP_NAME_RESET_VECTOR, reset_vector);
+	// XXX IPCC - also had DDI_PROP_NOTPROM, do we need that?
+	bt_set_prop_u64(BTPROP_NAME_APOB_ADDRESS, apob_addr);
+
+	/*
+	 * XXX(cross): the conditional is a hack for transition.
+	 * In steady-state, we'll call this unconditionally.
+	 */
+	if (ramdisk_paddr != 0) {
+		ramdisk_start = ramdisk_paddr;
+		ramdisk_end = ramdisk_start + ramdisk_len;
+
+		/*
+		 * Validate that the ramdisk lies completely
+		 * within the 48-bit physical address space.
+		 *
+		 * The check against the length accounts for
+		 * modular arithmetic in the cyclic subgroup.
+		 */
+		const uint64_t PHYS_LIMIT = (1ULL << 48) - 1;
+		if (ramdisk_start > PHYS_LIMIT ||
+		    ramdisk_end > PHYS_LIMIT ||
+		    ramdisk_len > PHYS_LIMIT ||
+		    ramdisk_start >= ramdisk_end) {
+			bop_panic(
+			    "Ramdisk parameter problem start=0x%lx end=0x%lx",
+			    ramdisk_start, ramdisk_end);
+		}
+	} else {
+		/* Default to the usual values used with nanobl-rs */
+		ramdisk_start = 0x101000000UL;
+		ramdisk_end = 0x105c00000UL;
+	}
+
+	bt_set_prop_u64(BTPROP_NAME_RAMDISK_START, ramdisk_start);
+	bt_set_prop_u64(BTPROP_NAME_RAMDISK_END, ramdisk_end);
+}
+
 extern void
 eb_set_tunables(void)
 {
@@ -205,14 +315,3 @@ genunix_set_tunables(void)
 	 */
 	enable_platform_detection = 0;
 }
-
-void
-ramdisk_set_tunables(uint64_t ramdisk_start, uint64_t ramdisk_end)
-{
-	ramdisk_start_val = ramdisk_start;
-	ramdisk_end_val = ramdisk_end;
-}
-
-#ifdef	__cplusplus
-}
-#endif
