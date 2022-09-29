@@ -23,7 +23,9 @@
  * Copyright 2022 Oxide Computer Company
  */
 
+#include <sys/zone.h>
 #include <inet/ddm.h>
+#include <inet/ip_ire.h>
 #include <netinet/ip6.h>
 
 // maximum timestamp size
@@ -108,7 +110,10 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	ddm_element dde = *(ddm_element*)&mp->b_rptr[
 	    ira->ira_pktlen + sizeof (ddm_t)];
 
-	ddm_update(ip6h, ddm_element_timestamp(dde));
+	ddm_update(
+	    ip6h,
+	    ira->ira_ill,
+	    ddm_element_timestamp(dde));
 
 	/*
 	 * set next header protocol and packet length for ira
@@ -184,8 +189,33 @@ ddm_output(mblk_t *mp, ip6_t *ip6h)
 	ddm_mp->b_next->b_prev = ddm_mp;
 }
 
-/* TODO */
 void
-ddm_update(ip6_t *dst, uint32_t timestamp)
+ddm_update(
+    ip6_t *dst,
+    ill_t *ill,
+    uint32_t timestamp)
 {
+	/* look up routing table entry */
+	ire_t *ire = ire_ftable_lookup_v6(
+	    &dst->ip6_dst,
+	    NULL,		/* TODO mask */
+	    NULL,		/* TODO gateway */
+	    0,			/* TODO type */
+	    ill,		/* only consider routes on this ill */
+	    ALL_ZONES,		/* TODO zone */
+	    NULL,		/* TODO tsl */
+	    MATCH_IRE_ILL,
+	    0,			/* TODO xmit_hint */
+	    ill->ill_ipst,
+	    NULL		/* TODO generationop */);
+
+	if (!ire) {
+		DTRACE_PROBE1(ddm__update__no__route, in_addr_t *,
+		    &dst->ip6_dst);
+		return;
+	}
+
+	/* update routing table entry delay measurement */
+	uint32_t now = ((uint32_t)(gethrtime() % MAX_TS) << 8);
+	ire->ire_delay = now - timestamp;
 }
