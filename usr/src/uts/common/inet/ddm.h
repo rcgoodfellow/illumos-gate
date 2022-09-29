@@ -168,6 +168,6 @@ ddm_element_timestamp(ddm_element e)
 /*
  * Update the ddm delay tracking table
  */
-void ddm_update(ip6_t *dst, ill_t *ill, uint32_t timestamp);
+void ddm_update(ip6_t *dst, ill_t *ill, uint32_t ifindex, uint32_t timestamp);
 
 #endif /* _INET_DDM_H */

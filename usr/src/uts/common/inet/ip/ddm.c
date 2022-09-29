@@ -113,6 +113,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	ddm_update(
 	    ip6h,
 	    ira->ira_ill,
+	    ira->ira_rifindex,
 	    ddm_element_timestamp(dde));
 
 	/*
@@ -193,6 +194,7 @@ void
 ddm_update(
     ip6_t *dst,
     ill_t *ill,
+    uint32_t ifindex,
     uint32_t timestamp)
 {
 	/* look up routing table entry */
@@ -210,10 +212,14 @@ ddm_update(
 	    NULL		/* TODO generationop */);
 
 	if (!ire) {
-		DTRACE_PROBE1(ddm__update__no__route, in_addr_t *,
-		    &dst->ip6_dst);
+		DTRACE_PROBE1(ddm__update__no__route,
+		    in_addr_t *, &dst->ip6_dst);
 		return;
 	}
+
+	DTRACE_PROBE2(ddm__update_timestamp,
+	    in_addr_t *, &dst->ip6_dst,
+	    uint32_t, ifindex);
 
 	/* update routing table entry delay measurement */
 	uint32_t now = ((uint32_t)(gethrtime() % MAX_TS) << 8);
