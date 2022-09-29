@@ -616,10 +616,6 @@ CHKHDRS=			\
 	tirdwr.h		\
 	tiuser.h		\
 	tl.h			\
-	tnf.h			\
-	tnf_com.h		\
-	tnf_probe.h		\
-	tnf_writer.h		\
 	todio.h			\
 	tpicommon.h		\
 	ts.h			\
@@ -1211,6 +1207,7 @@ CHECKHDRS=						\
 	$(ROOTAVHDRS)		\
 	$(ROOTCRYPTOHDRS)	\
 	$(ROOTDCAMHDRS)		\
+	$(ROOTDKTPHDRS)		\
 	$(ROOTISOHDRS)		\
 	$(ROOTIDMHDRS)		\
 	$(ROOTISCSIHDRS)	\
@@ -1232,6 +1229,7 @@ CHECKHDRS=						\
 	$(ROOTIBMFHDRS)		\
 	$(ROOTOFHDRS)		\
 	$(ROOTRDMAHDRS)		\
+	$(ROOTSATAGENHDRS)	\
 	$(ROOTSOL_OFSHDRS)	\
 	$(ROOTSOL_UMADHDRS)	\
 	$(ROOTSOL_UVERBSHDRS)	\
@@ -1247,6 +1245,7 @@ CHECKHDRS=						\
 	$(ROOTSCSIGENHDRS)	\
 	$(ROOTSCSIIMPLHDRS)	\
 	$(ROOTSCSIVHCIHDRS)	\
+	$(ROOTSCSITARGETSHDRS)	\
 	$(ROOTSDCARDHDRS)	\
 	$(ROOTSYSEVENTHDRS)     \
 	$(ROOTCONTRACTHDRS)     \
@@ -1280,6 +1279,7 @@ install_h:			\
 	$(ROOTAVHDRS)		\
 	$(ROOTCRYPTOHDRS)	\
 	$(ROOTDCAMHDRS)		\
+	$(ROOTDKTPHDRS)		\
 	$(ROOTISOHDRS)		\
 	$(ROOTIDMHDRS)		\
 	$(ROOTISCSIHDRS)	\
@@ -1301,6 +1301,7 @@ install_h:			\
 	$(ROOTIBMFHDRS)		\
 	$(ROOTOFHDRS)		\
 	$(ROOTRDMAHDRS)		\
+	$(ROOTSATAGENHDRS)	\
 	$(ROOTSOL_OFSHDRS)	\
 	$(ROOTSOL_UMADHDRS)	\
 	$(ROOTSOL_UVERBSHDRS)	\
@@ -1316,6 +1317,7 @@ install_h:			\
 	$(ROOTSCSIGENHDRS)	\
 	$(ROOTSCSIIMPLHDRS)	\
 	$(ROOTSCSIVHCIHDRS)     \
+	$(ROOTSCSITARGETSHDRS)	\
 	$(ROOTSDCARDHDRS)	\
 	$(ROOTSYSEVENTHDRS)     \
 	$(ROOTCONTRACTHDRS)     \
