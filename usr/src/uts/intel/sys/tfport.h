@@ -22,9 +22,11 @@ extern "C" {
 
 #include <sys/mac.h>
 
-#define	TFPORT_IOC_CREATE	TFPORTIOC(1)
-#define	TFPORT_IOC_DELETE	TFPORTIOC(2)
-#define	TFPORT_IOC_INFO		TFPORTIOC(3)
+#define	TFPORT_IOC_CREATE	TFPORTIOC(0x0001)
+#define	TFPORT_IOC_DELETE	TFPORTIOC(0x0002)
+#define	TFPORT_IOC_INFO		TFPORTIOC(0x0003)
+
+#define	TFPORT_IOC_L2_NEEDED	TFPORTIOC(0x1001)
 
 typedef struct tfport_ioc_create {
 	datalink_id_t	tic_link_id;
@@ -45,6 +47,11 @@ typedef struct tfport_ioc_info {
 	uint_t		tii_mac_len;
 	uchar_t		tii_mac_addr[ETHERADDRL];
 } tfport_ioc_info_t;
+
+typedef struct tfport_ioc_l2 {
+	struct sockaddr_storage	til_addr;
+	uint_t			til_ifindex;
+} tfport_ioc_l2_t;
 
 #ifdef _KERNEL
 

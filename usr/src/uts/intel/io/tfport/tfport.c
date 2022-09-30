@@ -23,6 +23,8 @@
 #include <sys/mac_client.h>
 #include <sys/mac_client_priv.h>
 #include <sys/mac_ether.h>
+#include <inet/ip.h>
+#include <inet/ip2mac.h>
 #include <sys/vlan.h>
 #include <sys/list.h>
 #include <sys/mac_impl.h>
@@ -75,6 +77,8 @@ static mac_callbacks_t tfport_m_callbacks = {
 static int tfport_ioc_create(void *, intptr_t, int, cred_t *, int *);
 static int tfport_ioc_delete(void *, intptr_t, int, cred_t *, int *);
 static int tfport_ioc_info(void *, intptr_t, int, cred_t *, int *);
+static void tfport_ioc_l2_needed(tfport_port_t *, struct iocblk *, queue_t *,
+    mblk_t *);
 
 static dld_ioc_info_t tfport_ioc_list[] = {
 	{TFPORT_IOC_CREATE, DLDCOPYINOUT, sizeof (tfport_ioc_create_t),
@@ -605,10 +609,109 @@ tfport_ioc_info(void *karg, intptr_t arg, int mode, cred_t *cred, int *rvalp)
 	return (rval);
 }
 
+void
+tfport_ioc_l2_done(ip2mac_t *ip2macp, void *arg)
+{
+	uintptr_t cnt = (uintptr_t)arg;
+	if (ip2macp->ip2mac_err != 0) {
+		cmn_err(CE_NOTE, "l2 resolution %ld failed: %d\n", cnt,
+		    ip2macp->ip2mac_err);
+	} else {
+		cmn_err(CE_NOTE, "l2 resolution %ld done\n", cnt);
+	}
+}
+
+static void
+tfport_ioc_l2_needed(tfport_port_t *portp, struct iocblk *iocp, queue_t *q,
+    mblk_t *mp)
+{
+	tfport_t *devp = tfport;
+	static uintptr_t cnt = 0;
+	tfport_ioc_l2_t *arg;
+	struct sockaddr *addr;
+	mblk_t *mp1;
+	ip2mac_t ip2m;
+
+	if (iocp->ioc_count < sizeof (tfport_ioc_l2_t))
+		return (miocnak(q, mp, 0, EINVAL));
+
+	mp1 = mp->b_cont;
+	if (mp1 == NULL)
+		return (miocnak(q, mp, 0, EINVAL));
+
+	if (mp1->b_cont != NULL) {
+		freemsg(mp1->b_cont);
+		mp1->b_cont = NULL;
+	}
+
+	arg = (tfport_ioc_l2_t *)mp1->b_rptr;
+	addr = (struct sockaddr *)&arg->til_addr;
+	bzero(&ip2m, sizeof (ip2m));
+	ip2m.ip2mac_ifindex = arg->til_ifindex;
+	if (addr->sa_family == AF_INET) {
+		sin_t *sin = (sin_t *)&ip2m.ip2mac_pa;
+		sin->sin_family = AF_INET;
+		sin->sin_addr = ((sin_t *)addr)->sin_addr;
+
+		char buf1[INET6_ADDRSTRLEN];
+		dev_err(devp->tfp_dip, CE_NOTE, "ipv4 addr: %s",
+		    inet_ntop(AF_INET, &sin->sin_addr, buf1, sizeof (buf1)));
+	} else if (addr->sa_family == AF_INET6) {
+		sin6_t *sin6 = (sin6_t *)&ip2m.ip2mac_pa;
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_addr = ((sin6_t *)addr)->sin6_addr;
+
+		char buf1[INET6_ADDRSTRLEN];
+		dev_err(devp->tfp_dip, CE_NOTE, "ipv6 addr: %s on %d",
+		    inet_ntop(AF_INET6, &sin6->sin6_addr, buf1, sizeof (buf1)),
+		    ip2m.ip2mac_ifindex);
+	} else {
+		dev_err(devp->tfp_dip, CE_NOTE, "failed at %d", __LINE__);
+		return (miocnak(q, mp, 0, EINVAL));
+	}
+
+	cnt++;
+	(void) ip2mac(IP2MAC_RESOLVE, &ip2m, tfport_ioc_l2_done,
+	    (void *)cnt, 0);
+	switch (ip2m.ip2mac_err) {
+	case EINPROGRESS:
+		dev_err(devp->tfp_dip, CE_NOTE, "searching for %ld", cnt);
+		return (miocack(q, mp, 0, 0));
+	case 0:
+		dev_err(devp->tfp_dip, CE_NOTE, "already loaded");
+		return (miocack(q, mp, 0, 0));
+	default:
+		dev_err(devp->tfp_dip, CE_NOTE, "ip2mac failed: %d",
+		    ip2m.ip2mac_err);
+		return (miocnak(q, mp, 0, EIO));
+	}
+}
+
 static void
 tfport_m_ioctl(void *arg, queue_t *q, mblk_t *mp)
 {
-	miocnak(q, mp, 0, ENOTSUP);
+	tfport_port_t *portp = arg;
+	tfport_t *devp = tfport;
+	struct iocblk *iocp;
+	int cmd;
+
+	if (MBLKL(mp) < sizeof (struct iocblk)) {
+		dev_err(devp->tfp_dip, CE_WARN,
+		    "tfport: ioctl buffer too short, %lu", MBLKL(mp));
+		miocnak(q, mp, 0, EINVAL);
+		return;
+	}
+
+	iocp = (struct iocblk *)mp->b_rptr;
+	iocp->ioc_error = 0;
+	cmd = iocp->ioc_cmd;
+	switch (cmd) {
+	case TFPORT_IOC_L2_NEEDED:
+		tfport_ioc_l2_needed(portp, iocp, q, mp);
+		break;
+	default:
+		miocnak(q, mp, 0, EINVAL);
+	}
 }
 
 static int

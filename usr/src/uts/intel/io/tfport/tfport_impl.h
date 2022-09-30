@@ -64,7 +64,6 @@ typedef struct tfport_port {
 	uint8_t			tp_mac_addr[ETHERADDRL];
 	tfport_stats_t		tp_stats;
 	link_state_t		tp_ls;
-
 } tfport_port_t;
 
 #define	TFPORT_SOURCE_OPEN		0x01
