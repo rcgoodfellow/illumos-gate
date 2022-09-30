@@ -280,10 +280,6 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/vmm/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
-$(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/tfport/%.c
-	$(COMPILE.c) -o $@ $<
-	$(CTFCONVERT_O)
-
 #
 # krtld compiled into unix
 #

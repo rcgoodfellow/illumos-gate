@@ -99,7 +99,6 @@ usr/include/libdliptun.h
 usr/include/libdlmgmt.h
 usr/include/libdlsim.h
 usr/include/libdlstat.h
-usr/include/libdltfport.h
 usr/include/libdlvnic.h
 usr/include/libdlwlan_impl.h
 usr/include/libdlwlan.h
@@ -808,8 +807,3 @@ opt/SUNWonld/
 #
 opt/os-tests/tests/cores/libdumper.so
 opt/os-tests/tests/cores/amd64/libdumper.so	i386
-
-#
-# these contain internal structures used to build dladm and snoop
-usr/include/sys/tofino.h
-usr/include/sys/tfport.h

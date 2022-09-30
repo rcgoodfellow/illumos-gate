@@ -389,8 +389,3 @@ VMM_VTD_OBJS = vtd.o
 # bhyve drv test interface
 #
 VMM_DRV_TEST_OBJS = vmm_drv_test.o
-
-#
-# tfport
-#
-TFPORT_OBJS +=	tfport.o
