@@ -686,10 +686,6 @@ mod_prop_info_t ip_propinfo_tbl[] = {
 	    mod_set_boolean, mod_get_boolean,
 	    {B_TRUE}, {B_TRUE} },
 
-	{ "_delay_driven_multipath", MOD_PROTO_IPV6,
-	    mod_set_boolean, mod_get_boolean,
-	    {B_FALSE}, {B_FALSE} },
-
 	{ "_policy_mask", MOD_PROTO_IP,
 	    mod_set_uint32, mod_get_uint32,
 	    {0, 15, 0}, {0} },
