@@ -30,14 +30,16 @@ function mission_mode {
 	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
 	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
 	    "${GPIO_PLATFORM}:output=high" "${GPIO_PLATFORM}:pull=disabled"
-	/usr/sbin/cfgadm -c connect "${T6_PCIE_ATTACH_POINT}"
+	sleep 1
+	/usr/sbin/cfgadm -c configure "${T6_PCIE_ATTACH_POINT}"
 }
 
 function manufacturing_mode {
 	/usr/sbin/cfgadm -c disconnect "${T6_PCIE_ATTACH_POINT}"
 	/usr/sbin/gpioadm gpio attr set "${GPIO_PIN_NAME}" \
-	    "${GPIO_PLATFORM}:output=low" "${GPIO_PLATFORM}:pull=enabled"
-	/usr/sbin/cfgadm -c connect "${T6_PCIE_ATTACH_POINT}"
+	    "${GPIO_PLATFORM}:output=low" "${GPIO_PLATFORM}:pull=disabled"
+	sleep 1
+	/usr/sbin/cfgadm -c configure "${T6_PCIE_ATTACH_POINT}"
 }
 
 
