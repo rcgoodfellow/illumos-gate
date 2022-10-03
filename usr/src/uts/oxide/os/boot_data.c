@@ -44,8 +44,16 @@ extern boolean_t kbm_debug;
  * some minimal collection of non-discoverable machine state that we must
  * either define or obtain from outside, which in the absence of a good way to
  * do that is mocked up here.
+ *
+ * OXIDE_UNIFIED_BOOT should be defined to use the phase1+phase2 zpool image
+ * loaded from persistent storage or a network device.  If this is not defined,
+ * we will boot using the UFS phase1 ramdisk as the rootfs.  XXX This can
+ * probably be figured out at runtime.
  */
 
+#define	OXIDE_UNIFIED_BOOT
+
+#ifdef	OXIDE_UNIFIED_BOOT
 static const bt_prop_t boot_image_ops_prop = {
 	.btp_next = NULL,
 	.btp_name = BTPROP_NAME_BOOT_IMAGE_OPS,
@@ -54,16 +62,23 @@ static const bt_prop_t boot_image_ops_prop = {
 	.btp_typeflags = DDI_PROP_TYPE_STRING
 };
 
+#else
+
 static const bt_prop_t fstype_prop = {
-	.btp_next = &boot_image_ops_prop,
+	.btp_next = NULL,
 	.btp_name = BTPROP_NAME_FSTYPE,
 	.btp_vlen = sizeof ("ufs"),
 	.btp_value = "ufs",
 	.btp_typeflags = DDI_PROP_TYPE_STRING
 };
+#endif
 
 static const bt_prop_t whoami_prop = {
+#ifdef	OXIDE_UNIFIED_BOOT
+	.btp_next = &boot_image_ops_prop,
+#else
 	.btp_next = &fstype_prop,
+#endif
 	.btp_name = "whoami",
 	.btp_vlen = sizeof ("/platform/oxide/kernel/amd64/unix"),
 	.btp_value = "/platform/oxide/kernel/amd64/unix",
@@ -185,7 +200,7 @@ static void
 bt_set_prop_str(const char *name, const char *value)
 {
 	bt_set_prop(DDI_PROP_TYPE_STRING,
-	    name, strlen(name), value, strlen (value));
+	    name, strlen(name), value, strlen(value));
 }
 
 void
@@ -201,7 +216,7 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 
 	/*
 	 * XXXBOOT - temporary use of SP status register bits to set
-	 *	     various debugging options.
+	 *		various debugging options.
 	 */
 	if (spstatus & IPCC_STATUS_DEBUG_KMDB)
 		bootargs = "-kdv";
