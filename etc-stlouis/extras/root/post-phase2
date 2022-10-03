@@ -26,6 +26,8 @@ mount -F lofs "$p2root/usr/lib/devfsadm/linkmod" /usr/lib/devfsadm/linkmod
 mount -F lofs "$p2root/usr/lib/cfgadm" /usr/lib/cfgadm
 mount -F lofs "$p2root/usr/lib/security" /usr/lib/security
 mount -F lofs "$p2root/usr/lib/fm" /usr/lib/fm
+mount -F lofs "$p2root/usr/lib/mdb" /usr/lib/mdb
+mount -F lofs "$p2root/usr/lib/rcm" /usr/lib/rcm
 
 #
 # The lofs mounts don't quite always work, so we set up ld.config too.

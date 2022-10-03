@@ -871,6 +871,7 @@ f usr/bin/coreadm 0555 root bin
 h usr/bin/cut=usr/bin/alias
 f usr/bin/date 0555 root bin
 s usr/bin/df=../sbin/df
+f usr/bin/echo 0555 root bin
 h usr/bin/fc=usr/bin/alias
 h usr/bin/fg=usr/bin/alias
 h usr/bin/getopts=usr/bin/alias
@@ -942,6 +943,7 @@ f usr/bin/su 4555 root sys
 h usr/bin/sum=usr/bin/alias
 f usr/bin/svcprop 0555 root bin
 f usr/bin/svcs 0555 root bin
+f usr/bin/tail 0555 root bin
 f usr/bin/tar 0555 root bin
 h usr/bin/tee=usr/bin/alias
 h usr/bin/test=usr/bin/alias
@@ -1174,6 +1176,7 @@ f usr/lib/pci/pcidr 0555 root bin
 f usr/lib/pci/pcidr_plugin.so 0755 root bin
 f usr/lib/pci/pcieadm 0555 root bin
 f usr/lib/pci/pcieb 0555 root bin
+d usr/lib/rcm 0755 root bin
 d usr/lib/saf 0755 root bin
 f usr/lib/saf/listen 0755 root sys
 f usr/lib/saf/sac 0555 root sys

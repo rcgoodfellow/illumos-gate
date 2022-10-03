@@ -43,6 +43,8 @@ mkdir -p "${outdir}"
 	usr/lib/devfsadm \
 	usr/lib/fm \
 	usr/lib/lib* \
+	usr/lib/mdb \
+	usr/lib/rcm \
 	usr/lib/security \
 	usr/sbin \
 	usr/xpg6/bin \
