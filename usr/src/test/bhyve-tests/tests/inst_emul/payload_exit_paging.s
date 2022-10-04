@@ -13,17 +13,18 @@
  * Copyright 2022 Oxide Computer Company
  */
 
-#ifndef _COMMON_H_
-#define	_COMMON_H_
+#include <sys/asm_linkage.h>
+#include "payload_common.h"
 
-void name_test_vm(const char *, char *);
-struct vmctx *create_test_vm(const char *);
-int alloc_memseg(struct vmctx *, int, size_t, const char *);
-int open_drv_test(void);
-bool check_instance_usable(const char *);
-bool check_instance_exists(const char *);
-int destroy_instance(const char *);
 
-#define	PROT_ALL	(PROT_READ | PROT_WRITE | PROT_EXEC)
+ENTRY(start)
+	/* Attempt to write to ROM, which should result in paging exit */
+	xorl	%eax, %eax
+	movq	%rax, MEM_LOC_ROM
 
-#endif /* _COMMON_H_ */
+	/* This should not be reached */
+	movw    $IOP_TEST_RESULT, %dx
+	movb    $TEST_RESULT_FAIL, %al
+	outb    (%dx)
+	hlt
+SET_SIZE(start)
