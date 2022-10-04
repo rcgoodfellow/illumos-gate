@@ -38,79 +38,6 @@
 extern int bootrd_debug;
 extern boolean_t kbm_debug;
 
-/*
- * Some of these properties in the fallback set could also potentially be
- * defined as part of the machine architecture. More generally, there will be
- * some minimal collection of non-discoverable machine state that we must
- * either define or obtain from outside, which in the absence of a good way to
- * do that is mocked up here.
- *
- * OXIDE_UNIFIED_BOOT should be defined to use the phase1+phase2 zpool image
- * loaded from persistent storage or a network device.  If this is not defined,
- * we will boot using the UFS phase1 ramdisk as the rootfs.  XXX This can
- * probably be figured out at runtime.
- */
-
-#define	OXIDE_UNIFIED_BOOT
-
-#ifdef	OXIDE_UNIFIED_BOOT
-static const bt_prop_t boot_image_ops_prop = {
-	.btp_next = NULL,
-	.btp_name = BTPROP_NAME_BOOT_IMAGE_OPS,
-	.btp_vlen = sizeof ("misc/boot_image"),
-	.btp_value = "misc/boot_image",
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-
-#else
-
-static const bt_prop_t fstype_prop = {
-	.btp_next = NULL,
-	.btp_name = BTPROP_NAME_FSTYPE,
-	.btp_vlen = sizeof ("ufs"),
-	.btp_value = "ufs",
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-#endif
-
-static const bt_prop_t whoami_prop = {
-#ifdef	OXIDE_UNIFIED_BOOT
-	.btp_next = &boot_image_ops_prop,
-#else
-	.btp_next = &fstype_prop,
-#endif
-	.btp_name = "whoami",
-	.btp_vlen = sizeof ("/platform/oxide/kernel/amd64/unix"),
-	.btp_value = "/platform/oxide/kernel/amd64/unix",
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-
-static const bt_prop_t impl_arch_prop = {
-	.btp_next = &whoami_prop,
-	.btp_name = BTPROP_NAME_IMPL_ARCH,
-	.btp_vlen = sizeof ("oxide"),
-	.btp_value = "oxide",
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-
-static const bt_prop_t mfg_name_prop = {
-	.btp_next = &impl_arch_prop,
-	.btp_name = BTPROP_NAME_MFG,
-	.btp_vlen = sizeof ("Oxide,Gimlet"),
-	.btp_value = "Oxide,Gimlet",
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-
-static const bt_prop_t bootargs_prop = {
-	.btp_next = &mfg_name_prop,
-	.btp_name = BTPROP_NAME_BOOTARGS,
-	.btp_vlen = sizeof ("-kv"),
-	.btp_value = "-kv",
-	.btp_typeflags = DDI_PROP_TYPE_STRING
-};
-
-const bt_prop_t * const bt_fallback_props = &bootargs_prop;
-
 const bt_prop_t *bt_props;
 static uint8_t *bt_props_mem;
 static size_t bt_props_avail;
@@ -126,7 +53,16 @@ bt_set_prop(uint32_t flags, const char *name, size_t nlen, const void *value,
 	uint8_t *omem;
 	size_t size;
 
-	DBG_MSG("setprop %.*s\n", (int)nlen, name);
+#ifdef DEBUG
+	/* do_bsys_nextprop() depends on unique property names */
+	for (const bt_prop_t *b = bt_props; b != NULL; b = b->btp_next) {
+		if (strcmp(b->btp_name, name) == 0)
+			bop_panic("Duplicate boot property name '%s'", name);
+	}
+#endif
+
+	DBG_MSG("setprop %.*s (nlen %lx vlen %lx)\n", (int)nlen, name,
+	    nlen, vlen);
 
 	size = sizeof (bt_prop_t) + nlen + 1;
 	if (vlen > 0)
@@ -135,6 +71,7 @@ bt_set_prop(uint32_t flags, const char *name, size_t nlen, const void *value,
 
 	/* If we are out of space in the current page, allocate a new one. */
 	if (size > bt_props_avail) {
+		DBG_MSG("New page (%lx > %lx)\n", size, bt_props_avail);
 		bt_props_mem = (uint8_t *)eb_alloc_page();
 		bt_props_avail = MMU_PAGESIZE;
 	}
@@ -199,8 +136,12 @@ bt_set_prop_u64(const char *name, uint64_t value)
 static void
 bt_set_prop_str(const char *name, const char *value)
 {
+	/*
+	 * Even though there is a value length property, many consumers
+	 * assume that string property values include a terminator.
+	 */
 	bt_set_prop(DDI_PROP_TYPE_STRING,
-	    name, strlen(name), value, strlen(value));
+	    name, strlen(name), value, strlen(value) + 1);
 }
 
 void
@@ -210,6 +151,8 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	const char *bootargs;
 	ipcc_ident_t ident;
 	uint8_t bsu;
+
+	// kbm_debug = B_TRUE;
 
 	if (kernel_ipcc_status(&spstatus) != 0)
 		bop_panic("Could not retrieve status value from SP");
@@ -248,9 +191,11 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 		bt_set_prop_u8(BTPROP_NAME_BSU, bsu);
 
 	if (kernel_ipcc_ident(&ident) == 0) {
-		bt_set_prop(DDI_PROP_TYPE_STRING,
-		    BTPROP_NAME_BOARD_IDENT, sizeof (BTPROP_NAME_BOARD_IDENT),
-		    ident.ii_serial, sizeof (ident.ii_serial));
+		char serial[sizeof (ident.ii_serial) + 1];
+
+		bzero(serial, sizeof (serial));
+		bcopy(ident.ii_serial, serial, sizeof (ident.ii_serial));
+		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, serial);
 
 		// XXX - adjust once format of model and revision is known
 		bt_set_prop_u8(BTPROP_NAME_BOARD_MODEL, ident.ii_model);
@@ -271,12 +216,19 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	const uint32_t reset_vector = 0x7ffefff0U;
 
 	bt_set_prop_u32(BTPROP_NAME_RESET_VECTOR, reset_vector);
-	// XXX IPCC - also had DDI_PROP_NOTPROM, do we need that?
+	// XXX IPCC - APOB also had DDI_PROP_NOTPROM, do we need that?
 	bt_set_prop_u64(BTPROP_NAME_APOB_ADDRESS, apob_addr);
 
+	bt_set_prop_str(BTPROP_NAME_FSTYPE, "ufs");
+	bt_set_prop_str(BTPROP_NAME_WHOAMI,
+	    "/platform/oxide/kernel/amd64/unix");
+	bt_set_prop_str(BTPROP_NAME_IMPL_ARCH, "oxide");
+	bt_set_prop_str(BTPROP_NAME_MFG, "Oxide,Gimlet");
+
 	/*
-	 * XXX(cross): the conditional is a hack for transition.
-	 * In steady-state, we'll call this unconditionally.
+	 * If this parameter was provided by the loader then we assume that
+	 * we are using the unified boot strategy. Otherwise we use some
+	 * hardcoded defaults for the expected location of the ramdisk.
 	 */
 	if (ramdisk_paddr != 0) {
 		ramdisk_start = ramdisk_paddr;
@@ -298,6 +250,12 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 			    "Ramdisk parameter problem start=0x%lx end=0x%lx",
 			    ramdisk_start, ramdisk_end);
 		}
+
+		/*
+		 * This property is checked in boot_image_locate(), called from
+		 * main().
+		 */
+		bt_set_prop_str(BTPROP_NAME_BOOT_IMAGE_OPS, "misc/boot_image");
 	} else {
 		/* Default to the usual values used with nanobl-rs */
 		ramdisk_start = 0x101000000UL;

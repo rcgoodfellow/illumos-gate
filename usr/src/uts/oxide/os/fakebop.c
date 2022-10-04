@@ -146,30 +146,12 @@ bop_no_more_mem(void)
 	bootops->bsys_free = no_more_free;
 }
 
-#define	FIND_BT_PROP_F_NO_FALLBACK	0x1U
-#define	FIND_BT_PROP_F_ONLY_FALLBACK	0x2U
-
 static const bt_prop_t *
-find_bt_prop(const char *name, uint32_t flags)
+find_bt_prop(const char *name)
 {
 	const bt_prop_t *btpp;
 
-	if ((flags & FIND_BT_PROP_F_ONLY_FALLBACK) != 0 &&
-	    (flags & FIND_BT_PROP_F_NO_FALLBACK) != 0) {
-		bop_panic("conflicting flags passed to find_bt_prop()");
-	}
-
-	if ((flags & FIND_BT_PROP_F_ONLY_FALLBACK) == 0) {
-		for (btpp = bt_props; btpp != NULL; btpp = btpp->btp_next) {
-			if (strcmp(name, btpp->btp_name) == 0)
-				return (btpp);
-		}
-	}
-
-	if (flags & FIND_BT_PROP_F_NO_FALLBACK)
-		return (NULL);
-
-	for (btpp = bt_fallback_props; btpp != NULL; btpp = btpp->btp_next) {
+	for (btpp = bt_props; btpp != NULL; btpp = btpp->btp_next) {
 		if (strcmp(name, btpp->btp_name) == 0)
 			return (btpp);
 	}
@@ -186,7 +168,7 @@ do_bsys_getproptype(bootops_t *bop, const char *name)
 {
 	const bt_prop_t *btpp;
 
-	if ((btpp = find_bt_prop(name, 0)) == NULL)
+	if ((btpp = find_bt_prop(name)) == NULL)
 		return (-1);
 
 	return (btpp->btp_typeflags & DDI_PROP_TYPE_MASK);
@@ -201,7 +183,7 @@ do_bsys_getproplen(bootops_t *bop, const char *name)
 {
 	const bt_prop_t *btpp;
 
-	if ((btpp = find_bt_prop(name, 0)) == NULL)
+	if ((btpp = find_bt_prop(name)) == NULL)
 		return (-1);
 
 	/*
@@ -226,7 +208,7 @@ do_bsys_getprop(bootops_t *bop, const char *name, void *value)
 {
 	const bt_prop_t *btpp;
 
-	if ((btpp = find_bt_prop(name, 0)) == NULL)
+	if ((btpp = find_bt_prop(name)) == NULL)
 		return (-1);
 
 	bcopy(btpp->btp_value, value, btpp->btp_vlen);
@@ -234,52 +216,34 @@ do_bsys_getprop(bootops_t *bop, const char *name, void *value)
 }
 
 /*
- * get the name of the next property in succession from the standalone
+ * get the name of the next property in succession.
+ * XXX constify this interface properly; it has few consumers.
  */
-/*ARGSUSED*/
 static char *
 do_bsys_nextprop(bootops_t *bop, char *name)
 {
 	const bt_prop_t *btpp;
 
 	/*
-	 * We want to return all the normal properties (from the SP) in order;
-	 * if we're given NULL we're being asked for the named of the first
-	 * one.  However, once those are exhausted, we want to return the
-	 * fallback properties iff they're not shadowed by a real property.
-	 *
-	 * In principle this should all be a merged map, which would be much
-	 * faster, but this whole path is run through only once and this is
-	 * still fairly simple: once we're given the name of a property that
-	 * exists only as a fallback, we return only fallbacks.
+	 * If we're given NULL we're being asked for the name of the first
+	 * property.
 	 */
 	if (name == NULL || strlen(name) == 0) {
-		if (bt_props != NULL) {
+		if (bt_props != NULL)
 			return ((char *)bt_props->btp_name);
-		}
-		return ((char *)bt_fallback_props->btp_name);
+		return (NULL);
 	}
 
-	btpp = find_bt_prop(name, FIND_BT_PROP_F_NO_FALLBACK);
-	if (btpp != NULL) {
-		if (btpp->btp_next != NULL)
-			return ((char *)btpp->btp_next->btp_name);
-		btpp = bt_fallback_props;
-	} else {
-		btpp = find_bt_prop(name, FIND_BT_PROP_F_ONLY_FALLBACK);
-		if (btpp == NULL) {
-			bop_panic("unknown boot-time property name '%s' "
-			    "passed as previous property name", name);
-		}
-		btpp = btpp->btp_next;
+	btpp = find_bt_prop(name);
+	if (btpp == NULL) {
+		bop_panic("unknown boot-time property name '%s' "
+		    "passed as previous property name", name);
 	}
 
-	while (btpp != NULL &&
-	    find_bt_prop(btpp->btp_name, FIND_BT_PROP_F_NO_FALLBACK) != NULL)
-		btpp = btpp->btp_next;
+	if (btpp->btp_next != NULL)
+		return ((char *)btpp->btp_next->btp_name);
 
-	/* XXX constify this interface properly; it has few consumers */
-	return (btpp == NULL ? NULL : (char *)btpp->btp_name);
+	return (NULL);
 }
 
 static boolean_t
@@ -332,7 +296,7 @@ boot_prop_display(char *buffer)
 			}
 			break;
 		case DDI_PROP_TYPE_STRING:
-			eb_printf("%s", buffer);
+			eb_printf("%.*s", len, buffer);
 			break;
 		case DDI_PROP_TYPE_INT64:
 			len = len / sizeof (int64_t);
@@ -396,13 +360,12 @@ bop_traceback(bop_frame_t *frame)
 		else
 			ksym = kobj_getsymname(pc, &off);
 
-		if (ksym != NULL) {
+		if (ksym != NULL)
 			eb_printf("  %s+%lx", ksym, off);
-			ipcc_panic_stack(off, ksym);
-		} else {
+		else
 			eb_printf("  0x%lx", pc);
-			ipcc_panic_stack(pc, NULL);
-		}
+
+		ipcc_panic_stack(pc, ksym, off);
 
 		frame = frame->old_frame;
 		if (frame == 0) {
@@ -457,12 +420,8 @@ bop_trap(ulong_t *tfp)
 	eb_printf("%%cr2			0x%lx\n", getcr2());
 
 	ipcc_panic_field(IPF_CAUSE, IPCC_PANIC_EARLYBOOT);
-	ipcc_panic_field(IPF_INSTR_PTR, tf->inst_ptr);
-	ipcc_panic_field(IPF_CODE_SEG, tf->code_seg);
-	ipcc_panic_field(IPF_FLAGS_REG, tf->flags_reg);
-	ipcc_panic_field(IPF_STACK_PTR, tf->stk_ptr);
-	ipcc_panic_field(IPF_STACK_SEG, tf->stk_seg);
-	ipcc_panic_field(IPF_CR2, getcr2());
+	ipcc_panic_field(IPF_PC, tf->inst_ptr);
+	ipcc_panic_field(IPF_FP, tf->stk_ptr);
 
 	/* grab %[er]bp pushed by our code from the stack */
 	fakeframe.old_frame = (bop_frame_t *)*(tfp - 3);
@@ -522,7 +481,7 @@ protect_ramdisk(void)
 static void
 apob_init(void)
 {
-	const bt_prop_t *apob_prop = find_bt_prop(BTPROP_NAME_APOB_ADDRESS, 0);
+	const bt_prop_t *apob_prop = find_bt_prop(BTPROP_NAME_APOB_ADDRESS);
 
 	if (apob_prop == NULL) {
 		bop_panic("APOB address property %s is missing; don't "
@@ -668,8 +627,6 @@ _start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	bootop.bsys_printf = bop_printf;
 	bootop.bsys_ealloc = do_bsys_ealloc;
 
-	DBG_MSG("Set botops\n");
-
 	/*
 	 * Get and save the reset vector for MP startup use later.
 	 */
@@ -702,7 +659,7 @@ _start(uint64_t ramdisk_paddr, size_t ramdisk_len)
 	idt_init();
 	DBG_MSG("done\n");
 
-	if (find_bt_prop("prom_debug", 0) != NULL || kbm_debug) {
+	if (find_bt_prop("prom_debug") != NULL || kbm_debug) {
 		char *bufpage;
 
 		bufpage = do_bsys_alloc(NULL, NULL, MMU_PAGESIZE, MMU_PAGESIZE);

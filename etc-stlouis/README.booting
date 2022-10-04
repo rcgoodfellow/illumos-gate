@@ -30,13 +30,6 @@ that interfere with reproducible builds.  You don't need this patch if you are
 not doing a reproducible build (again, if you aren't sure, just follow
 https://github.com/oxidecomputer/stlouis/blob/main/dev.adoc).
 
-IMPORTANT: If you are booting a phase-1 ramdisk over the UART (following the
-instructions in this file), you must comment out or delete the line defining
-OXIDE_UNIFIED_BOOT before building.  Otherwise, the default build for this
-branch will produce a kernel that expects to boot using the phase1+phase2 boot
-image from disk or over the network, and it will panic late in boot if you
-follow these instructions.
-
 2. Build a ramdisk.  The size in mkrd.bash must match the end address property
 value in usr/src/uts/oxide/os/boot_data.c; if you need to grow the ramdisk,
 change both of these!  This program outputs the name of the ramdisk image; it
