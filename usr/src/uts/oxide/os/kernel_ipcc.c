@@ -28,6 +28,8 @@
 #include <vm/kboot_mmu.h>
 #include <sys/io/fch/iomux.h>
 #include <sys/io/fch/uart.h>
+#include <sys/archsystm.h>
+#include <sys/cpu.h>
 
 static ipcc_ops_t kernel_ipcc_ops;
 static void *kernel_ipcc_arg;
@@ -47,10 +49,33 @@ eb_ipcc_pollread(void *regs)
 	return (dw_apb_uart_dr(regs));
 }
 
+static bool
+eb_ipcc_pollwrite(void *regs)
+{
+	return (dw_apb_uart_tfnf(regs));
+}
+
 static void
 eb_ipcc_flush(void *regs)
 {
 	dw_apb_uart_flush(regs);
+}
+
+volatile uint64_t eb_pausedata;
+static uint64_t eb_pausedata_loops = 250;
+
+static void
+eb_ipcc_pause(void *regs __unused)
+{
+	/*
+	 * In early boot we do not have access to timers. Simulate a small
+	 * delay using a spin loop, aiming for around 10us. XXX measure.
+	 */
+
+	for (uint_t i = 0; i < eb_pausedata_loops; i++) {
+		eb_pausedata += eb_pausedata_loops;
+		SMT_PAUSE();
+	}
 }
 
 static off_t
@@ -78,14 +103,49 @@ eb_ipcc_log(void *arg __unused, const char *fmt, ...)
 	va_end(ap);
 }
 
+/* XXX - experiment */
+static mmio_reg_block_t
+eb_mmio_reg_block_map(const smn_unit_t unit, const mmio_reg_block_phys_t phys)
+{
+	ASSERT3S(unit, !=, SMN_UNIT_UNKNOWN);
+
+	const uintptr_t loff = phys.mrbp_base & PAGEOFFSET;
+	const uintptr_t moff = phys.mrbp_base & MMU_PAGEOFFSET;
+
+	const uintptr_t nlp = btopr(phys.mrbp_len + loff);
+	const uintptr_t nmp = mmu_btopr(phys.mrbp_len + moff);
+
+	VERIFY3U(nmp, ==, 1);
+
+	const caddr_t va = (caddr_t)kbm_valloc(ptob(nlp), MMU_PAGESIZE);
+
+	kbm_map((uintptr_t)va, phys.mrbp_base - moff, 0,
+	    PT_WRITABLE | PT_NOCACHE);
+
+	const mmio_reg_block_t block = {
+	    .mrb_unit = unit,
+	    .mrb_va = (const caddr_t)((const uintptr_t)va + loff),
+	    .mrb_phys = phys
+	};
+
+	return (block);
+}
+
+static void
+eb_mmio_reg_block_unmap(mmio_reg_block_t block)
+{
+	const uintptr_t vmbase = (const uintptr_t)block.mrb_va & MMU_PAGEMASK;
+
+	kbm_unmap(vmbase);
+}
+
 static void
 eb_ipcc_init(void)
 {
 	DBG_MSG("kernel_ipcc_init(EARLYBOOT)\n");
 
+#if 0
 	/*
-	 * XXX - use more FCH framework? Fake up a mmio_reg_block_t?
-	 *
 	 * The default mappings for IOMUX pins relating to UART1 are shown
 	 * below. Conveniently, setting the value for each pin to 0 results
 	 * in the function shown in square brackets, which is what we want.
@@ -95,9 +155,11 @@ eb_ipcc_init(void)
 	 *  0x8e - GPIO_142	[UART1_RTS_L]
 	 *  0x8f - GPIO_143	[UART1_TXD]
 	 */
+
 	const uintptr_t addr = FCH_RELOCATABLE_PHYS_BASE;
 	void *regs = (void *)kbm_valloc(MMU_PAGESIZE, MMU_PAGESIZE);
 	kbm_map((uintptr_t)regs, addr, 0, PT_WRITABLE | PT_NOCACHE);
+
 	for (uint_t i = 0x8c; i <= 0x8f; i++) {
 		uint8_t b, a;
 
@@ -107,16 +169,40 @@ eb_ipcc_init(void)
 		DBG_MSG("Pin 0x%x: %x -> %x\n", i, b, a);
 	}
 	kbm_unmap((uintptr_t)regs);
+#else
+	const mmio_reg_block_phys_t phys = {
+		.mrbp_base = FCH_IOMUX_PHYS_BASE,
+		.mrbp_len = FCH_IOMUX_SIZE,
+	};
+	const mmio_reg_block_t block =
+	    eb_mmio_reg_block_map(SMN_UNIT_FCH_IOMUX, phys);
+	mmio_reg_t reg;
+
+	reg = FCH_IOMUX_IOMUX140_GPIO_MMIO(block);
+	mmio_reg_write(reg, FCH_IOMUX_IOMUX140_GPIO_UART1_CTS_L);
+
+	reg = FCH_IOMUX_IOMUX141_GPIO_MMIO(block);
+	mmio_reg_write(reg, FCH_IOMUX_IOMUX141_GPIO_UART1_RXD);
+
+	reg = FCH_IOMUX_IOMUX142_GPIO_MMIO(block);
+	mmio_reg_write(reg, FCH_IOMUX_IOMUX142_GPIO_UART1_RTS_L);
+
+	reg = FCH_IOMUX_IOMUX143_GPIO_MMIO(block);
+	mmio_reg_write(reg, FCH_IOMUX_IOMUX143_GPIO_UART1_TXD);
+
+	eb_mmio_reg_block_unmap(block);
+#endif
 
 	eb_ipcc_uart_regs = dw_apb_uart_init(DAP_1, 3000000,
 	    AD_8BITS, AP_NONE, AS_1BIT);
 
 	if (eb_ipcc_uart_regs == NULL)
-		return;	/* XXX panic? */
+		bop_panic("Could not initialize SP/Host UART");
 
 	bzero(&kernel_ipcc_ops, sizeof (kernel_ipcc_ops));
 	kernel_ipcc_ops.io_pollread = eb_ipcc_pollread;
-	//kernel_ipcc_ops.io_pollwrite = eb_ipcc_pollwrite;
+	kernel_ipcc_ops.io_pollwrite = eb_ipcc_pollwrite;
+	kernel_ipcc_ops.io_pause = eb_ipcc_pause;
 	kernel_ipcc_ops.io_flush = eb_ipcc_flush;
 	kernel_ipcc_ops.io_read = eb_ipcc_read;
 	kernel_ipcc_ops.io_write = eb_ipcc_write;
@@ -140,6 +226,12 @@ typedef struct {
 } ipcc_mb_data_t;
 
 static ipcc_mb_data_t ipcc_mb_data;
+
+static void
+mb_ipcc_pause(void *arg __unused)
+{
+	tenmicrosec();
+}
 
 static void
 mb_ipcc_flush(void *arg)
@@ -194,12 +286,9 @@ mb_ipcc_write(void *arg, uint8_t *buf, size_t len)
 	size_t towrite = len;
 
 	while (towrite > 0) {
-		size_t l;
-
 		/* Wait until there is room in the FIFO */
 		while (!mb_ipcc_pollwrite(dat))
 			;
-
 		mmio_reg_write(dat->imbd_reg_thr, *buf);
 		buf++;
 		towrite--;
@@ -239,6 +328,7 @@ mb_ipcc_init(void)
 	bzero(&kernel_ipcc_ops, sizeof (kernel_ipcc_ops));
 	kernel_ipcc_ops.io_pollread = mb_ipcc_pollread;
 	kernel_ipcc_ops.io_pollwrite = mb_ipcc_pollwrite;
+	kernel_ipcc_ops.io_pause = mb_ipcc_pause;
 	kernel_ipcc_ops.io_flush = mb_ipcc_flush;
 	kernel_ipcc_ops.io_read = mb_ipcc_read;
 	kernel_ipcc_ops.io_write = mb_ipcc_write;
@@ -248,7 +338,6 @@ mb_ipcc_init(void)
 
 	ipcc_begin_multithreaded();
 }
-
 
 /*
  * Functions used for IPCC after STREAMS and the device tree are avaialble.
@@ -322,14 +411,6 @@ lb_ipcc_init(void)
 	PRM_POINT("kernel_ipcc_init(LATEBOOT)");
 
 	mutex_init(&ipcc_lb_data.ilbd_mutex, NULL, MUTEX_DEFAULT, NULL);
-
-	/*
-	 * Leave the existing ops vector intact for now.. XXX
-	 */
-	/*
-	mmio_reg_block_unmap(ipcc_reg_block);
-	bzero(&kernel_ipcc_ops, sizeof (kernel_ipcc_ops));
-	*/
 }
 
 /*

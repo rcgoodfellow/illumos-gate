@@ -74,12 +74,12 @@ typedef enum ipcc_sp_decode_failure {
 } ipcc_sp_decode_failure_t;
 
 typedef enum ipcc_sp_status {
-	IPCC_STATUS_STARTED	= 1 << 0,
-	IPCC_STATUS_ALERT	= 1 << 1,
-	IPCC_STATUS_RESET	= 1 << 2,
-	IPCC_STATUS_DEBUG_KMDB	= 1 << 20,
-	IPCC_STATUS_DEBUG_KBM	= 1 << 21,
-	IPCC_STATUS_DEBUG_BOOTRD= 1 << 22,
+	IPCC_STATUS_STARTED		= 1 << 0,
+	IPCC_STATUS_ALERT		= 1 << 1,
+	IPCC_STATUS_RESET		= 1 << 2,
+	IPCC_STATUS_DEBUG_KMDB		= 1 << 20,
+	IPCC_STATUS_DEBUG_KBM		= 1 << 21,
+	IPCC_STATUS_DEBUG_BOOTRD	= 1 << 22,
 } ipcc_sp_status_t;
 
 /*
@@ -89,23 +89,28 @@ typedef enum ipcc_sp_status {
 #define	IPCC_PANIC_STACKS	0x10
 #define	IPCC_PANIC_DATALEN	0x100
 #define	IPCC_PANIC_SYMLEN	0x20
-#define IPCC_PANIC_MSGLEN	0x80
-#define	IPCC_PANIC_EARLYBOOT	0xeb
+#define	IPCC_PANIC_MSGLEN	0x80
+
+#define	IPCC_PANIC_TRAP		0xa900
+#define	IPCC_PANIC_USERTRAP	0x5e00
+#define	IPCC_PANIC_EARLYBOOT	0xeb00
 
 typedef struct ipcc_panic_stack {
 	char			ips_symbol[IPCC_PANIC_SYMLEN];
-	uint64_t		ips_offset;
+	uint64_t		ips_addr;
+	off_t			ips_offset;
 } __packed ipcc_panic_stack_t;
 
 typedef struct ipcc_panic_data {
 	uint16_t		ip_cause;
 	uint32_t		ip_error;
-	uint64_t		ip_instr_ptr;
-	uint16_t		ip_code_seg;
-	uint64_t		ip_flags_reg;
-	uint64_t		ip_stack_ptr;
-	uint16_t		ip_stack_seg;
-	uint64_t		ip_cr2;
+
+	uint32_t		ip_cpuid;
+	uint64_t		ip_thread;
+	uint64_t		ip_addr;
+	uint64_t		ip_pc;
+	uint64_t		ip_fp;
+
 	uint8_t			ip_stackidx;
 	uint8_t			ip_message[IPCC_PANIC_MSGLEN];
 	ipcc_panic_stack_t	ip_stack[IPCC_PANIC_STACKS];
@@ -116,12 +121,11 @@ typedef struct ipcc_panic_data {
 typedef enum ipcc_panic_field {
 	IPF_CAUSE,
 	IPF_ERROR,
-	IPF_INSTR_PTR,
-	IPF_CODE_SEG,
-	IPF_FLAGS_REG,
-	IPF_STACK_PTR,
-	IPF_STACK_SEG,
-	IPF_CR2,
+	IPF_CPU,
+	IPF_THREAD,
+	IPF_ADDR,
+	IPF_PC,
+	IPF_FP,
 } ipcc_panic_field_t;
 
 #define	IPCC_IDENT_DATALEN	13
@@ -130,14 +134,15 @@ typedef enum ipcc_panic_field {
 #define	IPCC_STATUS_DATALEN	8
 
 typedef struct ipcc_ops {
+	void (*io_pause)(void *);
 	void (*io_flush)(void *);
 	off_t (*io_read)(void *, uint8_t *, size_t);
 	off_t (*io_write)(void *, uint8_t *, size_t);
 	void (*io_log)(void *, const char *, ...);
 	bool (*io_pollread)(void *);
 	bool (*io_pollwrite)(void *);
-	//bool (*io_read_interrupt)(void *);
-	//void (*io_set_interrupt)(void *, bool);
+	bool (*io_read_intr)(void *);
+	// void (*io_set_intr)(void *, bool);
 } ipcc_ops_t;
 
 extern void ipcc_begin_multithreaded(void);
@@ -152,17 +157,18 @@ extern int ipcc_status(const ipcc_ops_t *, void *, uint64_t *);
 extern int ipcc_ackstart(const ipcc_ops_t *, void *);
 
 extern void ipcc_panic_vmessage(const char *, va_list);
+extern void ipcc_panic_message(const char *, ...);
 extern void ipcc_panic_field(ipcc_panic_field_t, uint64_t);
-extern void ipcc_panic_stack(uint64_t, const char *);
+extern void ipcc_panic_stack(uintptr_t, const char *, off_t);
 extern void ipcc_panic_vdata(const char *, va_list);
 extern void ipcc_panic_data(const char *, ...);
 extern int ipcc_panic(const ipcc_ops_t *, void *);
 
 /*
-extern int ipcc_alert(ipcc_ops_t *, void *,
-extern int ipcc_measurements(ipcc_ops_t *, void *,
-extern int ipcc_imageblock(ipcc_ops_t *, void *,
-*/
+ * extern int ipcc_alert(ipcc_ops_t *, void *,
+ * extern int ipcc_measurements(ipcc_ops_t *, void *,
+ * extern int ipcc_imageblock(ipcc_ops_t *, void *,
+ */
 
 #ifdef __cplusplus
 }

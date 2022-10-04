@@ -38,6 +38,7 @@ extern uint8_t dw_apb_uart_rx_one(void *);
 extern size_t dw_apb_uart_tx_nb(void *, const uint8_t *, size_t);
 extern void dw_apb_uart_tx(void *, const uint8_t *, size_t);
 extern boolean_t dw_apb_uart_dr(void *);
+extern boolean_t dw_apb_uart_tfnf(void *);
 
 #ifdef __cplusplus
 }

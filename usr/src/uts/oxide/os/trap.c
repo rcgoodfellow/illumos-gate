@@ -96,6 +96,7 @@
 #include <sys/promif.h>
 #include <sys/mach_mmu.h>
 #include <sys/contract/process_impl.h>
+#include <sys/ipcc_impl.h>
 
 #define	USER	0x10000		/* user-mode flag added to trap type */
 
@@ -208,6 +209,9 @@ die(uint_t type, struct regs *rp, caddr_t addr, processorid_t cpuid)
 
 	curthread->t_panic_trap = &ti;
 
+	ipcc_panic_field(IPF_CAUSE, IPCC_PANIC_TRAP | (type & 0xff));
+	ipcc_panic_field(IPF_ADDR, (uintptr_t)addr);
+
 	if (type == T_PGFLT && addr < (caddr_t)kernelbase) {
 		panic("BAD TRAP: type=%x (#%s %s) rp=%p addr=%p "
 		    "occurred in module \"%s\" due to %s",
@@ -216,9 +220,11 @@ die(uint_t type, struct regs *rp, caddr_t addr, processorid_t cpuid)
 		    addr < (caddr_t)PAGESIZE ?
 		    "a NULL pointer dereference" :
 		    "an illegal access to a user address");
-	} else
+	} else {
 		panic("BAD TRAP: type=%x (#%s %s) rp=%p addr=%p",
 		    type, trap_mnemonic, trap_name, (void *)rp, (void *)addr);
+	}
+
 	return (0);
 }
 

@@ -178,7 +178,7 @@ ipcc_flush(void *arg)
 	    ipcc->is_cred, &rval);
 }
 
-static ipcc_ops_t ipcc_ops = {
+static const ipcc_ops_t ipcc_ops = {
 	.io_flush	= ipcc_flush,
 	.io_read	= ipcc_read,
 	.io_write	= ipcc_write,
@@ -392,113 +392,103 @@ ipcc_info(dev_info_t *dip, ddi_info_cmd_t cmd, void *arg, void **result)
 	}
 }
 
-/*
- ****************************************************************************
- */
-
 static struct cb_ops ipcc_cb_ops = {
-	.cb_open	= ipcc_open,
-	.cb_close	= ipcc_close,
-	.cb_strategy	= nulldev,
-	.cb_print	= nulldev,
-	.cb_dump	= nodev,
-	.cb_read	= nodev,
-	.cb_write	= nodev,
-	.cb_ioctl	= ipcc_ioctl,
-	.cb_devmap	= nodev,
-	.cb_mmap	= nodev,
-	.cb_segmap	= nodev,
-	.cb_chpoll	= nochpoll,
-	.cb_prop_op	= ddi_prop_op,
-	.cb_str		= NULL,
-	.cb_flag	= D_MP,
-	.cb_rev		= CB_REV,
-	.cb_aread	= nodev,
-	.cb_awrite	= nodev,
+	.cb_open		= ipcc_open,
+	.cb_close		= ipcc_close,
+	.cb_strategy		= nulldev,
+	.cb_print		= nulldev,
+	.cb_dump		= nodev,
+	.cb_read		= nodev,
+	.cb_write		= nodev,
+	.cb_ioctl		= ipcc_ioctl,
+	.cb_devmap		= nodev,
+	.cb_mmap		= nodev,
+	.cb_segmap		= nodev,
+	.cb_chpoll		= nochpoll,
+	.cb_prop_op		= ddi_prop_op,
+	.cb_str			= NULL,
+	.cb_flag		= D_MP,
+	.cb_rev			= CB_REV,
+	.cb_aread		= nodev,
+	.cb_awrite		= nodev,
 };
 
 static struct dev_ops ipcc_dev_ops = {
-	.devo_rev	= DEVO_REV,
-	.devo_refcnt	= 0,
-	.devo_getinfo	= ipcc_info,
-	.devo_identify	= nulldev,
-	.devo_probe	= nulldev,
-	.devo_attach	= ipcc_attach,
-	.devo_detach	= ipcc_detach,
-	.devo_reset	= nodev,
-	.devo_cb_ops	= &ipcc_cb_ops,
-	.devo_bus_ops	= NULL,
-	.devo_power	= nodev,
-	.devo_quiesce	= ddi_quiesce_not_needed,
+	.devo_rev		= DEVO_REV,
+	.devo_refcnt		= 0,
+	.devo_getinfo		= ipcc_info,
+	.devo_identify		= nulldev,
+	.devo_probe		= nulldev,
+	.devo_attach		= ipcc_attach,
+	.devo_detach		= ipcc_detach,
+	.devo_reset		= nodev,
+	.devo_cb_ops		= &ipcc_cb_ops,
+	.devo_bus_ops		= NULL,
+	.devo_power		= nodev,
+	.devo_quiesce		= ddi_quiesce_not_needed,
 };
 
 static struct modldrv ipcc_modldrv = {
-	.drv_modops	= &mod_driverops,
-	.drv_linkinfo	= "SP/Host Comms Driver",
-	.drv_dev_ops	= &ipcc_dev_ops
+	.drv_modops		= &mod_driverops,
+	.drv_linkinfo		= "SP/Host Comms Driver",
+	.drv_dev_ops		= &ipcc_dev_ops
 };
-
-/*
- ****************************************************************************
- */
 
 #ifdef IPCC_STREAMS
 static struct module_info ipcc_minfo = {
-	.mi_idnum	= 0,
-	.mi_idname	= "ipcc",
-	.mi_minpsz	= 1,
-	.mi_maxpsz	= INFPSZ,
-	.mi_hiwat	= 1,
-	.mi_lowat	= 0,
+	.mi_idnum		= 0,
+	.mi_idname		= "ipcc",
+	.mi_minpsz		= 1,
+	.mi_maxpsz		= INFPSZ,
+	.mi_hiwat		= 1,
+	.mi_lowat		= 0,
 };
 
 static struct qinit ipcc_r_qinit = {
-	.qi_putp	= ipcc_s_rput,
-	.qi_srvp	= NULL,
-	.qi_qopen	= NULL,
-	.qi_qclose	= NULL,
-	.qi_qadmin	= NULL,
-	.qi_minfo	= &ipcc_minfo,
-	.qi_mstat	= NULL,
-	.qi_rwp		= NULL,
-	.qi_infop	= NULL,
-	.qi_struiot	= NULL,
+	.qi_putp		= ipcc_s_rput,
+	.qi_srvp		= NULL,
+	.qi_qopen		= NULL,
+	.qi_qclose		= NULL,
+	.qi_qadmin		= NULL,
+	.qi_minfo		= &ipcc_minfo,
+	.qi_mstat		= NULL,
+	.qi_rwp			= NULL,
+	.qi_infop		= NULL,
+	.qi_struiot		= NULL,
 };
 
 static struct qinit ipcc_w_qinit = {
-	.qi_putp	= ipcc_s_wput,
-	.qi_srvp	= NULL,
-	.qi_qopen	= NULL,
-	.qi_qclose	= NULL,
-	.qi_qadmin	= NULL,
-	.qi_minfo	= &ipcc_minfo,
-	.qi_mstat	= NULL,
-	.qi_rwp		= NULL,
-	.qi_infop	= NULL,
-	.qi_struiot	= NULL,
+	.qi_putp		= ipcc_s_wput,
+	.qi_srvp		= NULL,
+	.qi_qopen		= NULL,
+	.qi_qclose		= NULL,
+	.qi_qadmin		= NULL,
+	.qi_minfo		= &ipcc_minfo,
+	.qi_mstat		= NULL,
+	.qi_rwp			= NULL,
+	.qi_infop		= NULL,
+	.qi_struiot		= NULL,
 };
 
 static struct streamtab ipcc_strtab = {
-	.st_rdinit	= &ipcc_r_qinit,
-	.st_wrinit	= &ipcc_w_qinit,
-	.st_muxrinit	= NULL,
-	.st_muxwinit	= NULL,
+	.st_rdinit		= &ipcc_r_qinit,
+	.st_wrinit		= &ipcc_w_qinit,
+	.st_muxrinit		= NULL,
+	.st_muxwinit		= NULL,
 };
 
 static struct fmodsw ipcc_fmodfsw = {
-	.f_name		= "ipcc",
-	.f_str		= &ipcc_strtab,
-	.f_flag		= D_NEW | D_MP,
+	.f_name			= "ipcc",
+	.f_str			= &ipcc_strtab,
+	.f_flag			= D_NEW | D_MP,
 };
 
 static struct modlstrmod ipcc_modlstrmod = {
-	.strmod_modops	= &mod_strmodops,
-	.strmod_linkinfo= "Oxide IPCC Driver",
-	.strmod_fmodsw	= &ipcc_fmodfsw,
+	.strmod_modops		= &mod_strmodops,
+	.strmod_linkinfo	= "Oxide IPCC Driver",
+	.strmod_fmodsw		= &ipcc_fmodfsw,
 }
 #endif
-
-/*****************************************************************************/
 
 static struct modlinkage ipcc_modlinkage = {
 	.ml_rev		= MODREV_1,
@@ -550,4 +540,3 @@ _fini(void)
 
 	return (err);
 }
-

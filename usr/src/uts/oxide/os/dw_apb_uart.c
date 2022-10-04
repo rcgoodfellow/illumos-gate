@@ -336,3 +336,9 @@ dw_apb_uart_dr(void *regs)
 {
 	return ((RD_REG(regs, LSR) & DAR_LSR_DR) != 0);
 }
+
+boolean_t
+dw_apb_uart_tfnf(void *regs)
+{
+	return ((RD_REG(regs, USR) & DAR_USR_TFNF) != 0);
+}

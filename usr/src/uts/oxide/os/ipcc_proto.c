@@ -16,7 +16,78 @@
 /*
  * ipcc - interprocessor control channel
  *
- * ...
+ * The IPCC is a general communication channel between the Host and the
+ * Service Processor (SP) supporting a unidirectional RPC interface in which
+ * SP software provides the server, and the Host acts as a client. The Host and
+ * SP communicate using a dedicated async serial channel operating at 3,000,000
+ * bps and employing hardware flow control. There are also a pair of interrupt
+ * lines between the Host and SP which are used for out-of-band signalling.
+ *
+ * This file implements the protocol used across this channel which has the
+ * following properties:
+ *
+ * - The host only ever initiates requests by sending data on the channel, and
+ *   the SP only ever replies to requests.
+ *
+ * - Only one request may be outstanding at a time, there is no pipelining.
+ *
+ * - If the SP needs to notify the host that an event has occured or that other
+ *   data of interest is available, it will assert an out-of-band interrupt
+ *   signal on a line connected to a GPIO on the processor. The host can make
+ *   requests to the SP to enumerate the set of pending events and then
+ *   retrieve the associated data or to clear the events.
+ *
+ * - If the Host needs to reset and restart communication, for example if it
+ *   has sent a request and not received a timely response, it will assert an
+ *   out-of-band interrupt signal on a line connected to a GPIO on the SP.
+ *   On receipt of this signal the SP should discard any partial packet which
+ *   it has accumulated, flush buffers, and wait for a new packet from the
+ *   Host.
+ *
+ * RPC messages are structured as:
+ *
+ *    header[magic(u32), version(u32), sequence(u64), command (u8)] | data | crc
+ *
+ * with values being encoded as a series of little-endian bytes. The fields are:
+ *
+ *	magic		A fixed magic number (IPCC_MAGIC).
+ *	version		Protocol version number.
+ *	sequence	An sequence number which increments for each Host->SP
+ *			message. The SP uses the value from a request when
+ *			responding, but also sets the top bit.
+ *	command		Requested action (for requests) or a response code
+ *			(for replies).
+ *	data		0 or more data bytes associated with the command.
+ *	crc		A Fletcher-16 checksum calculated over the entire
+ *			message up to the end of 'data'.
+ *
+ * Messages are transformed into frames suitable for sending over the channel
+ * using Consistent Overhead Byte Stuffing (COBS) which removes all zero
+ * bytes, allowing the frames to be unambiguously delimited with a zero byte.
+ *
+ * Consumers of this interface call one of the entry points (defined in
+ * sys/ipcc_impl.h) and provide a set of callbacks as an ipcc_ops_t. In the
+ * list below, mandatory callbacks are suffixed with a (*), others may be
+ * left as NULL.
+ *
+ *	io_pause	Implement a short delay, of the order of 10us.
+ *	io_flush	As far as is possible, flush the buffers of the
+ *			communications channel. This should as a minimum
+ *			discard any data queued in any inbound or outbound
+ *			buffer, although the SP may still have data to
+ *			transmit and will do so once the CTS signal is
+ *			re-asserted.
+ *	io_pollread	Return true if there is any data ready to be read from
+ *			the channel, false otherwise.
+ *	io_pollwrite	Return true if there is space to send data to the
+ *			channel, false otherwise.
+ *	io_read(*)	Read data from the channel.
+ *	io_write(*)	Send data to the channel.
+ *	io_log		Receive a log message.
+ *	io_read_intr	Return true/false depending on whether the SP is
+ *			currently asserting the SP->Host out-of-band interrupt
+ *			signal.
+ *	io_set_intr	Set the Host->SP out-of-band interrupt signal state.
  */
 
 #include <sys/byteorder.h>
@@ -39,8 +110,9 @@ static ipcc_panic_data_t ipcc_panic_buf;
 static kmutex_t ipcc_mutex;
 
 /*
- * This indicates that we are far enough through boot that it's safe
- * to use mutex_enter/exit and things such as timers.
+ * As well as indicating that we should expect to be called from multiple
+ * threads, this also means that we are far enough through boot that genunix
+ * is loaded and functions like mutex_enter/exit are available.
  */
 static bool ipcc_multithreaded;
 
@@ -52,7 +124,7 @@ ipcc_begin_multithreaded(void)
 {
 	VERIFY(!ipcc_multithreaded);
 	mutex_init(&ipcc_mutex, NULL, MUTEX_DEFAULT, NULL);
-	ipcc_multithreaded = 1;
+	ipcc_multithreaded = true;
 }
 
 static uint16_t
@@ -150,21 +222,21 @@ ipcc_failure_str(uint8_t reason)
 {
 	switch (reason) {
 	case IPCC_DECODEFAIL_COBS:
-		return "COBS";
+		return ("COBS");
 	case IPCC_DECODEFAIL_CRC:
-		return "CRC";
+		return ("CRC");
 	case IPCC_DECODEFAIL_DESERIALIZE:
-		return "DESERIALIZE";
+		return ("DESERIALIZE");
 	case IPCC_DECODEFAIL_MAGIC:
-		return "MAGIC";
+		return ("MAGIC");
 	case IPCC_DECODEFAIL_VERSION:
-		return "VERSION";
+		return ("VERSION");
 	case IPCC_DECODEFAIL_SEQUENCE:
-		return "SEQUENCE";
+		return ("SEQUENCE");
 	case IPCC_DECODEFAIL_DATALEN:
-		return "DATALEN";
+		return ("DATALEN");
 	default:
-		return "UNKNOWN";
+		return ("UNKNOWN");
 	}
 }
 
@@ -213,7 +285,6 @@ ipcc_pkt_send(uint8_t *pkt, size_t len, const ipcc_ops_t *ops, void *arg)
 	while (len > 0) {
 		ssize_t n;
 
-		/* XXX - implement some kind of timeout? */
 		if (ops->io_pollwrite != NULL) {
 			while (!ops->io_pollwrite(arg))
 				;
@@ -240,10 +311,17 @@ ipcc_pkt_recv(uint8_t *pkt, size_t len, uint8_t **endp,
 	do {
 		ssize_t n;
 
-		/* XXX - implement some kind of timeout? */
 		if (ops->io_pollread != NULL) {
-			while (!ops->io_pollread(arg))
-				;
+			uint32_t loops = 0;
+			uint8_t ka = 0;
+
+			while (!ops->io_pollread(arg)) {
+				ops->io_pause(arg);
+				if (++loops > 100000) {
+					loops = 0;
+					(void) ops->io_write(arg, &ka, 1);
+				}
+			}
 		}
 
 		if ((n = ops->io_read(arg, pkt, 1)) < 0)
@@ -273,7 +351,7 @@ ipcc_loghex(const char *tag, const uint8_t *buf, size_t bufl,
 	char obuf[bufl * 3 + 1];
 	uint_t oi = 0;
 
-	/* In early boot we do not have the likes of snprintf() */
+	/* In early boot we do not have many string functions */
 	for (uint_t i = 0; i < bufl; i++) {
 		obuf[oi++] = IPCC_HEXCH(buf[i] >> 4);
 		obuf[oi++] = IPCC_HEXCH(buf[i] & 0xf);
@@ -313,8 +391,8 @@ resend:
 		return (ETIMEDOUT);
 	}
 
-	LOG("\n-----------> Sending command 0x%x, attempt %u/%u", cmd, attempt,
-	    IPCC_MAX_ATTEMPTS);
+	LOG("\n-----------> Sending IPCC command 0x%x, attempt %u/%u",
+	    cmd, attempt, IPCC_MAX_ATTEMPTS);
 
 	off = 0;
 	err = ipcc_msg_init(ipcc_msg, sizeof (ipcc_msg), &off, cmd);
@@ -361,8 +439,8 @@ reread:
 	}
 
 	if (end == ipcc_pkt) {
-		LOG("Received frame terminator with no data");
-		goto resend;
+		LOG("Received empty frame");
+		goto reread;
 	}
 
 	/* Decode the frame */
@@ -677,23 +755,20 @@ ipcc_panic_field(ipcc_panic_field_t type, uint64_t val)
 	case IPF_ERROR:
 		ipcc_panic_buf.ip_error = val & 0xffff;
 		break;
-	case IPF_INSTR_PTR:
-		ipcc_panic_buf.ip_instr_ptr = val;
+	case IPF_CPU:
+		ipcc_panic_buf.ip_cpuid = val & 0xffffffff;
 		break;
-	case IPF_CODE_SEG:
-		ipcc_panic_buf.ip_code_seg = val & 0xffff;
+	case IPF_THREAD:
+		ipcc_panic_buf.ip_thread = val;
 		break;
-	case IPF_FLAGS_REG:
-		ipcc_panic_buf.ip_flags_reg = val;
+	case IPF_ADDR:
+		ipcc_panic_buf.ip_addr = val;
 		break;
-	case IPF_STACK_PTR:
-		ipcc_panic_buf.ip_stack_ptr = val;
+	case IPF_PC:
+		ipcc_panic_buf.ip_pc = val;
 		break;
-	case IPF_STACK_SEG:
-		ipcc_panic_buf.ip_stack_seg = val & 0xffff;
-		break;
-	case IPF_CR2:
-		ipcc_panic_buf.ip_cr2 = val;
+	case IPF_FP:
+		ipcc_panic_buf.ip_fp = val;
 		break;
 	}
 }
@@ -706,16 +781,28 @@ ipcc_panic_vmessage(const char *fmt, va_list ap)
 }
 
 void
-ipcc_panic_stack(uint64_t addr, const char *sym)
+ipcc_panic_message(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	ipcc_panic_vmessage(fmt, ap);
+	va_end(ap);
+}
+
+void
+ipcc_panic_stack(uintptr_t addr, const char *sym, off_t off)
 {
 
 	if (ipcc_panic_buf.ip_stackidx >= IPCC_PANIC_STACKS)
 		return;
-	ipcc_panic_buf.ip_stack[ipcc_panic_buf.ip_stackidx].ips_offset = addr;
+	ipcc_panic_buf.ip_stack[ipcc_panic_buf.ip_stackidx].ips_addr = addr;
 	if (sym != NULL) {
 		bcopy((char *)sym,
 		    ipcc_panic_buf.ip_stack[ipcc_panic_buf.ip_stackidx]
 		    .ips_symbol, MIN(IPCC_PANIC_SYMLEN, strlen(sym)));
+		ipcc_panic_buf.ip_stack[ipcc_panic_buf.ip_stackidx].
+		    ips_offset = off;
 	}
 	ipcc_panic_buf.ip_stackidx++;
 }
@@ -749,8 +836,7 @@ ipcc_panic_data(const char *fmt, ...)
 }
 
 /*
-ipcc_alert(const ipcc_ops_t *ops, void *arg,
-ipcc_measurements(const ipcc_ops_t *ops, void *arg,
-ipcc_imageblock(const ipcc_ops_t *ops, void *arg,
-*/
-
+ * ipcc_alert(const ipcc_ops_t *ops, void *arg,
+ * ipcc_measurements(const ipcc_ops_t *ops, void *arg,
+ * ipcc_imageblock(const ipcc_ops_t *ops, void *arg,
+ */

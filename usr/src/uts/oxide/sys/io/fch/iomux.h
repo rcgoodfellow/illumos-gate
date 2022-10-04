@@ -53,6 +53,51 @@ MAKE_MMIO_FCH_REG_FN(IOMUX, iomux, 1);
  * functions/signals that correspond to the values are different for each one.
  */
 
+#define	FCH_IOMUX_REGOFF_IOMUX140_GPIO	0x8c
+#define	FCH_IOMUX_REGOFF_IOMUX141_GPIO	0x8d
+#define	FCH_IOMUX_REGOFF_IOMUX142_GPIO	0x8e
+#define	FCH_IOMUX_REGOFF_IOMUX143_GPIO	0x8f
+
+/*CSTYLED*/
+#define	D_FCH_IOMUX_IOMUX140_GPIO	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_IOMUX,	\
+	.srd_reg = FCH_IOMUX_REGOFF_IOMUX140_GPIO	\
+}
+#define	FCH_IOMUX_IOMUX140_GPIO_MMIO(b)	\
+	fch_iomux_mmio_reg((b), D_FCH_IOMUX_IOMUX140_GPIO, 0)
+
+#define	FCH_IOMUX_IOMUX140_GPIO_UART1_CTS_L	0
+
+/*CSTYLED*/
+#define	D_FCH_IOMUX_IOMUX141_GPIO	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_IOMUX,	\
+	.srd_reg = FCH_IOMUX_REGOFF_IOMUX141_GPIO	\
+}
+#define	FCH_IOMUX_IOMUX141_GPIO_MMIO(b)	\
+	fch_iomux_mmio_reg((b), D_FCH_IOMUX_IOMUX141_GPIO, 0)
+
+#define	FCH_IOMUX_IOMUX141_GPIO_UART1_RXD	0
+
+/*CSTYLED*/
+#define	D_FCH_IOMUX_IOMUX142_GPIO	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_IOMUX,	\
+	.srd_reg = FCH_IOMUX_REGOFF_IOMUX142_GPIO	\
+}
+#define	FCH_IOMUX_IOMUX142_GPIO_MMIO(b)	\
+	fch_iomux_mmio_reg((b), D_FCH_IOMUX_IOMUX142_GPIO, 0)
+
+#define	FCH_IOMUX_IOMUX142_GPIO_UART1_RTS_L	0
+
+/*CSTYLED*/
+#define	D_FCH_IOMUX_IOMUX143_GPIO	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_IOMUX,	\
+	.srd_reg = FCH_IOMUX_REGOFF_IOMUX143_GPIO	\
+}
+#define	FCH_IOMUX_IOMUX143_GPIO_MMIO(b)	\
+	fch_iomux_mmio_reg((b), D_FCH_IOMUX_IOMUX143_GPIO, 0)
+
+#define	FCH_IOMUX_IOMUX143_GPIO_UART1_TXD	0
+
 #endif	/* !_ASM */
 
 #ifdef __cplusplus

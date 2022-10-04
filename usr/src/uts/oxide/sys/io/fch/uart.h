@@ -225,26 +225,51 @@ songhan_dma_mmio_block(const uint8_t unit)
 
 MAKE_MMIO_FCH_REG_FN(UART, uart, 4);
 
-#define	FCH_UART_REGOFF_THR	0x00
+#define	FCH_UART_REGOFF_DLL	0x00
 #define	FCH_UART_REGOFF_RBR	0x00
+#define	FCH_UART_REGOFF_THR	0x00
+#define	FCH_UART_REGOFF_DLH	0x04
+#define	FCH_UART_REGOFF_IER	0x04
+#define	FCH_UART_REGOFF_FCR	0x08
+#define	FCH_UART_REGOFF_IIR	0x08
+#define	FCH_UART_REGOFF_LCR	0x0C
+#define	FCH_UART_REGOFF_MCR	0x10
 #define	FCH_UART_REGOFF_LSR	0x14
+#define	FCH_UART_REGOFF_MSR	0x18
+#define	FCH_UART_REGOFF_SCR	0x1c
+#define	FCH_UART_REGOFF_FAR	0x70
 #define	FCH_UART_REGOFF_USR	0x7c
+#define	FCH_UART_REGOFF_TFL	0x80
+#define	FCH_UART_REGOFF_RFL	0x84
 #define	FCH_UART_REGOFF_SRR	0x88
+#define	FCH_UART_REGOFF_SRTS	0x8C
+#define	FCH_UART_REGOFF_SBCR	0x90
+#define	FCH_UART_REGOFF_SDMAM	0x94
+#define	FCH_UART_REGOFF_SFE	0x98
+#define	FCH_UART_REGOFF_SRT	0x9C
+#define	FCH_UART_REGOFF_STET	0xA0
+#define	FCH_UART_REGOFF_CPR	0xF4
+#define	FCH_UART_REGOFF_UCV	0xF8
+#define	FCH_UART_REGOFF_CTR	0xFC
 
 /*
- * FCH::UART::THR.  Transmit a byte (or add to FIFO).
+ * FCH::UART::DLL.  Divisor latch low.
  */
-#define	D_FCH_UART_THR	(const smn_reg_def_t){	\
+
+/*CSTYLED*/
+#define	D_FCH_UART_DLL	(const smn_reg_def_t){	\
 	.srd_unit = SMN_UNIT_FCH_UART,	\
-	.srd_reg = FCH_UART_REGOFF_THR,	\
+	.srd_reg = FCH_UART_REGOFF_DLL,	\
 	.srd_size = 1			\
 }
-#define	FCH_UART_THR_MMIO(b)	\
-	fch_uart_mmio_reg((b), D_FCH_UART_THR, 0)
+#define	FCH_UART_DLL_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_DLL, 0)
 
 /*
- * FCH::UART::RBR.  Read a byte.
+ * FCH::UART::RBR.  Receive buffer register.
  */
+
+/*CSTYLED*/
 #define	D_FCH_UART_RBR	(const smn_reg_def_t){	\
 	.srd_unit = SMN_UNIT_FCH_UART,	\
 	.srd_reg = FCH_UART_REGOFF_RBR,	\
@@ -254,8 +279,101 @@ MAKE_MMIO_FCH_REG_FN(UART, uart, 4);
 	fch_uart_mmio_reg((b), D_FCH_UART_RBR, 0)
 
 /*
- * FCH::UART::LSR.  Various status bits.
+ * FCH::UART::THR.  Transmit hold register.
  */
+
+/*CSTYLED*/
+#define	D_FCH_UART_THR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_THR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_THR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_THR, 0)
+
+/*
+ * FCH::UART::DLH.  Divisor latch high.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_DLH	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_DLH,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_DLH_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_DLH, 0)
+
+/*
+ * FCH::UART::IER.  Interrupt enable register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_XXX	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_XXX,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_XXX_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_XXX, 0)
+
+/*
+ * FCH::UART::FCR.  FIFO control register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_FCR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_FCR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_FCR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_FCR, 0)
+
+/*
+ * FCH::UART::IIR.  Interrupt ID register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_IIR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_IIR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_IIR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_IIR, 0)
+
+/*
+ * FCH::UART::LCR.  Line control register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_LCR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_LCR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_LCR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_LCR, 0)
+
+/*
+ * FCH::UART::MCR.  Modem control register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_MCR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_MCR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_MCR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_MCR, 0)
+
+/*
+ * FCH::UART::LSR.  Line status register.
+ */
+
+/*CSTYLED*/
 #define	D_FCH_UART_LSR	(const smn_reg_def_t){	\
 	.srd_unit = SMN_UNIT_FCH_UART,	\
 	.srd_reg = FCH_UART_REGOFF_LSR,	\
@@ -267,8 +385,48 @@ MAKE_MMIO_FCH_REG_FN(UART, uart, 4);
 #define	FCH_UART_LSR_GET_DR(r)	bitx8(r, 0, 0)
 
 /*
- * FCH::UART::USR.  More status bits.
+ * FCH::UART::MSR.  Modem status register.
  */
+
+/*CSTYLED*/
+#define	D_FCH_UART_MSR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_MSR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_MSR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_MSR, 0)
+
+/*
+ * FCH::UART::SCR.  Scratch register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_SCR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SCR,	\
+	.srd_size = 1			\
+}
+#define	FCH_UART_SCR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SCR, 0)
+
+/*
+ * FCH::UART::FAR.  FIFO access register.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_FAR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_FAR	\
+}
+#define	FCH_UART_FAR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_FAR, 0)
+
+/*
+ * FCH::UART::USR.  UART status register.
+ */
+
+/*CSTYLED*/
 #define	D_FCH_UART_USR	(const smn_reg_def_t){	\
 	.srd_unit = SMN_UNIT_FCH_UART,	\
 	.srd_reg = FCH_UART_REGOFF_USR	\
@@ -282,9 +440,34 @@ MAKE_MMIO_FCH_REG_FN(UART, uart, 4);
 #define	FCH_UART_USR_GET_TFNF(r)	bitx32(r, 1, 1)
 
 /*
- * FCH::UART::SRR.  Shadow register for controlling the FIFO and UART reset
- * bits in FCH::UART::FCR.
+ * FCH::UART::TFL.  Transmit FIFO level.
  */
+
+/*CSTYLED*/
+#define	D_FCH_UART_TFL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_TFL	\
+}
+#define	FCH_UART_TFL_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_TFL, 0)
+
+/*
+ * FCH::UART::RFL.  Receive FIFO level.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_RFL	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_RFL	\
+}
+#define	FCH_UART_RFL_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_RFL, 0)
+
+/*
+ * FCH::UART::SRR.  Shadow reset register.
+ */
+
+/*CSTYLED*/
 #define	D_FCH_UART_SRR	(const smn_reg_def_t){	\
 	.srd_unit = SMN_UNIT_FCH_UART,	\
 	.srd_reg = FCH_UART_REGOFF_SRR	\
@@ -295,6 +478,114 @@ MAKE_MMIO_FCH_REG_FN(UART, uart, 4);
 #define	FCH_UART_SRR_SET_XFR(r, v)	bitset32(r, 2, 2, v)
 #define	FCH_UART_SRR_SET_RFR(r, v)	bitset32(r, 1, 1, v)
 #define	FCH_UART_SRR_SET_UR(r, v)	bitset32(r, 0, 0, v)
+
+/*
+ * FCH::UART::SRTS.  Shadow request to send.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_SRTS	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SRTS	\
+}
+#define	FCH_UART_SRTS_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SRTS, 0)
+
+/*
+ * FCH::UART::SBCR.  Shadow break control bit.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_SBCR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SBCR	\
+}
+#define	FCH_UART_SBCR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SBCR, 0)
+
+/*
+ * FCH::UART::SDMAM.  Shadow DMA mode.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_SDMAM	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SDMAM,\
+}
+#define	FCH_UART_SDMAM_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SDMAM, 0)
+
+/*
+ * FCH::UART::SFE.  Shadow FIFO enable.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_SFE	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SFE	\
+}
+#define	FCH_UART_SFE_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SFE, 0)
+
+/*
+ * FCH::UART::SRT.  Shadow RCVR trigger.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_SRT	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_SRT	\
+}
+#define	FCH_UART_SRT_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_SRT, 0)
+
+/*
+ * FCH::UART::STET.  Shadow TX empty trigger.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_STET	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_STET	\
+}
+#define	FCH_UART_STET_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_STET, 0)
+
+/*
+ * FCH::UART::CPR
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_CPR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_CPR	\
+}
+#define	FCH_UART_CPR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_CPR, 0)
+
+/*
+ * FCH::UART::UCV.  UART component version.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_UCV	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_UCV	\
+}
+#define	FCH_UART_UCV_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_UCV, 0)
+
+/*
+ * FCH::UART::CTR.  Peripheral's identification code.
+ */
+
+/*CSTYLED*/
+#define	D_FCH_UART_CTR	(const smn_reg_def_t){	\
+	.srd_unit = SMN_UNIT_FCH_UART,	\
+	.srd_reg = FCH_UART_REGOFF_CTR	\
+}
+#define	FCH_UART_CTR_MMIO(b)	\
+	fch_uart_mmio_reg((b), D_FCH_UART_CTR, 0)
 
 #endif	/* !_ASM */
 

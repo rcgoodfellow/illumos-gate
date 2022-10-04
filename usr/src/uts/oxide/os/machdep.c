@@ -404,7 +404,7 @@ reset(void)
 	extern void eb_halt(void) __NORETURN;
 	eb_halt();
 
-	//pc_reset();
+	/* XXX pc_reset(); */
 	/*NOTREACHED*/
 }
 
@@ -865,6 +865,35 @@ panic_dump_hw(int spl)
 void *
 plat_traceback(void *fpreg)
 {
+	struct frame *fp;
+	uintptr_t pc;
+
+	if (panicstr != NULL)
+		ipcc_panic_message("%s", panicstr);
+
+	if ((uintptr_t)fpreg < KERNELBASE)
+		return (fpreg);
+
+	fp = (struct frame *)fpreg;
+	pc = fp->fr_savpc;
+	fp = (struct frame *)fp->fr_savfp;
+
+	ipcc_panic_field(IPF_CPU, panic_cpu.cpu_id);
+	ipcc_panic_field(IPF_THREAD, (uintptr_t)panic_thread);
+	ipcc_panic_field(IPF_PC, pc);
+	ipcc_panic_field(IPF_FP, (uintptr_t)fp);
+
+	while ((uintptr_t)fp >= KERNELBASE) {
+		ulong_t off;
+		char *sym;
+
+		sym = kobj_getsymname(pc, &off);
+		ipcc_panic_stack(pc, sym, off);
+
+		pc = fp->fr_savpc;
+		fp = (struct frame *)fp->fr_savfp;
+	}
+
 	return (fpreg);
 }
 
