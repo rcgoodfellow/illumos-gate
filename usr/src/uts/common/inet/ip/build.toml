@@ -116,4 +116,6 @@ src = [
     "conn_opt.c",
     "ip_attr.c",
     "ip_dce.c",
+    # ddm
+    "ddm.c",
 ]
