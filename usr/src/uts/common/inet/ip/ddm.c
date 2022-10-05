@@ -163,31 +163,66 @@ ddm_send_ack(mblk_t *mp, ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 	ixa_cleanup(&ixa);
 }
 
-void
+mblk_t *
 ddm_output(mblk_t *mp, ip6_t *ip6h)
 {
-	mblk_t *ddm_mp = allocb(sizeof (ddm_t) + sizeof (ddm_element), BPRI_HI);
-	if (!ddm_mp) {
+	ASSERT(mp);
+	ASSERT(ip6h);
+
+	mblk_t *mp1 = allocb(
+	    sizeof (ip6_t) +
+	    sizeof (ddm_t) +
+	    sizeof (ddm_element),
+	    BPRI_HI);
+
+	if (!mp1) {
 		DTRACE_PROBE(ddm__output__allocb__failed);
-		return;
+		return (mp);
 	}
 
-	ddm_t *ddh = (ddm_t *)ddm_mp->b_wptr;
+	/*
+	 * get pointers to header elements in the new message block
+	 */
+
+	ip6_t *v6 = (ip6_t *)mp1->b_rptr;
+	ddm_t *ddh = (ddm_t *)&v6[1];
+	ddm_element *dde = (ddm_element*)&ddh[1];
+
+	/*
+	 * fill in the ddm header
+	 */
 	ddh->ddm_next_header = ip6h->ip6_nxt;
 	/* ddh header + 1 element minus leading 8 bits (RFC 6564) */
 	ddh->ddm_length = 7;
 	ddh->ddm_version = 1;
-	ddm_element *dde = (ddm_element*)&ddh[1];
+
+	/*
+	 * fill in the ddm element
+	 */
+
+	/* TODO set node id */
 	/* Set node timestamp as the high 24 bits. */
 	*dde = ((uint32_t)(gethrtime() % MAX_TS) << 8);
-	/* TODO set node id */
-	ip6h->ip6_nxt = 0xdd;
-	ddm_mp->b_wptr = (unsigned char *)&dde[1];
 
-	ddm_mp->b_next = mp->b_next;
-	mp->b_next = ddm_mp;
-	ddm_mp->b_prev = mp;
-	ddm_mp->b_next->b_prev = ddm_mp;
+	/*
+	 * update the ipv6 header and copy into new msg block
+	 */
+	ip6h->ip6_plen += htons(ntohs(ip6h->ip6_plen) + 8);
+	ip6h->ip6_nxt = 0xdd;
+	*v6 = *ip6h;
+
+	/*
+	 * set write pointer to just after the ddm element, set the original
+	 * message block as a continuation of the new one containing the ddm
+	 * header and update the read pointer of the original messge block to
+	 * move past the ipv6 header that now resides in the new message block
+	 */
+	mp1->b_wptr = (unsigned char *)&dde[1];
+	mp1->b_cont = mp;
+	mp->b_rptr += sizeof (ip6_t);
+
+	/* return the new message block to the caller */
+	return (mp1);
 }
 
 void

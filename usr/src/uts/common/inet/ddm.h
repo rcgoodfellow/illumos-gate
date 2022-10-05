@@ -149,7 +149,7 @@ void ddm_input(mblk_t *mp_chain, ip6_t *ip6h, ip_recv_attr_t *ira);
  * insert a ddm header into the message block mp containing the ipv6 header
  * ip6h.
  */
-void ddm_output(mblk_t *mp, ip6_t *ip6h);
+mblk_t *ddm_output(mblk_t *mp, ip6_t *ip6h);
 
 /*
  * Extract node id from an ddm element.

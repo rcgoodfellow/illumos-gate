@@ -332,7 +332,9 @@ repeat_ire:
 		// next header may be ddm already if we are emitting a ddm-ack.
 		if (ill->ill_ipif->ipif_flags & IFF_DDM &&
 		    ip6h->ip6_nxt != 0xdd) {
-			ddm_output(mp, ip6h);
+			ixa->ixa_pktlen += 8;
+			ixa->ixa_protocol = 0xdd;
+			mp = ddm_output(mp, ip6h);
 		}
 	} else {
 		BUMP_MIB(&ipst->ips_ip_mib, ipIfStatsHCOutRequests);
