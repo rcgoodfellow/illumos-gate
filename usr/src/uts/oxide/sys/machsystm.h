@@ -201,6 +201,11 @@ extern void pcie_cfgspace_remap(void);
 extern void *device_arena_alloc(size_t, int);
 extern void device_arena_free(void *, size_t);
 
+/*
+ * Miscellaneous.
+ */
+extern void system_halt(void) __NORETURN;
+
 #endif /* _KERNEL */
 
 #ifdef __cplusplus

@@ -186,11 +186,9 @@ static const uint8_t stac_instr[3] = { 0x0f, 0x01, 0xcb };
 void
 mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 {
-#if 0
 	static int is_first_quiesce = 1;
 	static int is_first_reset = 1;
 	int reset_status = 0;
-#endif
 
 	if (fcn == AD_FASTREBOOT)
 		fcn = AD_BOOT;
@@ -219,16 +217,6 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	if (!(fcn == AD_HALT || fcn == AD_POWEROFF))
 		prom_printf("rebooting...\n");
 
-	if (IN_XPV_PANIC())
-		reset();
-
-
-	/*
-	 * We can't bring up the console from above lock level, so do it now
-	 */
-	pm_cfb_check_and_powerup();
-
-
 	/* make sure there are no more changes to the device tree */
 	devtree_freeze();
 
@@ -254,8 +242,6 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 		mutex_exit(&cpu_lock);
 	}
 
-	/* XXX how much of this do we need for Oxide? */
-#if 0
 	/*
 	 * Try to quiesce devices.
 	 */
@@ -286,13 +272,9 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 		is_first_reset = 0;
 		reset_leaves();
 	}
-#endif
 
-
-	/* After spl8(), ipcc hangs */
+	/* XXXBOOT - do we need this? */
 #if 0
-	/* XXX - ipcc - TBD */
-	prom_printf("spl8...\n");
 	(void) spl8();
 
 	prom_printf("psm shutdown...\n");
@@ -304,9 +286,7 @@ mdboot(int cmd, int fcn, char *mdep, boolean_t invoke_cb)
 	else
 		kernel_ipcc_reboot();
 
-	/* XXX */
-	extern void eb_halt(void) __NORETURN;
-	eb_halt();
+	system_halt();
 
 	/*NOTREACHED*/
 }
@@ -383,8 +363,6 @@ void
 reset(void)
 {
 	/*
-	 * XXX Fix me:
-	 *
 	 * We need to ask the SP to reset us here.  There are two ways that
 	 * can be done, depending on how far up we are (plus a third where we
 	 * can do nothing at all).  If we're still in earlyboot such that the
@@ -393,18 +371,10 @@ reset(void)
 	 * path.  The last possibility is that we're so early that we haven't
 	 * yet found the SP, or we couldn't; in that case there is nothing we
 	 * can do but stop and scream.
-	 *
-	 * For now this uses i86pc-specific code living in usr/src/uts/intel
-	 * that doesn't work at all on this machine.
 	 */
 
-	/* XXX IPCC */
 	kernel_ipcc_reboot();
-
-	extern void eb_halt(void) __NORETURN;
-	eb_halt();
-
-	/* XXX pc_reset(); */
+	system_halt();
 	/*NOTREACHED*/
 }
 
@@ -417,9 +387,6 @@ halt(char *s)
 	stop_other_cpus();	/* send stop signal to other CPUs */
 	if (s)
 		prom_printf("(%s) \n", s);
-
-	/* XXX IPCC */
-	kernel_ipcc_poweroff();
 
 	prom_exit_to_mon();
 	/*NOTREACHED*/
@@ -804,16 +771,10 @@ panic_stopcpus(cpu_t *cp, kthread_t *t, int spl)
 	processorid_t i;
 	cpuset_t xcset;
 
-	/*
-	 * In the case of a Xen panic, the hypervisor has already stopped
-	 * all of the CPUs.
-	 */
-	if (!IN_XPV_PANIC()) {
-		(void) splzs();
+	(void) splzs();
 
-		CPUSET_ALL_BUT(xcset, cp->cpu_id);
-		xc_priority(0, 0, 0, CPUSET2BV(xcset), (xc_func_t)panic_idle);
-	}
+	CPUSET_ALL_BUT(xcset, cp->cpu_id);
+	xc_priority(0, 0, 0, CPUSET2BV(xcset), (xc_func_t)panic_idle);
 
 	for (i = 0; i < NCPU; i++) {
 		if (i != cp->cpu_id && cpu[i] != NULL &&

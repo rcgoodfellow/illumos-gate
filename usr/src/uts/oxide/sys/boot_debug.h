@@ -24,6 +24,7 @@
 
 #include <sys/types.h>
 #include <sys/bootconf.h>
+#include <sys/machsystm.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,7 +47,7 @@ extern void kbm_debug_printf(const char *, int, const char *, ...)
 #define	eb_vprintf(_fmt, _ap)		\
 	vbop_printf(NULL, _fmt, _ap)
 
-extern void eb_halt(void) __NORETURN;
+#define	eb_halt() system_halt()
 
 #ifdef __cplusplus
 }

@@ -711,8 +711,8 @@ freq_tsc_end:
 	ret
 	SET_SIZE(freq_tsc_pit)
 
-	ENTRY_NP(eb_halt)
+	ENTRY_NP(system_halt)
 1:
 	hlt
 	jmp	1b
-	SET_SIZE(eb_halt)
+	SET_SIZE(system_halt)
