@@ -130,7 +130,7 @@ extern "C" {
 #define	IPIF_PREFERRED		IFF_PREFERRED	/* Prefer as source address */
 #define	IPIF_TEMPORARY		IFF_TEMPORARY	/* RFC3041 */
 #define	IPIF_DUPLICATE		IFF_DUPLICATE	/* address is in use */
-#define IPIF_DDM		IFF_DDM		/* delay driven multipath */
+#define	IPIF_DDM		IFF_DDM		/* delay driven multipath */
 
 #ifdef DEBUG
 #define	ILL_MAC_PERIM_HELD(ill)	ill_mac_perim_held(ill)
