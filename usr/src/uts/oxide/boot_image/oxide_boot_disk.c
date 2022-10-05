@@ -161,7 +161,7 @@ oxide_boot_disk(oxide_boot_t *oxb)
 
 	if (jfm.jfm_physpath[0] == '\0') {
 		printf("did not find any M.2 devices!\n");
-		return (-1);
+		return (false);
 	}
 
 	printf("found M.2 device @ %s\n", jfm.jfm_physpath);
@@ -173,7 +173,7 @@ oxide_boot_disk(oxide_boot_t *oxb)
 	if (snprintf(fp, sizeof (fp), "/devices%s", jfm.jfm_physpath) >=
 	    sizeof (fp)) {
 		printf("path construction failure!\n");
-		return (-1);
+		return (false);
 	}
 
 	printf("opening M.2 device\n");
