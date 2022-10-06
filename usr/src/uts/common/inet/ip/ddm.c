@@ -32,9 +32,12 @@
 #define	MAX_TS (1<<24)
 
 static void
-ddm_send_ack(mblk_t *mp, ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira);
+ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira);
 
-void
+static mblk_t *
+ddm_remove_header(mblk_t *mp, ip_recv_attr_t *ira);
+
+mblk_t *
 ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 {
 	/*
@@ -69,7 +72,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 
 	if (!data) {
 		DTRACE_PROBE(ddm__input__no__elements);
-		return;
+		return (ddm_remove_header(mp, ira));
 	}
 	ddm_t *ddh = (ddm_t *)&mp->b_rptr[ira->ira_pktlen];
 
@@ -78,8 +81,8 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 * send out an ack and return
 	 */
 	if (!ddm_is_ack(ddh)) {
-		ddm_send_ack(mp, ip6h, ddh, ira);
-		return;
+		ddm_send_ack(ip6h, ddh, ira);
+		return (ddm_remove_header(mp, ira));
 	}
 
 	/*
@@ -96,7 +99,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 		DTRACE_PROBE1(ddm__input__bad__ack__len,
 		    uint8_t, ddh->ddm_length);
 
-		return;
+		return (ddm_remove_header(mp, ira));
 	}
 
 	/*
@@ -122,10 +125,12 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 
 	ira->ira_pktlen += sizeof (ddm_t) + sizeof (ddm_element);
 	ira->ira_protocol = ddh->ddm_next_header;
+
+	return (ddm_remove_header(mp, ira));
 }
 
 static void
-ddm_send_ack(mblk_t *mp, ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
+ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 {
 	/* allocate and link up message blocks */
 	mblk_t *ip6_mp = allocb(sizeof (ip6_t), BPRI_HI);
@@ -261,4 +266,47 @@ ddm_update(
 	/* update routing table entry delay measurement */
 	uint32_t now = ((uint32_t)(gethrtime() % MAX_TS) << 8);
 	ire->ire_delay = now - timestamp;
+}
+
+static mblk_t *
+ddm_remove_header(mblk_t *mp, ip_recv_attr_t *ira)
+{
+	/*
+	 * get pointers to the ipv6 header and the ddm header
+	 */
+	ip6_t *v6 = (ip6_t *)mp->b_rptr;
+	ddm_t *ddh = (ddm_t *)&v6[1];
+	uint8_t ddm_len = ddm_total_len(ddh);
+
+	/*
+	 * update ipv6 header fields
+	 */
+	v6->ip6_plen = htons(ntohs(v6->ip6_plen) - ddm_len);
+	v6->ip6_nxt = ddh->ddm_next_header;
+
+	/*
+	 * allocate a message block for the ipv6 header
+	 */
+	mblk_t *mp1 = allocb(sizeof (ip6_t), BPRI_HI);
+	if (!mp1) {
+		DTRACE_PROBE(ddm__remove__header__allocb__failed);
+		return (mp);
+	}
+
+	/*
+	 * copy the ipv6 header to the new message block and update the write
+	 * pointer
+	 */
+	*(ip6_t *)mp1->b_wptr = *v6;
+	mp1->b_wptr += sizeof (ip6_t);
+
+	/*
+	 * set the original message block as a continuation of the new one and
+	 * move the read poniter past the ipv6 and ddm headers.
+	 */
+	mp1->b_cont = mp;
+	mp->b_rptr += sizeof (ip6_t) + ddm_len;
+	ira->ira_pktlen -= ddm_len;
+
+	return (mp1);
 }

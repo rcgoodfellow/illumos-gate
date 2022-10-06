@@ -720,7 +720,7 @@ ill_input_short_v6(mblk_t *mp, void *iph_arg, void *nexthop_arg,
 	/* handle ddm packets */
 	if (ill->ill_ipif->ipif_flags & IFF_DDM &&
 	    ira->ira_protocol == 0xdd) {
-		ddm_input(mp, ip6h, ira);
+		mp = ddm_input(mp, ip6h, ira);
 	}
 
 	/*
