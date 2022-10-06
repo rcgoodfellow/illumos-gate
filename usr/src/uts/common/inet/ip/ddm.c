@@ -25,6 +25,7 @@
 
 #include <sys/zone.h>
 #include <inet/ddm.h>
+#include <inet/ip6.h>
 #include <inet/ip_ire.h>
 #include <netinet/ip6.h>
 
@@ -65,23 +66,26 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 * there must be at least one ddm element for us to do something
 	 * useful.
 	 */
-	char *data = ip_pullup(
+
+	ASSERT(IPH_HDR_VERSION(ip6h) == IPV6_VERSION);
+
+	ip6_t *ip6h_ = (ip6_t *)ip_pullup(
 	    mp,
-	    ira->ira_pktlen + sizeof (ddm_t) + sizeof (ddm_element),
+	    sizeof (ip6_t) + sizeof (ddm_t) + sizeof (ddm_element),
 	    ira);
 
-	if (!data) {
+	if (!ip6h_) {
 		DTRACE_PROBE(ddm__input__no__elements);
 		return (ddm_remove_header(mp, ira));
 	}
-	ddm_t *ddh = (ddm_t *)&mp->b_rptr[ira->ira_pktlen];
+	ddm_t *ddh = (ddm_t *)&ip6h_[1];
 
 	/*
 	 * if this is not an ack, there is no table update to be made so just
 	 * send out an ack and return
 	 */
 	if (!ddm_is_ack(ddh)) {
-		ddm_send_ack(ip6h, ddh, ira);
+		ddm_send_ack(ip6h_, ddh, ira);
 		return (ddm_remove_header(mp, ira));
 	}
 
@@ -114,7 +118,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	    ira->ira_pktlen + sizeof (ddm_t)];
 
 	ddm_update(
-	    ip6h,
+	    ip6h_,
 	    ira->ira_ill,
 	    ira->ira_rifindex,
 	    ddm_element_timestamp(dde));
@@ -135,13 +139,12 @@ ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 	/* allocate and link up message blocks */
 	mblk_t *ip6_mp = allocb(sizeof (ip6_t), BPRI_HI);
 	mblk_t *ddm_mp = allocb(ddm_total_len(ddh), BPRI_HI);
-	ip6_mp->b_next = ddm_mp;
-	ddm_mp->b_prev = ip6_mp;
+	ip6_mp->b_cont = ddm_mp;
 
 	/* create the ipv6 header */
 	ip6_t *ack_ip6 = (ip6_t *)ip6_mp->b_wptr;
 	ack_ip6->ip6_vcf = ip6h->ip6_vcf;
-	ack_ip6->ip6_plen = ddm_total_len(ddh);
+	ack_ip6->ip6_plen = htons(ddm_total_len(ddh));
 	ack_ip6->ip6_nxt = 0xdd;
 	ack_ip6->ip6_hlim = 64;
 	ip6_mp->b_wptr = (unsigned char *)&ack_ip6[1];

@@ -721,6 +721,7 @@ ill_input_short_v6(mblk_t *mp, void *iph_arg, void *nexthop_arg,
 	if (ill->ill_ipif->ipif_flags & IFF_DDM &&
 	    ira->ira_protocol == 0xdd) {
 		mp = ddm_input(mp, ip6h, ira);
+		ip6h = (ip6_t *)mp->b_rptr;
 	}
 
 	/*
