@@ -207,7 +207,7 @@ ddm_output(mblk_t *mp, ip6_t *ip6h)
 	/*
 	 * update the ipv6 header and copy into new msg block
 	 */
-	ip6h->ip6_plen += htons(ntohs(ip6h->ip6_plen) + 8);
+	ip6h->ip6_plen = htons(ntohs(ip6h->ip6_plen) + 8);
 	ip6h->ip6_nxt = 0xdd;
 	*v6 = *ip6h;
 
@@ -221,7 +221,7 @@ ddm_output(mblk_t *mp, ip6_t *ip6h)
 	mp1->b_cont = mp;
 	mp->b_rptr += sizeof (ip6_t);
 
-	ASSERT(msgdsize(mp1) == ntohs(ip6h->ip6_plen) + sizeof (ip6_t));
+	ASSERT3U(msgdsize(mp1), ==, ntohs(ip6h->ip6_plen) + sizeof (ip6_t));
 
 	/* return the new message block to the caller */
 	return (mp1);
