@@ -111,6 +111,15 @@ ddm_is_ack(ddm_t *ddh)
 	return ((ddh->ddm_reserved & 1) != 0);
 }
 
+/*
+ * set the ddm header acknowledgement bit
+ */
+inline void
+ddm_set_ack(ddm_t *ddh)
+{
+	ddh->ddm_reserved |= 1;
+}
+
 inline uint16_t
 ddm_total_len(ddm_t *ddh)
 {

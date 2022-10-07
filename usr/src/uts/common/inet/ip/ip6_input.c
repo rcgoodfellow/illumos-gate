@@ -2007,7 +2007,7 @@ ip_fanout_v6(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	ipsec_stack_t	*ipss = ns->netstack_ipsec;
 	ill_t		*rill = ira->ira_rill;
 
-	ASSERT(ira->ira_pktlen == ntohs(ip6h->ip6_plen) + IPV6_HDR_LEN);
+	ASSERT3U(ira->ira_pktlen, ==, ntohs(ip6h->ip6_plen) + IPV6_HDR_LEN);
 
 	/*
 	 * We repeat this as we parse over destination options header and

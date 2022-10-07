@@ -136,6 +136,14 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 static void
 ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 {
+	/*
+	 * bail on multcast packets, need to determine what a good source
+	 * address for these is
+	 */
+	if (IN6_IS_ADDR_MULTICAST(&ip6h->ip6_dst)) {
+		return;
+	}
+
 	/* allocate and link up message blocks */
 	mblk_t *ip6_mp = allocb(sizeof (ip6_t), BPRI_HI);
 	mblk_t *ddm_mp = allocb(ddm_total_len(ddh), BPRI_HI);
@@ -147,11 +155,15 @@ ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 	ack_ip6->ip6_plen = htons(ddm_total_len(ddh));
 	ack_ip6->ip6_nxt = 0xdd;
 	ack_ip6->ip6_hlim = 64;
+	ack_ip6->ip6_src = ip6h->ip6_dst;
+	ack_ip6->ip6_dst = ip6h->ip6_src;
 	ip6_mp->b_wptr = (unsigned char *)&ack_ip6[1];
 
 	/* create the ddm extension header */
 	ddm_t *ack_ddh = (ddm_t *)ddm_mp->b_wptr;
 	*ack_ddh = *ddh;
+	ack_ddh->ddm_next_header = IPPROTO_NONE;
+	ddm_set_ack(ack_ddh);
 	/* add elements, an ack includes all the received elements */
 	ddm_element *src = (ddm_element*)&ddh[1];
 	ddm_element *dst = (ddm_element*)&ack_ddh[1];
@@ -203,6 +215,7 @@ ddm_output(mblk_t *mp, ip6_t *ip6h)
 	/* ddh header + 1 element minus leading 8 bits (RFC 6564) */
 	ddh->ddm_length = 7;
 	ddh->ddm_version = 1;
+	ddh->ddm_reserved = 0;
 
 	/*
 	 * fill in the ddm element
@@ -309,9 +322,19 @@ ddm_remove_header(mblk_t *mp, ip_recv_attr_t *ira)
 	 */
 	mp1->b_cont = mp;
 	mp->b_rptr += sizeof (ip6_t) + ddm_len;
-	ira->ira_pktlen -= ddm_len;
+
+	/*
+	 * TODO why does this not work, it's off by 8 .... only seems to happen
+	 * on ddm ACKs? ....
+	 *
+	 *   ira->ira_pktlen -= ddm_len;
+	 *
+	 */
+	ira->ira_pktlen = ntohs(v6->ip6_plen) + IPV6_HDR_LEN;
 	ira->ira_protocol = ddh->ddm_next_header;
 	ira->ira_flags &= ~IRAF_VERIFY_ULP_CKSUM;
+
+	ASSERT3U(ira->ira_pktlen, ==, ntohs(v6->ip6_plen) + IPV6_HDR_LEN);
 
 	return (mp1);
 }
