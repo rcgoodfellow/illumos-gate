@@ -55,6 +55,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 *
 	 * TODO:
 	 * - What about ddm headers that come after other extension headers
+	 * - Verify checksum as removing ddm header invalidates later checks
 	 * (e.g. not directly after the hop-by-hop options)?
 	 */
 
@@ -85,7 +86,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 * send out an ack and return
 	 */
 	if (!ddm_is_ack(ddh)) {
-		ddm_send_ack(ip6h_, ddh, ira);
+		/* TODO ddm_send_ack(ip6h_, ddh, ira); */
 		return (ddm_remove_header(mp, ira));
 	}
 
@@ -128,7 +129,6 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 */
 
 	ira->ira_pktlen += sizeof (ddm_t) + sizeof (ddm_element);
-	ira->ira_protocol = ddh->ddm_next_header;
 
 	return (ddm_remove_header(mp, ira));
 }
@@ -310,6 +310,8 @@ ddm_remove_header(mblk_t *mp, ip_recv_attr_t *ira)
 	mp1->b_cont = mp;
 	mp->b_rptr += sizeof (ip6_t) + ddm_len;
 	ira->ira_pktlen -= ddm_len;
+	ira->ira_protocol = ddh->ddm_next_header;
+	ira->ira_flags &= ~IRAF_VERIFY_ULP_CKSUM;
 
 	return (mp1);
 }
