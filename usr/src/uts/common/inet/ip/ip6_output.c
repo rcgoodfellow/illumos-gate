@@ -327,16 +327,6 @@ repeat_ire:
 
 	if (ill != NULL) {
 		BUMP_MIB(ill->ill_ip_mib, ipIfStatsHCOutRequests);
-		// if this ill has ddm enabled, and the next header is not
-		// already a ddm header then run the ddm output function. The
-		// next header may be ddm already if we are emitting a ddm-ack.
-		if (ill->ill_ipif->ipif_flags & IFF_DDM &&
-		    (ire->ire_type & (IRE_LOCAL | IRE_LOOPBACK)) == 0 &&
-		    ip6h->ip6_nxt != 0xdd) {
-			ixa->ixa_pktlen += 8;
-			ixa->ixa_protocol = 0xdd;
-			mp = ddm_output(mp, ip6h);
-		}
 	} else {
 		BUMP_MIB(&ipst->ips_ip_mib, ipIfStatsHCOutRequests);
 	}
@@ -974,6 +964,18 @@ ire_send_wire_v6(ire_t *ire, mblk_t *mp, void *iph_arg,
 
 	ASSERT(ixa->ixa_nce != NULL);
 	ill = ixa->ixa_nce->nce_ill;
+
+	// if this ill has ddm enabled, and the next header is not
+	// already a ddm header then run the ddm output function. The
+	// next header may be ddm already if we are emitting a ddm-ack.
+	if (ill->ill_ipif->ipif_flags & IFF_DDM &&
+	    (ire->ire_type & (IRE_LOCAL | IRE_LOOPBACK)) == 0 &&
+	    ip6h->ip6_nxt != 0xdd) {
+		ixa->ixa_pktlen += 8;
+		ixa->ixa_protocol = 0xdd;
+		mp = ddm_output(mp, ip6h);
+		pktlen = ixa->ixa_pktlen;
+	}
 
 	/*
 	 * Update output mib stats. Note that we can't move into the icmp

@@ -86,7 +86,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 * send out an ack and return
 	 */
 	if (!ddm_is_ack(ddh)) {
-		/* TODO ddm_send_ack(ip6h_, ddh, ira); */
+		ddm_send_ack(ip6h_, ddh, ira);
 		return (ddm_remove_header(mp, ira));
 	}
 
