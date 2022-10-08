@@ -41,6 +41,7 @@
  * Copyright 2015 Pluribus Networks Inc.
  * Copyright 2018 Joyent, Inc.
  * Copyright 2022 Oxide Computer Company
+ * Copyright 2022 MNX Cloud, Inc.
  */
 
 #include <sys/cdefs.h>
@@ -173,9 +174,6 @@ static uint64_t cr0_ones_mask, cr0_zeros_mask;
 static uint64_t cr4_ones_mask, cr4_zeros_mask;
 
 static int vmx_initialized;
-
-/* Do not flush RSB upon vmexit */
-static int no_flush_rsb;
 
 /*
  * Optional capabilities
@@ -797,12 +795,7 @@ vmx_vminit(struct vm *vm)
 		    rdmsr(MSR_SYSENTER_EIP_MSR));
 
 		/* instruction pointer */
-		if (no_flush_rsb) {
-			vmcs_write(VMCS_HOST_RIP, (uint64_t)vmx_exit_guest);
-		} else {
-			vmcs_write(VMCS_HOST_RIP,
-			    (uint64_t)vmx_exit_guest_flush_rsb);
-		}
+		vmcs_write(VMCS_HOST_RIP, (uint64_t)vmx_exit_guest);
 
 		/* link pointer */
 		vmcs_write(VMCS_LINK_POINTER, ~0);
@@ -875,17 +868,6 @@ vmx_vminit(struct vm *vm)
 	}
 
 	return (vmx);
-}
-
-static int
-vmx_handle_cpuid(struct vm *vm, int vcpu, struct vmxctx *vmxctx)
-{
-	int handled;
-
-	handled = x86_emulate_cpuid(vm, vcpu, (uint64_t *)&vmxctx->guest_rax,
-	    (uint64_t *)&vmxctx->guest_rbx, (uint64_t *)&vmxctx->guest_rcx,
-	    (uint64_t *)&vmxctx->guest_rdx);
-	return (handled);
 }
 
 static VMM_STAT_INTEL(VCPU_INVVPID_SAVED, "Number of vpid invalidations saved");
@@ -2364,7 +2346,12 @@ vmx_exit_process(struct vmx *vmx, int vcpu, struct vm_exit *vmexit)
 	case EXIT_REASON_CPUID:
 		vmm_stat_incr(vmx->vm, vcpu, VMEXIT_CPUID, 1);
 		SDT_PROBE3(vmm, vmx, exit, cpuid, vmx, vcpu, vmexit);
-		handled = vmx_handle_cpuid(vmx->vm, vcpu, vmxctx);
+		vcpu_emulate_cpuid(vmx->vm, vcpu,
+		    (uint64_t *)&vmxctx->guest_rax,
+		    (uint64_t *)&vmxctx->guest_rbx,
+		    (uint64_t *)&vmxctx->guest_rcx,
+		    (uint64_t *)&vmxctx->guest_rdx);
+		handled = HANDLED;
 		break;
 	case EXIT_REASON_EXCEPTION:
 		vmm_stat_incr(vmx->vm, vcpu, VMEXIT_EXCEPTION, 1);

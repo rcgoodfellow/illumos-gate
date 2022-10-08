@@ -273,13 +273,12 @@ struct nvme {
 	nvme_fwslot_log_t *n_fwslot;
 	/* Lock protecting the cached firmware slot info */
 	kmutex_t n_fwslot_mutex;
-
-	ddi_taskq_t *n_tq;
 };
 
 struct nvme_namespace {
 	nvme_t *ns_nvme;
 	uint8_t ns_eui64[8];
+	uint8_t	ns_nguid[16];
 	char	ns_name[17];
 
 	bd_handle_t ns_bd_hdl;
@@ -300,7 +299,7 @@ struct nvme_namespace {
 	nvme_minor_state_t ns_minor;
 
 	/*
-	 * If a namespace has no EUI64, we create a devid in
+	 * If a namespace has neither NGUID nor EUI64, we create a devid in
 	 * nvme_prepare_devid().
 	 */
 	char *ns_devid;
