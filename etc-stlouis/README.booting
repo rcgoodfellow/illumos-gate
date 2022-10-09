@@ -1,3 +1,29 @@
+External Links
+--------------
+Lab machine guide:
+https://github.com/oxidecomputer/meta/blob/master/engineering/lab/gimlet.adoc
+
+Setting up and using a helios-dev build machine:
+https://github.com/oxidecomputer/stlouis/blob/main/dev.adoc
+
+Boot Methods
+------------
+
+There are currently three ways being regularly used to boot these bits on a
+Gimlet:
+
+- nanobl-rs loader + UFS ramdisk + optional phase 2 via the network;
+- nanobl-rs loader + CPIO miniroot + ZFS root loaded via the network;
+- Holistic boot (the intended boot path - see RFD241).
+
+The bulk of this file describes how to get going with (1), but (2) is
+becoming increasingly useful for development as it produces a booted machine
+that is effectively the same as (3) but elides the need to keep rewriting
+the SPI flash and is easier to iterate on.
+
+nanobl-rs loader + UFS ramdisk + optional phase 2 via the network
+-----------------------------------------------------------------
+
 You will need:
 
 - A supportable Gimlet, or an Ethanol-X (for now), with Milan processor(s)
@@ -7,14 +33,6 @@ You will need:
   versions of this file for instructions on old loaders)
 - A built stlouis workspace
 - The tools in this directory
-
-External Links
---------------
-Lab machine guide:
-https://github.com/oxidecomputer/meta/blob/master/engineering/lab/gimlet.adoc
-
-Setting up and using a helios-dev build machine:
-https://github.com/oxidecomputer/stlouis/blob/main/dev.adoc
 
 Steps:
 
@@ -94,7 +112,7 @@ nanobl-rs to receive the ramdisk:
 
 nanobl-rs will block, silently waiting for data to arrive.  You should now use
 your terminal emulator's Xmodem send command to transfer the compressed
-ramdisk you build in step 3.  On picocom, this is C-a C-s.
+ramdisk you built in step 3.  On picocom, this is C-a C-s.
 
 This command places the ramdisk into memory at 1_0100_0000, which must match
 the address in oxide/os/boot_data.c.  Note that if you build a ramdisk larger
@@ -112,11 +130,11 @@ If you did not compress your kernel:
 
 	> 100000000::recv -m | ::load | ::call
 
-Again, as soon as nanobl-rs blocks, use Xmodel to send unix.z (or unix) to the
+Again, as soon as nanobl-rs blocks, use Xmodem to send unix.z (or unix) to the
 target machine (picocom: C-a C-s).
 
 The addresses used for unix in the above example are almost entirely
-arbitrary, but should work on any machine we have.  When the file receiption
+arbitrary, but should work on any machine we have.  When the file reception
 completes, ::load and ::call will interpret the kernel and an ELF object and
 transfer control to its entry point, booting the OS.
 
@@ -153,7 +171,127 @@ yourself.
 use humility to cycle through A2.  On Eth-X, ipmitool or the web UI may be
 used.
 
+nanobl-rs loader + CPIO miniroot + ZFS root loaded via the network
+------------------------------------------------------------------
+
+You will need most of the same things as for the previous method, including a
+system which has been flashed with nanobl-rs and a machine in A0 sitting at
+nanobl-rs' throbber or > prompt in your terminal emulator.
+
+You will also need a CPIO miniroot archive and ZFS root image built with
+the helios-build tool - https://github.com/oxidecomputer/helios - see below.
+
+The following steps show how to build DEBUG pieces, as should generally be used
+during development:
+
+Steps:
+
+1. Check out the helios repository and follow the Getting Started guide
+   in that repository's README.md to build the tools and set up additional
+   workspaces.
+
+2. Build a stlouis workspace using helios-build.
+
+	./helios-build build-illumos -dq
+
+3. Build the installation image files:
+
+	./helios-build experiment-image -d
+
+  This will produce a set of output files under image/output:
+
+	cpio	- CPIO miniroot archive
+	cpio.z	- pinprick-compressed version of above
+	rom	- SPI flash image (not needed for this boot method)
+	unix.z	- pinprick-compressed kernel
+	zfs.img	- ZFS root image
+
+4. Start up a network bootserver on a lab machine which will serve the ZFS
+   root image.
+
+	./projects/bootserver/target/release/bootserver \
+	    e1000g0 image/output/zfs.img 18:c0:4d:11:22:33
+
+   In this example, e1000g0 is the name of the NIC on the lab machine and
+   18:c0:4d:11:22:33 is the MAC address of the NIC in the Gimlet which will
+   be used for booting. The NIC in the Gimlet is usually connected directly
+   via a sharkfin slot or via a U.2 slot in the front of the machine.
+
+5. Boot
+
+   Instruct nanobl-rs to receive the initial CPIO miniroot image:
+
+	> 110000000::recv -m | ::inflate 101000000
+
+   nanobl-rs will block, silently waiting for data to arrive.  You should now
+   use your terminal emulator's Xmodem send command to transfer the compressed
+   CPIO image from the earlier step, image/output/cpio.z.  On picocom, this is
+   C-a C-s.
+
+   Next, instruct nanobl-rs to receive unix in the same manner, and to begin
+   executing the kernel once the transfer completes.
+
+        > 110000000::recv -m | ::inflate 100000000 | ::load | ::call 101000000 4c00000
+
+   Again, as soon as nanobl-rs blocks, use Xmodem to send image/output/unix.z
+   to the target machine (picocom: C-a C-s).
+
+   Note the explicit arguments being provided to the kernel via ::call, which
+   is different to the previous boot method. This is a bit of a hack; at
+   present, the kernel uses the presence of these arguments to cause the new
+   misc/boot_image module to be loaded and used during boot. The values being
+   passed are the same that the kernel assumes if no arguments are passed -
+   see oxide/os/boot_data.c
+
+Once the kernel boots, you will see it try to find the ZFS image on an
+M.2 drive, and then falling back to network boot and loading the image from
+the bootserver that was started earlier. Here are some of the messages that
+you should expect to see:
+
+	in oxide_boot!
+	    cpio wants: c87d... (ZFS image hash)
+	TRYING: boot disk
+	found M.2 device @ /pci@0,0/pci1022,1483@1,3/pci1...
+	opening M.2 device
+	invalid disk header
+	closing M.2
+	TRYING: boot net
+	MAC address is 18:c0:4d:11:22:33
+	listening for packets...
+	hello...
+	    in image: c87d...
+	received offer from 34:17:eb:d4:93:a4  -- size 4294967296 data size 367001600
+	reached EOF at offset 367001600 after 4 seconds
+	all done!
+	checksum ok!
+
+At this point the system should complete booting and provide a login prompt.
+
+Note that the ZFS root image includes a svc:/site/postboot* service which will
+import any ZFS pool called 'data' and then run '/data/postboot/bin/postboot.sh'
+if it exists. This is useful in order to run tasks on every boot.
+
+* https://github.com/oxidecomputer/helios/blob/master/image/templates/files/gimlet-postboot.sh
+
+Holistic boot (the intended boot path - see RFD241)
+---------------------------------------------------
+
+This boot method is very similar to the previous one except that the
+image/output/rom file is written to the SPI flash in place of the image
+containing nanobl-rs. This image includes the phbl boot loader and the
+CPIO miniroot image.
+
+	$ humility qspi -D image/output/rom
+
+No interaction is necessary for the system to boot, it will automatically
+start up and look for the ZFS ramdisk image on an M.2 disk and then fall
+back to loading it from the network if it is not found or if the hash does
+not match what it is expecting. Note that the hash of the ZFS image must match
+the value embedded in the CPIO archive, which is part of the ROM, and so this
+method is not particularly suited for iterative work on stlouis.
+
 Next steps:
+-----------
 
 There are many, many things to do next, and the good news is that there is
 enough parallelism here for 8-10 engineers.  A few examples:
