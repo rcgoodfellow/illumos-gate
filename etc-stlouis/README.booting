@@ -57,14 +57,24 @@ to use a fixed name you can do something like:
 
 	$ mv $(./mkrd.bash) /path/to/ramdisk.ufs
 
-3. Compress your ramdisk (optionally, you may also compress your kernel).
+3. The collection of available phase-1 system software in the ramdisk is very
+limited and heavily skewed toward debugging tools.  If you want a more
+functional (RFD 241 "phase-2") system, you will need to unpack additional
+software.  You can build a phase-2 software bundle by doing:
+
+	$ mv $(./mkphase2.bash) /path/to/phase2.tar
+
+This step is optional and requires either a NIC or some other way to get these
+bits onto the machine after booting into phase-1.
+
+4. Compress your ramdisk (optionally, you may also compress your kernel).
 Unfortunately, gzip is not appropriate; instead use
 https://github.com/oxidecomputer/pinprick or the python code in
 https://github.com/oxidecomputer/nanobl-rs/pull/89#issue-1301450517:
 
 	$ pinprick /path/to/ramdisk.ufs > /path/to/ramdisk.ufs.z
 
-4. Start your terminal emulator and attach it to the target machine's UART0.
+5. Start your terminal emulator and attach it to the target machine's UART0.
 The examples here assume you use picocom, but you can use whatever you like.
 
 	// For lab systems:
@@ -73,7 +83,7 @@ The examples here assume you use picocom, but you can use whatever you like.
 	$ picocom -s "sx -Xk" --flow h -b 3000000 --imap lfcrlf --omap \
 	crlf,delbs /dev/my/local/uart
 
-5. If you haven't done so already, build nanobl-rs and burn it to your test
+6. If you haven't done so already, build nanobl-rs and burn it to your test
 machine's boot flash.  See the instructions in that repo's README.  Put the
 test machine into A0:
 
@@ -86,11 +96,12 @@ Note that you need to be in A2 first to burn the flash.  If you are using
 Ethanol-X, see the manual for your workstation's IPMI client tools and the
 Ethanol-X BMC firmware.
 
-6. At this point you should have:
+7. At this point you should have:
 	- A box sitting at the throbber or > prompt in your terminal emulator
 	(see nanobl-rs repo for notes on configuring it)
 	- A copy of unix from $ROOT/platform/kernel/oxide/amd64/unix
 	- A copy of ramdisk.ufs or whatever you called it
+	- Optionally, a copy of phase2.tar or whatever you called it
 
 Note that we currently need unix in the ramdisk and outside it; this
 requirement can eventually be relaxed because we actually have the ELF image
@@ -99,20 +110,21 @@ That will save about 2 MiB in the image, but for now you need it twice, and
 the file in the ramdisk MUST MATCH the kernel you boot; otherwise krtld will
 complain and you will not get very far.
 
-7. If you are using a rev A Gimlet and want a NIC and/or SSD(s), you must now
+8. If you are using a rev A Gimlet and want a NIC and/or SSD(s), you must now
 power on any sharkfin power controllers you need, then release PERST# for each
 PCIe end device you wish to use.  Releasing PERST# requires hardware
 modification; ask if you don't know what to do.  These steps may be done in
-parallel with ramdisk loading (next step).
+parallel with ramdisk loading (next step).  This is not needed on rev B and
+later.
 
-8. Now issue the following sequence of loader commands.  First, instruct
+9. Now issue the following sequence of loader commands.  First, instruct
 nanobl-rs to receive the ramdisk:
 
 	> 110000000::recv -m | ::inflate 101000000
 
 nanobl-rs will block, silently waiting for data to arrive.  You should now use
 your terminal emulator's Xmodem send command to transfer the compressed
-ramdisk you built in step 3.  On picocom, this is C-a C-s.
+ramdisk you built in step 2.  On picocom, this is C-a C-s.
 
 This command places the ramdisk into memory at 1_0100_0000, which must match
 the address in oxide/os/boot_data.c.  Note that if you build a ramdisk larger
@@ -122,7 +134,7 @@ bytes on the loader command line.  See the help for ::recv's -m option and
 
 Next, instruct nanobl-rs to receive unix in the same manner, and to begin
 executing the kernel once the transfer completes.  If you compressed your
-kernel in step 3, utter:
+kernel in step 4, utter:
 
 	> 110000000::recv -m | ::inflate 100000000 | ::load | ::call
 
@@ -138,20 +150,14 @@ arbitrary, but should work on any machine we have.  When the file reception
 completes, ::load and ::call will interpret the kernel and an ELF object and
 transfer control to its entry point, booting the OS.
 
-9. If you wish to proceed to userland, utter ':c' when kmdb loads, ignoring
-any errors about failure to load kmods.  Otherwise, begin your debug session.
+10. Upon reaching userland, if you have a NIC you can plumb up your network by
+uttering '/root/start-network <IPv4 address>/<IPv4 CIDR>'.  This will also
+start sshd for remote access.  If you require access from an off-link network,
+add routes as appropriate at this time.
 
-10. Upon reaching userland, if you have a NIC you can plumb up your network
-links and routes, then utter '/root/start-sshd' to gain remote access.  The
-collection of available phase-1 system software is very limited and heavily
-skewed toward debugging tools.  If you want a more functional (RFD 241
-"phase-2") system, build yourself a tarball from your proto area by doing
-something like:
+11. If you want the additional phase-2 software you build in step 3, copy it
+onto the test machine now and run the included script to get it mounted:
 
-	$ cd $ROOT; tar cf phase2.tar kernel/drv kernel/fs kernel/misc \
-	  usr/lib/devfsadm usr/bin usr/lib/lib* usr/lib/amd64/lib* usr/sbin \
-	  kernel/strmod sbin/zpool sbin/zfs usr/xpg6/bin usr/lib/cfgadm \
-	  lib/lib* lib/amd64/lib* lib/64 usr/lib/64 usr/lib/security usr/lib/fm
 	$ scp phase2.tar root@gimlet:/tmp
 	gimlet:~# cd /tmp && tar xpf phase2.tar
 	gimlet:~# /root/post-phase2
@@ -161,15 +167,21 @@ forth will be on the PATH and libraries can generally be found.  You can of
 course add or change the contents to suit your needs; the above will be enough
 to give you working zpool and zfs commands so if you have storage you can now
 create or import a pool, making it convenient to persist data across reboots
-for debugging or V&V, store larger toolsets, etc.  All of this is definitely
-not complete or perfect and some things probably still won't work; you are at
-the end of the graded road so grab your illumos man pages and work it out for
-yourself.
+for debugging or V&V, store larger toolsets, etc.
 
-11. If you wish to re-enter kmdb, send a BREAK using your terminal emulator
-(picocom default: C-a C-|).  There is currently no way to reboot.  On Gimlet,
-use humility to cycle through A2.  On Eth-X, ipmitool or the web UI may be
-used.
+One thing you can do from here is partition the M.2 SSD in slot 17 and copy
+the contents of an IPS-style phase-2 image ("zfs.img") into the first
+partition.  This will allow you to boot using either of the alternate methods
+described in subsequent sections without needing an Ethernet boot server.
+Note that the phase-2 image you copy onto the SSD needs to match the CPIO
+archive you boot; see subsequent sections for more details if you wish to try
+either of these approaches to booting.
+
+11. If you wish to enter kmdb, send a BREAK using your terminal emulator
+(picocom default: C-a C-|).  NOTE: Sending BREAK via the USB FTDI driver on
+the illumos lab machines does not work and will do nothing.  The 'reboot'
+command should do what you'd expect; if not, use humility to cycle through A2
+on Gimlet.  On Eth-X, ipmitool or the web UI may be used to reboot.
 
 nanobl-rs loader + CPIO miniroot + ZFS root loaded via the network
 ------------------------------------------------------------------
