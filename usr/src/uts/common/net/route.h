@@ -205,8 +205,9 @@ typedef struct rt_msghdr {
 #define	RTA_AUTHOR	0x40	/* sockaddr for author of redirect */
 #define	RTA_BRD		0x80	/* for NEWADDR, broadcast or p-p dest addr */
 #define	RTA_SRC		0x100	/* source sockaddr present */
+#define	RTA_DELAY	0x200	/* destination delay */
 
-#define	RTA_NUMBITS	9	/* Number of bits used in RTA_* */
+#define	RTA_NUMBITS	10	/* Number of bits used in RTA_* */
 
 /*
  * Index offsets for sockaddr_storage array for alternate internal encoding.

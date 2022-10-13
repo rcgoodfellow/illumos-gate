@@ -280,7 +280,7 @@ ddm_update(
 	    uint32_t, ifindex);
 
 	/* update routing table entry delay measurement */
-	uint32_t now = ((uint32_t)(gethrtime() % MAX_TS) << 8);
+	uint32_t now = (uint32_t)(gethrtime() % MAX_TS);
 	ire->ire_delay = now - timestamp;
 }
 

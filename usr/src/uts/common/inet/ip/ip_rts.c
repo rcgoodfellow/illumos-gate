@@ -233,7 +233,7 @@ ip_rts_rtmsg(int type, ire_t *ire, int error, ip_stack_t *ipst)
 		rts_fill_msg_v6(type, rtm_addrs, &ire->ire_addr_v6,
 		    &ire->ire_mask_v6, &gw_addr_v6,
 		    &ire->ire_setsrc_addr_v6, &ipv6_all_zeros, &ipv6_all_zeros,
-		    &ipv6_all_zeros, NULL, mp, NULL);
+		    &ipv6_all_zeros, 0, NULL, mp, NULL);
 		break;
 	}
 	rtm = (rt_msghdr_t *)mp->b_rptr;
@@ -1350,6 +1350,16 @@ rts_rtmget(mblk_t *mp, ire_t *ire, ire_t *ifire, const in6_addr_t *setsrc,
 	 * point-to-point.
 	 */
 	rtm_addrs = (RTA_DST | RTA_GATEWAY | RTA_NETMASK);
+
+	if ((rtm->rtm_addrs & RTA_DELAY) && ill != NULL) {
+		ipif = ipif_get_next_ipif(NULL, ill);
+		if (ipif != NULL) {
+			if (ipif->ipif_flags & IPIF_DDM) {
+				rtm_addrs |= RTA_DELAY;
+			}
+			ipif_refrele(ipif);
+		}
+	}
 	if ((rtm->rtm_addrs & (RTA_IFP | RTA_IFA)) && ill != NULL) {
 		rtm_addrs |= (RTA_IFP | RTA_IFA);
 		/*
@@ -1412,7 +1422,7 @@ rts_rtmget(mblk_t *mp, ire_t *ire, ire_t *ifire, const in6_addr_t *setsrc,
 		rts_fill_msg_v6(RTM_GET, rtm_addrs, &ire->ire_addr_v6,
 		    &ire->ire_mask_v6, &ire->ire_gateway_addr_v6,
 		    setsrc, &brdaddr6, &ipv6_all_zeros,
-		    &ifaddr6, ill, new_mp, gc);
+		    &ifaddr6, ire->ire_delay, ill, new_mp, gc);
 		break;
 	}
 
@@ -1973,6 +1983,11 @@ rts_data_msg_size(int rtm_addrs, sa_family_t af, uint_t sacnt)
 				break;
 			}
 			break;
+		case RTA_DELAY:
+			if (af == AF_INET6) {
+				length += sizeof (uint32_t);
+			}
+			break;
 		}
 	}
 	if (sacnt > 0)
@@ -2044,7 +2059,7 @@ ip_rts_xifmsg(const ipif_t *ipif, uint64_t set, uint64_t clear, uint_t flags)
 			return;
 		rts_fill_msg_v6(RTM_IFINFO, RTA_IFP, &ipv6_all_zeros,
 		    &ipv6_all_zeros, &ipv6_all_zeros, &ipv6_all_zeros,
-		    &ipv6_all_zeros, &ipv6_all_zeros, &ipv6_all_zeros,
+		    &ipv6_all_zeros, &ipv6_all_zeros, &ipv6_all_zeros, 0,
 		    ipif->ipif_ill, mp, NULL);
 	} else {
 		af = AF_INET;
@@ -2130,7 +2145,7 @@ rts_new_rtsmsg(int cmd, int error, const ipif_t *ipif, uint_t flags)
 			    &ipv6_all_zeros, &ipif->ipif_v6net_mask,
 			    &ipv6_all_zeros, &ipif->ipif_v6lcl_addr,
 			    &ipif->ipif_v6pp_dst_addr, &ipv6_all_zeros,
-			    &ipif->ipif_v6lcl_addr, ipif->ipif_ill,
+			    &ipif->ipif_v6lcl_addr, 0, ipif->ipif_ill,
 			    mp, NULL);
 			break;
 		}
@@ -2152,7 +2167,7 @@ rts_new_rtsmsg(int cmd, int error, const ipif_t *ipif, uint_t flags)
 			    &ipif->ipif_v6lcl_addr,
 			    &ipif->ipif_v6net_mask, &ipv6_all_zeros,
 			    &ipv6_all_zeros, &ipv6_all_zeros,
-			    &ipv6_all_zeros, &ipv6_all_zeros,
+			    &ipv6_all_zeros, &ipv6_all_zeros, 0,
 			    NULL, mp, NULL);
 			break;
 		}
