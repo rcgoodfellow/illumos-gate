@@ -257,7 +257,7 @@ ddm_update(
 {
 	/* look up routing table entry */
 	ire_t *ire = ire_ftable_lookup_v6(
-	    &dst->ip6_dst,
+	    &dst->ip6_src,
 	    NULL,		/* TODO mask */
 	    NULL,		/* TODO gateway */
 	    0,			/* TODO type */
@@ -282,6 +282,7 @@ ddm_update(
 	/* update routing table entry delay measurement */
 	uint32_t now = (uint32_t)(gethrtime() % MAX_TS);
 	ire->ire_delay = now - timestamp;
+	ire_refrele(ire);
 }
 
 static mblk_t *
