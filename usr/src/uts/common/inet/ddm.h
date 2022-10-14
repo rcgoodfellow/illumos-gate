@@ -105,7 +105,7 @@ typedef struct ddm_hdr {
 /*
  * True if the ddm header is an acknowledgement.
  */
-inline boolean_t
+__inline boolean_t
 ddm_is_ack(ddm_t *ddh)
 {
 	return ((ddh->ddm_reserved & 1) != 0);
@@ -114,26 +114,26 @@ ddm_is_ack(ddm_t *ddh)
 /*
  * set the ddm header acknowledgement bit
  */
-inline void
+__inline void
 ddm_set_ack(ddm_t *ddh)
 {
 	ddh->ddm_reserved |= 1;
 }
 
-inline uint16_t
+__inline uint16_t
 ddm_total_len(ddm_t *ddh)
 {
 	/* ddh header length field + 1 for the leading 8 bits (RFC 6564) */
 	return (ddh->ddm_length + 1);
 }
 
-inline uint8_t
+__inline uint8_t
 ddm_elements_len(ddm_t *ddh)
 {
 	return (ddh->ddm_length - 3);
 }
 
-inline uint8_t
+__inline uint8_t
 ddm_element_count(ddm_t *ddh)
 {
 	/*
@@ -149,6 +149,8 @@ ddm_element_count(ddm_t *ddh)
  */
 typedef uint32_t ddm_element;
 
+#ifdef _KERNEL
+
 /*
  * process ddm header on an incoming message block
  */
@@ -161,9 +163,16 @@ mblk_t *ddm_input(mblk_t *mp_chain, ip6_t *ip6h, ip_recv_attr_t *ira);
 mblk_t *ddm_output(mblk_t *mp, ip6_t *ip6h);
 
 /*
+ * Update the ddm delay tracking table
+ */
+void ddm_update(ip6_t *dst, ill_t *ill, uint32_t ifindex, uint32_t timestamp);
+
+#endif /* _KERNEL */
+
+/*
  * Extract node id from an ddm element.
  */
-inline uint8_t
+__inline uint8_t
 ddm_element_id(ddm_element e)
 {
 	return ((uint8_t)e);
@@ -172,16 +181,12 @@ ddm_element_id(ddm_element e)
 /*
  * Extract 24 bit timestamp from a ddm element.
  */
-inline uint32_t
+__inline uint32_t
 ddm_element_timestamp(ddm_element e)
 {
 	return (e >> 8);
 }
 
-/*
- * Update the ddm delay tracking table
- */
-void ddm_update(ip6_t *dst, ill_t *ill, uint32_t ifindex, uint32_t timestamp);
 
 #ifdef	__cplusplus
 }
