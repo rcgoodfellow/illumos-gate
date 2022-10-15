@@ -80,6 +80,7 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 		return (ddm_remove_header(mp, ira));
 	}
 	ddm_t *ddh = (ddm_t *)&ip6h_[1];
+	ddm_element *dde = (ddm_element *)&ddh[1];
 
 	/*
 	 * if this is not an ack, there is no table update to be made so just
@@ -115,14 +116,11 @@ ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira)
 	 * read ToS element and update ddm table
 	 */
 
-	ddm_element dde = *(ddm_element*)&mp->b_rptr[
-	    ira->ira_pktlen + sizeof (ddm_t)];
-
 	ddm_update(
 	    ip6h_,
 	    ira->ira_ill,
 	    ira->ira_rifindex,
-	    ddm_element_timestamp(dde));
+	    ddm_element_timestamp(*dde));
 
 	/*
 	 * set next header protocol and packet length for ira
@@ -183,6 +181,29 @@ ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 	ixa_cleanup(&ixa);
 }
 
+static uint32_t
+ts_now()
+{
+	uint64_t value = gethrtime();
+	value /= 1000;   // to microseconds
+	value %= MAX_TS; // roll over
+	return value;
+}
+
+/*
+ * It's assumed we are no further than 16 seconds apart. If that's where we are,
+ * ddm timestamps are the least of our problems.
+ */
+static uint32_t
+ts_diff(uint32_t now, uint32_t before)
+{
+	if (before > now) {
+		return before - now;
+	} else {
+		return now - before;
+	}
+}
+
 mblk_t *
 ddm_output(mblk_t *mp, ip6_t *ip6h)
 {
@@ -223,7 +244,7 @@ ddm_output(mblk_t *mp, ip6_t *ip6h)
 
 	/* TODO set node id */
 	/* Set node timestamp as the high 24 bits. */
-	*dde = ((uint32_t)(gethrtime() % MAX_TS) << 8);
+	*dde = ts_now() << 8;
 
 	/*
 	 * update the ipv6 header and copy into new msg block
@@ -280,8 +301,8 @@ ddm_update(
 	    uint32_t, ifindex);
 
 	/* update routing table entry delay measurement */
-	uint32_t now = (uint32_t)(gethrtime() % MAX_TS);
-	ire->ire_delay = now - timestamp;
+	uint32_t now = ts_now();
+	ire->ire_delay = ts_diff(now, timestamp);
 	ire_refrele(ire);
 }
 
