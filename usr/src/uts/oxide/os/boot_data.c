@@ -136,8 +136,12 @@ bt_set_prop_u64(const char *name, uint64_t value)
 static void
 bt_set_prop_str(const char *name, const char *value)
 {
+	/*
+	 * Even though there is a value length property, many consumers
+	 * assume that string property values include a terminator.
+	 */
 	bt_set_prop(DDI_PROP_TYPE_STRING,
-	    name, strlen(name), value, strlen(value));
+	    name, strlen(name), value, strlen(value) + 1);
 }
 
 void
@@ -187,13 +191,15 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 		bt_set_prop_u8(BTPROP_NAME_BSU, bsu);
 
 	if (kernel_ipcc_ident(&ident) == 0) {
+		char serial[sizeof (ident.ii_serial) + 1];
+
+		bzero(serial, sizeof (serial));
+		bcopy(ident.ii_serial, serial, sizeof (ident.ii_serial));
+		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, serial);
+
 		// XXX - adjust once format of model and revision is known
 		bt_set_prop_u8(BTPROP_NAME_BOARD_MODEL, ident.ii_model);
 		bt_set_prop_u8(BTPROP_NAME_BOARD_REVISION, ident.ii_rev);
-
-		bt_set_prop(DDI_PROP_TYPE_STRING,
-		    BTPROP_NAME_BOARD_IDENT, strlen(BTPROP_NAME_BOARD_IDENT),
-		    ident.ii_serial, sizeof (ident.ii_serial));
 	} else {
 		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, "NO-SP-IDENT");
 	}
