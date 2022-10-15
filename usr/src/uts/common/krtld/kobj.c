@@ -373,6 +373,7 @@ kobj_init(
 
 	KOBJ_MARK("Entered kobj_init()");
 
+	bzero(filename, sizeof (filename));
 	(void) BOP_GETPROP(ops, "whoami", filename);
 
 	/*
@@ -1355,10 +1356,10 @@ console_is_usb_serial(void)
 	if ((len = BOP_GETPROPLEN(ops, "console")) == -1)
 		return (0);
 
-	console = kobj_zalloc(len, KM_WAIT|KM_TMP);
+	console = kobj_zalloc(len + 1, KM_WAIT|KM_TMP);
 	(void) BOP_GETPROP(ops, "console", console);
 	ret = (strcmp(console, "usb-serial") == 0);
-	kobj_free(console, len);
+	kobj_free(console, len + 1);
 
 	return (ret);
 }
