@@ -128,9 +128,9 @@ typedef enum ipcc_panic_field {
 	IPF_FP,
 } ipcc_panic_field_t;
 
-#define	IPCC_IDENT_DATALEN	13
+#define	IPCC_IDENT_DATALEN	23
 #define	IPCC_BSU_DATALEN	1
-#define	IPCC_MAC_DATALEN	8
+#define	IPCC_MAC_DATALEN	9
 #define	IPCC_STATUS_DATALEN	8
 
 typedef struct ipcc_ops {

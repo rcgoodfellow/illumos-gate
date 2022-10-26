@@ -191,14 +191,16 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 		bt_set_prop_u8(BTPROP_NAME_BSU, bsu);
 
 	if (kernel_ipcc_ident(&ident) == 0) {
-		char serial[sizeof (ident.ii_serial) + 1];
+		char buf[sizeof (ident)];
 
-		bzero(serial, sizeof (serial));
-		bcopy(ident.ii_serial, serial, sizeof (ident.ii_serial));
-		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, serial);
+		bzero(buf, sizeof (buf));
+		bcopy(ident.ii_serial, buf, sizeof (ident.ii_serial));
+		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, buf);
 
-		// XXX - adjust once format of model and revision is known
-		bt_set_prop_u8(BTPROP_NAME_BOARD_MODEL, ident.ii_model);
+		bzero(buf, sizeof (buf));
+		bcopy(ident.ii_model, buf, sizeof (ident.ii_model));
+		bt_set_prop_str(BTPROP_NAME_BOARD_MODEL, buf);
+
 		bt_set_prop_u8(BTPROP_NAME_BOARD_REVISION, ident.ii_rev);
 	} else {
 		bt_set_prop_str(BTPROP_NAME_BOARD_IDENT, "NO-SP-IDENT");

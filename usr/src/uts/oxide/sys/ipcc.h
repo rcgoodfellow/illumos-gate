@@ -45,14 +45,14 @@ extern "C" {
 #define	IPCC_MAX_DATA_SIZE	(IPCC_MAX_MESSAGE_SIZE - IPCC_MIN_MESSAGE_SIZE)
 
 typedef struct ipcc_ident {
-	uint8_t		ii_model;
+	uint8_t		ii_model[11];
 	uint8_t		ii_rev;
 	uint8_t		ii_serial[11];
 } ipcc_ident_t;
 
 typedef struct ipcc_mac {
 	uint8_t		im_base[6];
-	uint8_t		im_count;
+	uint16_t	im_count;
 	uint8_t		im_stride;
 } ipcc_mac_t;
 
