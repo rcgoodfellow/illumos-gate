@@ -154,6 +154,7 @@ struct vcpu {
 	vm_client_t	*vmclient;	/* (a) VM-system client */
 	uint64_t	tsc_offset;	/* (x) offset from host TSC */
 	struct vm_mtrr	mtrr;		/* (i) vcpu's MTRR */
+	vcpu_cpuid_config_t cpuid_cfg;	/* (x) cpuid configuration */
 
 	enum vcpu_ustate ustate;	/* (i) microstate for the vcpu */
 	hrtime_t	ustate_when;	/* (i) time of last ustate change */
@@ -332,6 +333,8 @@ vcpu_cleanup(struct vm *vm, int i, bool destroy)
 	if (destroy) {
 		vmm_stat_free(vcpu->stats);
 
+		vcpu_cpuid_cleanup(&vcpu->cpuid_cfg);
+
 		hma_fpu_free(vcpu->guestfpu);
 		vcpu->guestfpu = NULL;
 
@@ -365,6 +368,7 @@ vcpu_init(struct vm *vm, int vcpu_id, bool create)
 		vcpu->guestfpu = hma_fpu_alloc(KM_SLEEP);
 		vcpu->stats = vmm_stat_alloc();
 		vcpu->vie_ctx = vie_alloc();
+		vcpu_cpuid_init(&vcpu->cpuid_cfg);
 
 		vcpu->ustate = VU_INIT;
 		vcpu->ustate_when = gethrtime();
@@ -1512,20 +1516,19 @@ vm_handle_paging(struct vm *vm, int vcpuid)
 	struct vcpu *vcpu = &vm->vcpu[vcpuid];
 	vm_client_t *vmc = vcpu->vmclient;
 	struct vm_exit *vme = &vcpu->exitinfo;
-	int rv, ftype;
+	const int ftype = vme->u.paging.fault_type;
 
-	KASSERT(vme->inst_length == 0, ("%s: invalid inst_length %d",
-	    __func__, vme->inst_length));
+	ASSERT0(vme->inst_length);
+	ASSERT(ftype == PROT_READ || ftype == PROT_WRITE || ftype == PROT_EXEC);
 
-	ftype = vme->u.paging.fault_type;
-	KASSERT(ftype == PROT_READ ||
-	    ftype == PROT_WRITE || ftype == PROT_EXEC,
-	    ("vm_handle_paging: invalid fault_type %d", ftype));
+	if (vmc_fault(vmc, vme->u.paging.gpa, ftype) != 0) {
+		/*
+		 * If the fault cannot be serviced, kick it out to userspace for
+		 * handling (or more likely, halting the instance).
+		 */
+		return (-1);
+	}
 
-	rv = vmc_fault(vmc, vme->u.paging.gpa, ftype);
-
-	if (rv != 0)
-		return (EFAULT);
 	return (0);
 }
 
@@ -3041,6 +3044,15 @@ vm_set_capability(struct vm *vm, int vcpu, int type, int val)
 		return (EINVAL);
 
 	return (VMSETCAP(vm->cookie, vcpu, type, val));
+}
+
+vcpu_cpuid_config_t *
+vm_cpuid_config(struct vm *vm, int vcpuid)
+{
+	ASSERT3S(vcpuid, >=, 0);
+	ASSERT3S(vcpuid, <, VM_MAXCPU);
+
+	return (&vm->vcpu[vcpuid].cpuid_cfg);
 }
 
 struct vlapic *

@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2020 Tintri by DDN, Inc. All rights reserved.
+ * Copyright 2011-2020 Tintri by DDN, Inc.  All rights reserved.
  * Copyright 2022 RackTop Systems, Inc.
  */
 
@@ -730,11 +730,6 @@ typedef struct smb_arg_negotiate {
 	timestruc_t	ni_servertime;
 } smb_arg_negotiate_t;
 
-typedef struct smb2_arg_negotiate {
-	struct smb2_neg_ctxs	*neg_in_ctxs;
-	struct smb2_neg_ctxs	*neg_out_ctxs;
-} smb2_arg_negotiate_t;
-
 typedef enum {
 	SMB_SSNSETUP_PRE_NTLM012 = 1,
 	SMB_SSNSETUP_NTLM012_NOEXT,
@@ -911,8 +906,6 @@ typedef enum {
 #define	SMB_SSN_AAPL_CCEXT	1	/* Saw "AAPL" create ctx. ext. */
 #define	SMB_SSN_AAPL_READDIR	2	/* Wants MacOS ext. readdir */
 
-#define	SMB2_NEGOTIATE_MAX_DIALECTS	64
-
 typedef struct smb_session {
 	list_node_t		s_lnd;
 	uint32_t		s_magic;
@@ -976,11 +969,6 @@ typedef struct smb_session {
 	int64_t			activity_timestamp;
 	timeout_id_t		s_auth_tmo;
 
-	/*
-	 * Client dialects
-	 */
-	uint16_t		cli_dialect_cnt;
-	uint16_t		cli_dialects[SMB2_NEGOTIATE_MAX_DIALECTS];
 	/*
 	 * Maximum negotiated buffer sizes between SMB client and server
 	 * in SMB_SESSION_SETUP_ANDX
@@ -1077,6 +1065,8 @@ typedef struct smb_user {
 	uint32_t		u_privileges;
 	uint16_t		u_uid;		/* unique per-session */
 	uint32_t		u_audit_sid;
+	uint32_t		u_owned_tree_cnt;
+	kcondvar_t		u_owned_tree_cv;
 
 	uint32_t		u_sign_flags;
 	struct smb_key		u_sign_key;	/* SMB2 signing */
@@ -1799,6 +1789,7 @@ typedef enum smb_req_state {
 	SMB_REQ_STATE_WAITING_FCN2,
 	SMB_REQ_STATE_WAITING_LOCK,
 	SMB_REQ_STATE_WAITING_PIPE,
+	SMB_REQ_STATE_WAITING_OLBRK,
 	SMB_REQ_STATE_COMPLETED,
 	SMB_REQ_STATE_CANCEL_PENDING,
 	SMB_REQ_STATE_CANCELLED,
@@ -1922,7 +1913,6 @@ typedef struct smb_request {
 	uint32_t		sr_seqnum;
 
 	union {
-		smb2_arg_negotiate_t	nego2;
 		smb_arg_negotiate_t	*negprot;
 		smb_arg_sessionsetup_t	*ssetup;
 		smb_arg_tcon_t		tcon;
@@ -1938,7 +1928,6 @@ typedef struct smb_request {
 
 #define	sr_ssetup	arg.ssetup
 #define	sr_negprot	arg.negprot
-#define	sr_nego2	arg.nego2
 #define	sr_tcon		arg.tcon
 #define	sr_dirop	arg.dirop
 #define	sr_open		arg.open

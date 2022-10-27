@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2020 Nexenta by DDN, Inc. All rights reserved.
+ * Copyright 2012-2021 Tintri by DDN, Inc. All rights reserved.
  */
 
 #include <sys/sid.h>
@@ -1194,6 +1194,14 @@ smb_fsop_rename(
 	if (rc != 0)
 		return (rc);
 
+	/*
+	 * Make sure "from" vp is not a mount point.
+	 */
+	if (from_vp->v_type == VDIR && vn_ismntpt(from_vp)) {
+		VN_RELE(from_vp);
+		return (EACCES);
+	}
+
 	if (from_attr.sa_dosattr & FILE_ATTRIBUTE_REPARSE_POINT) {
 		VN_RELE(from_vp);
 		return (EACCES);
@@ -1229,9 +1237,11 @@ smb_fsop_rename(
 			return (EACCES);
 		}
 
-		if (smb_tree_has_feature(sr->tid_tree,
-		    SMB_TREE_ACEMASKONACCESS))
-			flags = ATTR_NOACLCHECK;
+		/*
+		 * TODO: avoid ACL check for source file.
+		 * smb_vop_rename() passes its own flags to VOP_RENAME,
+		 * and ZFS doesn't pass it on to zfs_zaccess_rename().
+		 */
 	}
 
 	rc = smb_vop_rename(from_dnode->vp, from_name, to_dnode->vp,
