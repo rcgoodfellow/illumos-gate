@@ -969,7 +969,7 @@ ire_send_wire_v6(ire_t *ire, mblk_t *mp, void *iph_arg,
 	// already a ddm header then run the ddm output function. The
 	// next header may be ddm already if we are emitting a ddm-ack.
 	if (ill->ill_ipif->ipif_flags & IFF_DDM &&
-	    (ire->ire_type & (IRE_LOCAL | IRE_LOOPBACK)) == 0 &&
+	    (ire->ire_type & IRE_ONLINK) == 0 &&
 	    ip6h->ip6_nxt != 0xdd) {
 		ixa->ixa_pktlen += 8;
 		ixa->ixa_protocol = 0xdd;
