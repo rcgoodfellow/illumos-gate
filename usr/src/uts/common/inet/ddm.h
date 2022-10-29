@@ -154,7 +154,7 @@ typedef uint32_t ddm_element;
 /*
  * process ddm header on an incoming message block
  */
-mblk_t *ddm_input(mblk_t *mp_chain, ip6_t *ip6h, ip_recv_attr_t *ira);
+mblk_t *ddm_input(mblk_t *mp, ip6_t *ip6h, ip_recv_attr_t *ira);
 
 /*
  * insert a ddm header into the message block mp containing the ipv6 header

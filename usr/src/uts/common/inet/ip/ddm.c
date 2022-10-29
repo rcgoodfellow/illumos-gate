@@ -27,6 +27,7 @@
 #include <inet/ddm.h>
 #include <inet/ip6.h>
 #include <inet/ip_ire.h>
+#include <inet/ip_ndp.h>
 #include <netinet/ip6.h>
 
 // maximum timestamp size
@@ -173,8 +174,25 @@ ddm_send_ack(ip6_t *ip6h, ddm_t *ddh, ip_recv_attr_t *ira)
 	bzero(&ixa, sizeof (ixa));
 	ixa.ixa_ifindex = ira->ira_rifindex;
 	ixa.ixa_ipst = ira->ira_rill->ill_ipst;
-	ixa.ixa_flags = IXAF_BASIC_SIMPLE_V6;
+	ixa.ixa_flags = IXAF_BASIC_SIMPLE_V6 | IXAF_NEXTHOP_SET;
 	ixa.ixa_flags &= ~IXAF_VERIFY_SOURCE;
+
+	/* get the neighbor address for the ack */
+	ire_t *ire = ire_ftable_lookup_simple_v6(
+	    &ip6h->ip6_src,
+	    0,
+	    ira->ira_rill->ill_ipst,
+	    NULL
+	);
+	if (ire == NULL || (ire->ire_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
+		return;
+	}
+	if (ire->ire_nce_cache == NULL) {
+		return;
+	}
+
+	ixa.ixa_nexthop_v6 = ire->ire_nce_cache->nce_common->ncec_addr;
+	ire_refrele(ire);
 
 	/* send out the ack */
 	ip_output_simple_v6(ip6_mp, &ixa);
