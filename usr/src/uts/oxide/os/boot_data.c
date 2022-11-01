@@ -154,8 +154,10 @@ eb_create_properties(uint64_t ramdisk_paddr, size_t ramdisk_len)
 
 	// kbm_debug = B_TRUE;
 
-	if (kernel_ipcc_status(&spstatus) != 0)
-		bop_panic("Could not retrieve status value from SP");
+	if (kernel_ipcc_status(&spstatus) != 0) {
+		/* Not fatal here, the SP image could use the newer format */
+		spstatus = 0;
+	}
 
 	/*
 	 * XXXBOOT - temporary use of SP status register bits to set
