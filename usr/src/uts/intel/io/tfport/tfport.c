@@ -805,6 +805,7 @@ tfport_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 
 		if (rval == DDI_SUCCESS) {
 			tfport_dev_free(dip);
+			tfport_dip = NULL;
 		}
 
 		return (rval);

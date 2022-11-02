@@ -214,6 +214,7 @@ tfpkt_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 
 		dev_err(dip, CE_NOTE, "removing tfpkt minor");
 		ddi_remove_minor_node(dip, "tfpkt");
+		tfpkt_dip = NULL;
 		return (DDI_SUCCESS);
 
 	case DDI_SUSPEND:
