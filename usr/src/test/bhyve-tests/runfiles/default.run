@@ -24,6 +24,7 @@ user = root
 tests = [
 	'auto_destruct',
 	'cpuid_ioctl',
+	'datarw_constraints',
 	'default_capabs',
 	'drv_hold',
 	'fpu_getset',
@@ -32,6 +33,7 @@ tests = [
 	'mem_devmem',
 	'mem_partial',
 	'mem_seg_map',
+	'pause_resume',
 	'self_destruct'
 	]
 
@@ -51,10 +53,12 @@ tests = [
 user = root
 tests = [
 	'cpuid',
+	'imul',
 	'rdmsr',
 	'wrmsr',
 	'triple_fault',
-	'exit_paging'
+	'exit_paging',
+	'page_dirty'
 	]
 
 [/opt/bhyve-tests/tests/viona]
