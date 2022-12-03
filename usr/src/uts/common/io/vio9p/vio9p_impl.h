@@ -62,8 +62,8 @@ extern "C" {
 /*
  * DRIVER PARAMETERS
  */
-#define	VIRTIO_9P_MAX_REQS		16
-#define	VIRTIO_9P_REQ_SIZE		8192
+#define	VIRTIO_9P_MAX_REQS		8
+#define	VIRTIO_9P_REQ_SIZE		65536
 
 /*
  * It is not clear that there is a well-defined number of cookies for this
